@@ -15,6 +15,8 @@ let currentProto = "memcached";
 let serverGlobe = null;
 let lastGeoPoints = [];
 let isGeoMapLoading = false;
+let tcpScanPollInterval = null;
+let currentTcpRunId = null;
 
 const MAX_PPS_POINTS = 40;
 const MAX_LATENCY_POINTS = 60;
@@ -131,6 +133,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadAllServerCounts();
     loadServerListForEdit();
     loadServerGeoMap();
+    initTcpScan();
     pollStatus();
     updateSystemInfo();
     updateDetailedSystemInfo();
@@ -149,6 +152,9 @@ function bindControls() {
     document.getElementById("saveServerListBtn")?.addEventListener("click", saveServerList);
     document.getElementById("refreshServerListBtn")?.addEventListener("click", refreshServerResources);
     document.getElementById("refreshGeoMapBtn")?.addEventListener("click", loadServerGeoMap);
+    document.getElementById("tcpStartBtn")?.addEventListener("click", startTcpScan);
+    document.getElementById("tcpStopBtn")?.addEventListener("click", stopTcpScan);
+    document.getElementById("tcpRefreshBtn")?.addEventListener("click", refreshTcpScan);
 
     document.querySelectorAll(".tab-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -176,9 +182,202 @@ function setupNavigation() {
                 loadServerGeoMap();
                 resizeServerGlobe();
             }
+            if (view === "tcp-scan") {
+                refreshTcpScan();
+            }
             resizeCharts();
         });
     });
+}
+
+async function initTcpScan() {
+    await loadTcpResources();
+    await refreshTcpScan();
+}
+
+async function loadTcpResources() {
+    const select = document.getElementById("tcpIpFile");
+    if (!select) return;
+    try {
+        const response = await fetch("/api/tcp-scan/resources");
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || "Failed to load TCP resources");
+        select.innerHTML = "";
+        (data.resources || []).forEach((resource) => {
+            const option = document.createElement("option");
+            option.value = resource.path || resource.filename;
+            option.textContent = `${resource.filename} (${resource.non_empty_lines || 0})`;
+            if (resource.filename === "test.txt") option.selected = true;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        showNotification(`TCP resources failed: ${error.message}`, "error");
+    }
+}
+
+function readTcpScanPayload() {
+    return {
+        ip_file: document.getElementById("tcpIpFile")?.value || "",
+        target_host: document.getElementById("tcpTargetHost")?.value.trim() || "",
+        pkt_method: document.getElementById("tcpPktMethod")?.value || "PSH",
+        scan_rate: readNumber("tcpScanRate", 2500),
+        ttl: readNumber("tcpTtl", 255),
+        scan_count: readNumber("tcpScanCount", 10),
+        result_limit: readNumberAllowZero("tcpResultLimit", 30),
+        length_threshold: readNumberAllowZero("tcpLengthThreshold", 2000),
+        network_interface: document.getElementById("tcpNetworkInterface")?.value.trim() || "eth0",
+        dry_run: Boolean(document.getElementById("tcpDryRun")?.checked)
+    };
+}
+
+async function startTcpScan() {
+    const payload = readTcpScanPayload();
+    if (!payload.ip_file || !payload.target_host) {
+        showNotification("TCP scan requires an IP resource and target host", "error");
+        return;
+    }
+    setTcpControls(true);
+    try {
+        const result = await postJson("/api/tcp-scan/runs", payload);
+        if (!result.success) throw new Error(result.message || "TCP scan start failed");
+        showNotification(result.message || "TCP scan started", "success");
+        startTcpPolling();
+        await refreshTcpScan();
+    } catch (error) {
+        showNotification(`TCP scan failed: ${error.message}`, "error");
+        setTcpControls(false);
+    }
+}
+
+async function stopTcpScan() {
+    if (!currentTcpRunId) {
+        showNotification("No TCP scan run selected", "error");
+        return;
+    }
+    try {
+        const result = await postJson(`/api/tcp-scan/runs/${currentTcpRunId}/stop`, {});
+        showNotification(result.message || "TCP scan stop requested", result.success ? "info" : "error");
+    } catch (error) {
+        showNotification(`TCP stop failed: ${error.message}`, "error");
+    }
+}
+
+function startTcpPolling() {
+    if (tcpScanPollInterval) clearInterval(tcpScanPollInterval);
+    tcpScanPollInterval = setInterval(refreshTcpScan, 1000);
+}
+
+async function refreshTcpScan() {
+    try {
+        const response = await fetch("/api/tcp-scan/runs");
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || "Failed to load TCP runs");
+        const runs = data.runs || [];
+        const selected = data.active_run_id
+            ? runs.find((run) => run.run_id === data.active_run_id) || runs[0]
+            : runs[0];
+        if (!selected) {
+            renderTcpEmptyState();
+            return;
+        }
+        currentTcpRunId = selected.run_id;
+        await loadTcpRunDetail(selected.run_id);
+    } catch (error) {
+        console.warn("TCP scan refresh failed", error);
+    }
+}
+
+async function loadTcpRunDetail(runId) {
+    const response = await fetch(`/api/tcp-scan/runs/${runId}`);
+    const data = await response.json();
+    if (!data.success) throw new Error(data.message || "Failed to load TCP run");
+    const summary = data.summary || {};
+    renderTcpSummary(summary);
+    await loadTcpRunLog(runId);
+}
+
+async function loadTcpRunLog(runId) {
+    const response = await fetch(`/api/tcp-scan/runs/${runId}/logs?tail=160`);
+    const data = await response.json();
+    if (data.success) {
+        const box = document.getElementById("tcpPipelineLog");
+        if (box) box.textContent = data.log || "";
+    }
+}
+
+function renderTcpSummary(summary) {
+    const status = summary.status || "unknown";
+    const runId = summary.run_id || "-";
+    const config = summary.config || {};
+    setText("tcpStatus", status);
+    setText("tcpRunId", runId);
+    setText("tcpRunMethod", config.pkt_method || "-");
+    setText("tcpRunHost", config.target_host || "-");
+    renderTcpArtifacts(summary.files || []);
+    renderTcpStages(summary.stages || {});
+    setTcpControls(status === "running" || status === "stopping");
+    if (!["running", "stopping"].includes(status) && tcpScanPollInterval) {
+        clearInterval(tcpScanPollInterval);
+        tcpScanPollInterval = null;
+    }
+}
+
+function renderTcpArtifacts(files) {
+    const container = document.getElementById("tcpArtifacts");
+    if (!container) return;
+    if (!files.length) {
+        container.innerHTML = `<div class="info-text">No artifacts yet.</div>`;
+        return;
+    }
+    container.innerHTML = files
+        .map((file) => `<div class="tcp-artifact-item"><span>${escapeHtml(file.name)}</span><strong>${formatBytes(file.bytes || 0)}</strong></div>`)
+        .join("");
+}
+
+function renderTcpStages(stages) {
+    const container = document.getElementById("tcpStages");
+    if (!container) return;
+    container.innerHTML = ["prepare_zmap", "run_zmap_scan", "process_scan_csv", "extract_ips", "run_amplification_test", "analyze_amplification_log"]
+        .map((stage) => `<div class="tcp-stage-item"><span>${stage}</span><strong>${escapeHtml(stages[stage]?.status || "pending")}</strong></div>`)
+        .join("");
+}
+
+function renderTcpEmptyState() {
+    currentTcpRunId = null;
+    setText("tcpStatus", "idle");
+    setText("tcpRunId", "-");
+    setText("tcpRunMethod", "-");
+    setText("tcpRunHost", "-");
+    const stages = document.getElementById("tcpStages");
+    if (stages) stages.innerHTML = "";
+    const artifacts = document.getElementById("tcpArtifacts");
+    if (artifacts) artifacts.innerHTML = `<div class="info-text">No TCP scan runs yet.</div>`;
+    const log = document.getElementById("tcpPipelineLog");
+    if (log) log.textContent = "No TCP scan selected.";
+    setTcpControls(false);
+}
+
+function setTcpControls(isRunning) {
+    const start = document.getElementById("tcpStartBtn");
+    const stop = document.getElementById("tcpStopBtn");
+    if (start) start.disabled = isRunning;
+    if (stop) stop.disabled = !isRunning;
+}
+
+function readNumberAllowZero(id, fallback) {
+    const value = Number(document.getElementById(id)?.value);
+    return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function formatBytes(bytes) {
+    const units = ["B", "KB", "MB", "GB"];
+    let value = Number(bytes) || 0;
+    let index = 0;
+    while (value >= 1024 && index < units.length - 1) {
+        value /= 1024;
+        index += 1;
+    }
+    return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
 function initChart() {

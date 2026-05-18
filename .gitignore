@@ -13,6 +13,7 @@ env/
 logs/
 *.log
 flask_session/
+runs/
 
 # Local caches
 config/geoip_cache.json

@@ -1,0 +1,28 @@
+[general]
+output_root = "runs/tcp_censor_scan"
+result_limit = 30
+length_threshold = 2000
+dry_run = true
+python_bin = "python3"
+
+[scan]
+ip_file = "tcp_scan_data/ip_lists/test.txt"
+target_host = "www.youporn.com"
+pkt_method = "PSH"
+scan_rate = 2500
+network_interface = "eth0"
+
+[amplify]
+geoip_db_path = "tcp_scan_data/geoip/GeoLite2-City.mmdb"
+scan_count = 10
+ttl = 255
+
+[scripts]
+process_py = "modules/tcp_censor_scan/legacy_scripts/process_test_3.py"
+ip_take_py = "modules/tcp_censor_scan/legacy_scripts/IP_take.py"
+magnification_test_py = "modules/tcp_censor_scan/legacy_scripts/magnification_test_1.py"
+analyze_amplify_log_py = "modules/tcp_censor_scan/legacy_scripts/analyze_amplify_log.py"
+
+[zmap]
+single_probe_root = "../TCP-weaponizing-censors/weaponizing-censors/zmap"
+multiple_probes_root = "../TCP-weaponizing-censors/weaponizing-censors/zmap_multiple_probes"

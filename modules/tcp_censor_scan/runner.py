@@ -1,0 +1,305 @@
+from __future__ import annotations
+
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Iterator
+import csv
+import os
+import shutil
+import signal
+import subprocess
+import sys
+
+from .config import ScanConfig, load_config, repo_root
+from .metadata import now_iso, read_metadata, update_stage, write_metadata
+
+
+TCP_FLAG_MAP = {
+    "PSH": "TH_PUSH",
+    "PSH_ACK": "TH_PUSH | TH_ACK",
+    "SYN": "TH_SYN",
+    "SYN_PSH_ACK": "TH_PUSH | TH_ACK",
+    "SYN_PSH": "TH_PUSH",
+}
+
+
+def run_pipeline(config: ScanConfig | str | Path) -> dict[str, Any]:
+    cfg = load_config(config) if not isinstance(config, ScanConfig) else config
+    run_dir = _prepare_run(cfg)
+    log_path = run_dir / "pipeline.log"
+    artifacts = _artifact_paths(cfg, run_dir)
+
+    with _pipeline_log(log_path) as log:
+        log(f"Run directory: {run_dir}")
+        log(f"Mode: {'dry-run' if cfg.dry_run else 'real'}")
+        try:
+            zmap_workdir = prepare_zmap(cfg, run_dir, log)
+            run_zmap_scan(cfg, run_dir, zmap_workdir, artifacts, log)
+            process_scan_csv(cfg, run_dir, artifacts, log)
+            extract_ips(cfg, run_dir, artifacts, log)
+            run_amplification_test(cfg, run_dir, artifacts, log)
+            analyze_amplification_log(cfg, run_dir, artifacts, log)
+        except Exception as exc:
+            metadata = read_metadata(run_dir)
+            metadata["status"] = "failed"
+            metadata["ended_at"] = now_iso()
+            metadata["error"] = str(exc)
+            write_metadata(run_dir, metadata)
+            log(f"FAILED: {exc}")
+            raise
+
+    metadata = read_metadata(run_dir)
+    metadata["status"] = "completed"
+    metadata["ended_at"] = now_iso()
+    write_metadata(run_dir, metadata)
+    return metadata
+
+
+def stop_run(run_id: str, output_root: str | Path | None = None) -> bool:
+    root = Path(output_root) if output_root else repo_root() / "runs"
+    run_dir = root / run_id
+    stopped = False
+    for pid_file in run_dir.glob("*.pid"):
+        try:
+            pid = int(pid_file.read_text(encoding="utf-8").strip())
+            os.kill(pid, signal.SIGINT)
+            stopped = True
+        except (OSError, ValueError):
+            continue
+    if stopped:
+        metadata = read_metadata(run_dir)
+        metadata["status"] = "stopping"
+        write_metadata(run_dir, metadata)
+    return stopped
+
+
+def prepare_zmap(cfg: ScanConfig, run_dir: Path, log) -> Path:
+    update_stage(run_dir, "prepare_zmap", "running")
+    if cfg.dry_run:
+        update_stage(run_dir, "prepare_zmap", "skipped", reason="dry_run")
+        return cfg.selected_zmap_root
+
+    work_root = run_dir / "work" / cfg.zmap_variant
+    log(f"Copying zmap source to isolated work dir: {work_root}")
+    shutil.copytree(cfg.selected_zmap_root, work_root, dirs_exist_ok=True)
+
+    module_path = work_root / "src" / "probe_modules" / "module_forbidden_scan.c"
+    if not module_path.exists():
+        raise FileNotFoundError(f"module_forbidden_scan.c not found: {module_path}")
+    _patch_forbidden_scan_module(module_path, cfg.target_host, TCP_FLAG_MAP[cfg.pkt_method])
+    update_stage(run_dir, "prepare_zmap", "completed", workdir=str(work_root), module=str(module_path))
+    return work_root
+
+
+def run_zmap_scan(cfg: ScanConfig, run_dir: Path, zmap_workdir: Path, artifacts: dict[str, Path], log) -> None:
+    update_stage(run_dir, "run_zmap_scan", "running")
+    if cfg.dry_run:
+        _write_mock_scan_csv(artifacts["raw_csv"])
+        artifacts["scan_log"].write_text("dry_run: zmap scan skipped\n", encoding="utf-8")
+        update_stage(run_dir, "run_zmap_scan", "completed", dry_run=True)
+        _save_artifacts(run_dir, artifacts)
+        return
+
+    zmap_bin = zmap_workdir / "src" / "zmap"
+    if not zmap_bin.exists():
+        raise FileNotFoundError(f"zmap executable not found: {zmap_bin}. Build zmap before running real scans.")
+
+    command = [
+        str(zmap_bin),
+        "-M", "forbidden_scan",
+        "-p", "80",
+        "-i", cfg.network_interface,
+        "-w", str(cfg.ip_file),
+        "-o", str(artifacts["raw_csv"]),
+        "-f", "saddr,len,payloadlen,flags",
+        "--output-module=csv",
+        f"--rate={cfg.scan_rate}",
+    ]
+    log("Running zmap: " + " ".join(command))
+    _run_command(command, zmap_workdir, artifacts["scan_log"], run_dir / "zmap.pid")
+    update_stage(run_dir, "run_zmap_scan", "completed")
+    _save_artifacts(run_dir, artifacts)
+
+
+def process_scan_csv(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, Path], log) -> None:
+    update_stage(run_dir, "process_scan_csv", "running")
+    command = [
+        cfg.python_bin,
+        str(cfg.process_py),
+        str(artifacts["raw_csv"]),
+        str(artifacts["processed_csv"]),
+        str(cfg.result_limit),
+        str(cfg.length_threshold),
+    ]
+    log("Processing scan CSV")
+    _run_command(command, run_dir, artifacts["process_log"], run_dir / "process.pid")
+    update_stage(run_dir, "process_scan_csv", "completed")
+    _save_artifacts(run_dir, artifacts)
+
+
+def extract_ips(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, Path], log) -> None:
+    update_stage(run_dir, "extract_ips", "running")
+    command = [cfg.python_bin, str(cfg.ip_take_py), str(artifacts["processed_csv"]), str(artifacts["ip_txt"])]
+    log("Extracting IP list")
+    _run_command(command, run_dir, artifacts["ip_take_log"], run_dir / "ip_take.pid")
+    update_stage(run_dir, "extract_ips", "completed")
+    _save_artifacts(run_dir, artifacts)
+
+
+def run_amplification_test(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, Path], log) -> None:
+    update_stage(run_dir, "run_amplification_test", "running")
+    if cfg.dry_run:
+        artifacts["amplification_log"].write_text(
+            f"=== dry_run | 测试IP：192.0.2.1(Example) | 扫描次数：1 ===\n"
+            "📊 放大比率：1.00（接收/发送）\n",
+            encoding="utf-8",
+        )
+        artifacts["amplification_stdout"].write_text("dry_run: amplification test skipped\n", encoding="utf-8")
+        update_stage(run_dir, "run_amplification_test", "completed", dry_run=True)
+        _save_artifacts(run_dir, artifacts)
+        return
+
+    payload = f"GET / HTTP/1.1\\r\\nHost: {cfg.target_host}\\r\\nUser-Agent: Mozilla/5.0\\r\\nConnection: close\\r\\n\\r\\n"
+    command = [
+        cfg.python_bin,
+        str(cfg.magnification_test_py),
+        str(artifacts["ip_txt"]),
+        payload,
+        str(artifacts["amplification_log"]),
+        cfg.pkt_method,
+        str(cfg.ttl),
+        str(cfg.scan_count),
+    ]
+    log("Running amplification test")
+    _run_command(command, run_dir, artifacts["amplification_stdout"], run_dir / "amplification.pid")
+    update_stage(run_dir, "run_amplification_test", "completed")
+    _save_artifacts(run_dir, artifacts)
+
+
+def analyze_amplification_log(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, Path], log) -> None:
+    update_stage(run_dir, "analyze_amplification_log", "running")
+    command = [
+        cfg.python_bin,
+        str(cfg.analyze_amplify_log_py),
+        str(artifacts["amplification_log"]),
+        str(artifacts["analysis_report"]),
+    ]
+    log("Analyzing amplification log")
+    _run_command(command, run_dir, artifacts["analysis_stdout"], run_dir / "analysis.pid")
+    update_stage(run_dir, "analyze_amplification_log", "completed")
+    _save_artifacts(run_dir, artifacts)
+
+
+def _prepare_run(cfg: ScanConfig) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = f"{timestamp}_{cfg.ip_file.stem}_{cfg.pkt_method}_{_safe_host(cfg.target_host)}"
+    run_dir = cfg.output_root / run_id
+    suffix = 1
+    while run_dir.exists():
+        suffix += 1
+        run_dir = cfg.output_root / f"{run_id}_{suffix}"
+    run_dir.mkdir(parents=True)
+    metadata = {
+        "run_id": run_dir.name,
+        "status": "running",
+        "started_at": now_iso(),
+        "run_dir": str(run_dir),
+        "config": cfg.to_dict(),
+        "stages": {},
+        "artifacts": {},
+    }
+    write_metadata(run_dir, metadata)
+    return run_dir
+
+
+def _artifact_paths(cfg: ScanConfig, run_dir: Path) -> dict[str, Path]:
+    ip_prefix = cfg.ip_file.stem[:2] or "ip"
+    host_suffix = _safe_host(cfg.target_host)[:2] or "host"
+    stem = f"{ip_prefix}-{cfg.pkt_method}-{host_suffix}"
+    return {
+        "raw_csv": run_dir / f"{stem}.csv",
+        "processed_csv": run_dir / f"{stem}_processed.csv",
+        "ip_txt": run_dir / f"{stem}-IPs.txt",
+        "scan_log": run_dir / f"{cfg.pkt_method}_zmap_scan_details.log",
+        "process_log": run_dir / "process_csv.log",
+        "ip_take_log": run_dir / "extract_ips.log",
+        "amplification_log": run_dir / f"amplification_test_{cfg.pkt_method}.log",
+        "amplification_stdout": run_dir / f"magnification_test_stdout_stderr_{cfg.pkt_method}.log",
+        "analysis_report": run_dir / f"amplification_analysis_report_{cfg.pkt_method}.txt",
+        "analysis_stdout": run_dir / "analysis_stdout_stderr.log",
+    }
+
+
+def _save_artifacts(run_dir: Path, artifacts: dict[str, Path]) -> None:
+    metadata = read_metadata(run_dir)
+    metadata["artifacts"] = {name: str(path) for name, path in artifacts.items()}
+    write_metadata(run_dir, metadata)
+
+
+def _patch_forbidden_scan_module(path: Path, host: str, tcp_flags: str) -> None:
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    output: list[str] = []
+    host_written = False
+    flags_written = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#define HOST "):
+            if not host_written:
+                output.append(f'#define HOST "{host}"')
+                host_written = True
+            continue
+        if stripped.startswith("#define TCP_FLAGS "):
+            if not flags_written:
+                output.append(f"#define TCP_FLAGS {tcp_flags}")
+                flags_written = True
+            continue
+        output.append(line)
+    if not host_written:
+        output.insert(0, f'#define HOST "{host}"')
+    if not flags_written:
+        output.insert(1, f"#define TCP_FLAGS {tcp_flags}")
+    path.write_text("\n".join(output) + "\n", encoding="utf-8")
+
+
+def _run_command(command: list[str], cwd: Path, log_file: Path, pid_file: Path) -> None:
+    if command and command[0] in {"python", "python3"}:
+        command = [sys.executable, *command[1:]]
+    env = os.environ.copy()
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("PYTHONUTF8", "1")
+    with log_file.open("w", encoding="utf-8", errors="replace") as fh:
+        process = subprocess.Popen(command, cwd=str(cwd), stdout=fh, stderr=subprocess.STDOUT, text=True, env=env)
+        pid_file.write_text(str(process.pid), encoding="utf-8")
+        return_code = process.wait()
+    try:
+        pid_file.unlink()
+    except FileNotFoundError:
+        pass
+    if return_code != 0:
+        raise RuntimeError(f"Command failed with exit code {return_code}: {' '.join(command)}")
+
+
+def _write_mock_scan_csv(path: Path) -> None:
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=["saddr", "len", "payloadlen", "flags"])
+        writer.writeheader()
+        writer.writerow({"saddr": "192.0.2.1", "len": "2500", "payloadlen": "2400", "flags": "PA"})
+        writer.writerow({"saddr": "192.0.2.1", "len": "100", "payloadlen": "60", "flags": "PA"})
+        writer.writerow({"saddr": "198.51.100.2", "len": "1200", "payloadlen": "1000", "flags": "R"})
+
+
+def _safe_host(host: str) -> str:
+    cleaned = host.removeprefix("www.")
+    return "".join(ch if ch.isalnum() else "_" for ch in cleaned).strip("_") or "target"
+
+
+@contextmanager
+def _pipeline_log(path: Path) -> Iterator[Any]:
+    def log(message: str) -> None:
+        line = f"[{now_iso()}] {message}"
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+        print(line)
+
+    yield log

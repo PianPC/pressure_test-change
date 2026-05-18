@@ -29,6 +29,7 @@ from modules.memcached_test import MemcachedTester
 from modules.dns_test import DNSTester
 from modules.ntp_test import NTPTester
 from multi_protocol_test import MultiProtocolTester
+from modules.tcp_censor_routes import tcp_censor_bp
 
 # ========= 配置 =========
 class TestMethod(Enum):
@@ -83,6 +84,7 @@ app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
 app.config['SESSION_USE_SIGNER'] = True
 Session(app)
+app.register_blueprint(tcp_censor_bp)
 
 VALID_SERVER_PROTOCOLS = {'memcached', 'dns', 'ntp'}
 GEOIP_CACHE_FILE = os.path.join('config', 'geoip_cache.json')

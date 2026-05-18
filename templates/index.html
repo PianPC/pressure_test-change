@@ -35,6 +35,9 @@
                 <a href="#" class="nav-item" data-view="servers" title="资源池">
                     <i class="fas fa-server"></i><span>资源池</span>
                 </a>
+                <a href="#" class="nav-item" data-view="tcp-scan" title="TCP Censor Scan">
+                    <i class="fas fa-network-wired"></i><span>TCP Scan</span>
+                </a>
                 <a href="#" class="nav-item" data-view="help" title="说明">
                     <i class="fas fa-circle-question"></i><span>说明</span>
                 </a>
@@ -301,6 +304,125 @@
                             <button id="refreshServerListBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>重新加载</button>
                         </div>
                         <div class="info-text">保存后，下次测试会使用新的资源列表。</div>
+                    </div>
+                </section>
+
+                <section class="view-pane" id="view-tcp-scan">
+                    <div class="dashboard-grid tcp-scan-grid">
+                        <section class="panel config-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <p class="eyebrow">TCP Middlebox</p>
+                                    <h2><i class="fas fa-network-wired"></i> TCP Censor Scan</h2>
+                                </div>
+                                <span class="panel-chip">dry-run by default</span>
+                            </div>
+
+                            <form id="tcpScanForm">
+                                <div class="form-grid">
+                                    <div class="form-group wide">
+                                        <label for="tcpIpFile">IP Resource</label>
+                                        <select id="tcpIpFile"></select>
+                                    </div>
+                                    <div class="form-group wide">
+                                        <label for="tcpTargetHost">Target Host</label>
+                                        <input type="text" id="tcpTargetHost" value="www.youporn.com" autocomplete="off">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="tcpPktMethod">Packet Method</label>
+                                        <select id="tcpPktMethod">
+                                            <option value="PSH">PSH</option>
+                                            <option value="PSH_ACK">PSH_ACK</option>
+                                            <option value="SYN">SYN</option>
+                                            <option value="SYN_PSH_ACK">SYN_PSH_ACK</option>
+                                            <option value="SYN_PSH">SYN_PSH</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="tcpScanRate">Scan Rate</label>
+                                        <input type="number" id="tcpScanRate" value="2500" min="1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="tcpTtl">TTL</label>
+                                        <input type="number" id="tcpTtl" value="255" min="1" max="255">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="tcpScanCount">Scan Count</label>
+                                        <input type="number" id="tcpScanCount" value="10" min="1" max="100">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="tcpResultLimit">Result Limit</label>
+                                        <input type="number" id="tcpResultLimit" value="30" min="0">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="tcpLengthThreshold">Length Threshold</label>
+                                        <input type="number" id="tcpLengthThreshold" value="2000" min="0">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="tcpNetworkInterface">Interface</label>
+                                        <input type="text" id="tcpNetworkInterface" value="eth0">
+                                    </div>
+                                </div>
+
+                                <div class="proto-check-group tcp-dry-run-row">
+                                    <label><input type="checkbox" id="tcpDryRun" checked> Dry run</label>
+                                </div>
+
+                                <div class="action-buttons">
+                                    <button type="button" id="tcpStartBtn" class="btn btn-primary"><i class="fas fa-play"></i>Start TCP Scan</button>
+                                    <button type="button" id="tcpStopBtn" class="btn btn-danger" disabled><i class="fas fa-stop"></i>Stop</button>
+                                    <button type="button" id="tcpRefreshBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>Refresh</button>
+                                </div>
+                            </form>
+                        </section>
+
+                        <section class="panel metrics-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <p class="eyebrow">Pipeline</p>
+                                    <h2><i class="fas fa-list-check"></i> Run Status</h2>
+                                </div>
+                            </div>
+                            <div class="stats-grid tcp-status-grid">
+                                <div class="stat-card">
+                                    <div class="stat-title">Status</div>
+                                    <div class="stat-value tcp-small-value" id="tcpStatus">idle</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-title">Run ID</div>
+                                    <div class="stat-value tcp-small-value" id="tcpRunId">-</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-title">Method</div>
+                                    <div class="stat-value tcp-small-value" id="tcpRunMethod">-</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-title">Host</div>
+                                    <div class="stat-value tcp-small-value" id="tcpRunHost">-</div>
+                                </div>
+                            </div>
+                            <div id="tcpStages" class="tcp-stage-list"></div>
+                        </section>
+
+                        <section class="panel chart-panel tcp-log-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <p class="eyebrow">Logs</p>
+                                    <h2><i class="fas fa-terminal"></i> Pipeline Log</h2>
+                                </div>
+                            </div>
+                            <pre id="tcpPipelineLog" class="tcp-log-box">No TCP scan selected.</pre>
+                        </section>
+
+                        <section class="panel resources-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <p class="eyebrow">Artifacts</p>
+                                    <h2><i class="fas fa-folder-open"></i> Output Files</h2>
+                                </div>
+                            </div>
+                            <div id="tcpArtifacts" class="tcp-artifact-list"></div>
+                        </section>
                     </div>
                 </section>
 
