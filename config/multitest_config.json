@@ -1,0 +1,12 @@
+{
+    "method_weights": {
+        "memcached": 0.3,
+        "dns": 0.3,
+        "ntp": 0.4
+    },
+    "default_threads_per_method": 2,
+    "max_total_threads": 20,
+    "max_total_pps": 10000,
+    "auto_balance": true,
+    "protocols": ["memcached", "dns", "ntp"]
+}

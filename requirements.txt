@@ -1,0 +1,6 @@
+Flask==2.3.3
+psutil==5.9.5
+pymemcache==4.0.0
+dnspython==2.4.2
+scapy==2.5.0
+gunicorn==20.1.0

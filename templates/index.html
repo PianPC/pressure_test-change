@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pressure Console | 多协议压力测试工作台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/globe.gl"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <canvas id="particleCanvas" class="particle-bg"></canvas>
+
+    <div class="app-layout">
+        <aside class="sidebar">
+            <div class="logo-area">
+                <i class="fas fa-wave-square"></i>
+                <div>
+                    <strong>PRESSURE</strong>
+                    <span>CONSOLE</span>
+                </div>
+            </div>
+
+            <nav class="nav-menu" aria-label="主导航">
+                <a href="#" class="nav-item active" data-view="dashboard" title="控制台">
+                    <i class="fas fa-table-cells-large"></i><span>控制台</span>
+                </a>
+                <a href="#" class="nav-item" data-view="latency" title="延迟监控">
+                    <i class="fas fa-chart-line"></i><span>延迟监控</span>
+                </a>
+                <a href="#" class="nav-item" data-view="servers" title="资源池">
+                    <i class="fas fa-server"></i><span>资源池</span>
+                </a>
+                <a href="#" class="nav-item" data-view="help" title="说明">
+                    <i class="fas fa-circle-question"></i><span>说明</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="system-badge"><i class="fas fa-shield-halved"></i> 授权测试模式</div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="top-bar">
+                <div>
+                    <p class="eyebrow">Operations Dashboard</p>
+                    <h1>多协议压力测试工作台</h1>
+                </div>
+                <div class="top-status">
+                    <div class="attack-status" id="attackModeTag">待命中</div>
+                    <div class="system-stats">
+                        <span><i class="fas fa-microchip"></i><span id="cpuUsage">0%</span></span>
+                        <span><i class="fas fa-memory"></i><span id="memUsage">0%</span></span>
+                    </div>
+                </div>
+            </header>
+
+            <div id="view-container">
+                <section class="view-pane active" id="view-dashboard">
+                    <div class="dashboard-grid">
+                        <section class="panel config-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <p class="eyebrow">Target & Load</p>
+                                    <h2><i class="fas fa-sliders"></i> 测试参数</h2>
+                                </div>
+                                <span class="panel-chip">实时生效</span>
+                            </div>
+
+                            <form id="testForm">
+                                <div class="form-grid">
+                                    <div class="form-group wide">
+                                        <label for="target_ip">目标 IP</label>
+                                        <input type="text" id="target_ip" placeholder="192.168.1.100" autocomplete="off">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="target_port">端口</label>
+                                        <input type="number" id="target_port" value="80" min="1" max="65535">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="duration">时长（分钟）</label>
+                                        <input type="number" id="duration" value="5" min="1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="threads">线程数</label>
+                                        <input type="number" id="threads" value="8" min="1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="target_pps">目标 PPS</label>
+                                        <input type="number" id="target_pps" value="5000" min="1">
+                                    </div>
+                                </div>
+
+                                <div class="mode-switch">
+                                    <span>单协议</span>
+                                    <label class="cyber-toggle" aria-label="切换多协议模式">
+                                        <input type="checkbox" id="multi_protocol">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>多协议联合</span>
+                                </div>
+
+                                <div id="singleMethodGroup" class="form-group">
+                                    <label for="method">测试协议</label>
+                                    <select id="method">
+                                        <option value="">请选择协议</option>
+                                        <option value="memcached">Memcached (10-50x)</option>
+                                        <option value="dns">DNS (28-54x)</option>
+                                        <option value="ntp">NTP (556x)</option>
+                                    </select>
+                                </div>
+
+                                <div id="multiProtocolSection" class="multi-section" style="display:none;">
+                                    <label>协议组合</label>
+                                    <div class="proto-check-group">
+                                        <label><input type="checkbox" value="memcached" checked> Memcached</label>
+                                        <label><input type="checkbox" value="dns" checked> DNS</label>
+                                        <label><input type="checkbox" value="ntp" checked> NTP</label>
+                                    </div>
+                                    <div class="info-text">当前可用资源：<span id="reflectors_count">0</span> 个</div>
+                                </div>
+
+                                <div class="action-buttons">
+                                    <button type="button" id="startBtn" class="btn btn-primary"><i class="fas fa-play"></i>启动</button>
+                                    <button type="button" id="stopBtn" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
+                                    <button type="button" id="resetBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>重置</button>
+                                </div>
+                            </form>
+                        </section>
+
+                        <section class="panel metrics-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <p class="eyebrow">Live Telemetry</p>
+                                    <h2><i class="fas fa-gauge-high"></i> 实时监控</h2>
+                                </div>
+                            </div>
+                            <div class="monitor-note">
+                                <i class="fas fa-circle-info"></i>
+                                <span>实时监控每秒从后端状态接口读取当前发送 PPS、出向带宽、进度、协议明细和本机 CPU/内存/网络占用，用来观察测试过程中的负载变化。</span>
+                            </div>
+
+                            <div class="stats-grid">
+                                <div class="stat-card">
+                                    <div class="stat-title">发送速率</div>
+                                    <div class="stat-value" id="sendPps">0</div>
+                                    <div class="stat-unit">pps</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-title">出向带宽</div>
+                                    <div class="stat-value" id="bandwidth">0</div>
+                                    <div class="stat-unit">Mbps</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-title">放大倍数</div>
+                                    <div class="stat-value" id="amplification">0</div>
+                                    <div class="stat-unit">x</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-title">反射效率</div>
+                                    <div class="stat-value" id="efficiency">0</div>
+                                    <div class="stat-unit">%</div>
+                                </div>
+                            </div>
+
+                            <div class="progress-area">
+                                <div class="progress-label">
+                                    <span>测试进度</span>
+                                    <strong id="progressDetail">0%</strong>
+                                </div>
+                                <div class="progress-bar"><div class="progress-fill" id="progressBar"></div></div>
+                            </div>
+
+                            <div class="target-info">
+                                <span>目标 <strong id="victimInfo">未指定</strong></span>
+                                <span>模式 <strong id="modeInfo">单协议</strong></span>
+                                <span>协议 <strong id="methodInfo">-</strong></span>
+                            </div>
+                        </section>
+
+                        <section class="panel chart-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <p class="eyebrow">Throughput</p>
+                                    <h2><i class="fas fa-chart-area"></i> PPS 趋势</h2>
+                                </div>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="ppsChart"></canvas>
+                            </div>
+                        </section>
+
+                        <section class="panel resources-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <p class="eyebrow">Host Resources</p>
+                                    <h2><i class="fas fa-desktop"></i> 本机资源</h2>
+                                </div>
+                            </div>
+                            <div class="resource-grid">
+                                <div><span>CPU</span><strong id="cpuDetail">0%</strong></div>
+                                <div><span>内存</span><strong id="memDetail">0%</strong></div>
+                                <div><span>已用内存</span><strong><span id="memUsedDetail">0</span> MB</strong></div>
+                                <div><span>总内存</span><strong><span id="memTotalDetail">0</span> MB</strong></div>
+                                <div><span>网络发送</span><strong><span id="netSent">0</span> MB</strong></div>
+                                <div><span>网络接收</span><strong><span id="netRecv">0</span> MB</strong></div>
+                            </div>
+                        </section>
+
+                        <section id="protocolStatsSection" class="panel protocol-panel" style="display:none;">
+                            <div class="panel-heading">
+                                <div>
+                                    <p class="eyebrow">Protocols</p>
+                                    <h2><i class="fas fa-layer-group"></i> 协议战报</h2>
+                                </div>
+                            </div>
+                            <div id="protocolStatsGrid" class="proto-grid"></div>
+                        </section>
+                    </div>
+                </section>
+
+                <section class="view-pane" id="view-latency">
+                    <div class="panel latency-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <p class="eyebrow">TCP Latency</p>
+                                <h2><i class="fas fa-timeline"></i> 延迟监控</h2>
+                            </div>
+                        </div>
+                        <div class="monitor-note">
+                            <i class="fas fa-circle-info"></i>
+                            <span>延迟监控每秒对目标 IP 和端口发起一次 TCP 连接探测，记录连接建立耗时。前三次成功采样会计算为基准延迟，后续数值显示相对基准的变化趋势。</span>
+                        </div>
+
+                        <div class="latency-controls">
+                            <div class="form-group">
+                                <label for="latencyTargetIp">目标 IP</label>
+                                <input type="text" id="latencyTargetIp" placeholder="自动同步测试目标">
+                            </div>
+                            <div class="form-group compact">
+                                <label for="latencyPort">端口</label>
+                                <input type="number" id="latencyPort" value="80">
+                            </div>
+                            <button id="startLatencyMonitor" class="btn btn-outline"><i class="fas fa-play"></i>开始监控</button>
+                            <button id="stopLatencyMonitor" class="btn btn-secondary"><i class="fas fa-pause"></i>停止监控</button>
+                        </div>
+
+                        <div class="chart-container latency-chart">
+                            <canvas id="latencyChart"></canvas>
+                        </div>
+
+                        <div class="latency-result">
+                            <div class="latency-card"><span class="label">基准延迟</span><span class="value" id="autoPingBefore">-- ms</span></div>
+                            <div class="latency-card"><span class="label">最新延迟</span><span class="value" id="latestLatency">-- ms</span></div>
+                            <div class="latency-card effect"><span class="label">变化趋势</span><span class="value" id="latencyTrend">--</span></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="view-pane" id="view-servers">
+                    <div class="panel servers-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <p class="eyebrow">Reflectors</p>
+                                <h2><i class="fas fa-database"></i> 资源池管理</h2>
+                            </div>
+                        </div>
+
+                        <div class="protocol-tabs">
+                            <button class="tab-btn active" data-proto="memcached">Memcached</button>
+                            <button class="tab-btn" data-proto="dns">DNS</button>
+                            <button class="tab-btn" data-proto="ntp">NTP</button>
+                        </div>
+                        <section class="server-map-panel">
+                            <div class="server-map-header">
+                                <div>
+                                    <p class="eyebrow">Geo Distribution</p>
+                                    <h3><i class="fas fa-earth-asia"></i> 3D IP 世界地图</h3>
+                                </div>
+                                <button id="refreshGeoMapBtn" class="btn btn-outline map-refresh-btn"><i class="fas fa-location-crosshairs"></i>刷新定位</button>
+                            </div>
+                            <div class="geo-stat-row">
+                                <div><span>资源总数</span><strong id="geoTotalCount">0</strong></div>
+                                <div><span>已定位</span><strong id="geoLocatedCount">0</strong></div>
+                                <div><span>未定位</span><strong id="geoUnresolvedCount">0</strong></div>
+                            </div>
+                            <div id="serverGlobeStatus" class="map-status">正在加载地图...</div>
+                            <div id="serverGlobe" class="server-globe" aria-label="资源池 IP 3D 世界地图"></div>
+                            <div id="geoUnresolvedList" class="geo-unresolved-list"></div>
+                        </section>
+                        <div class="editor-area">
+                            <textarea id="serverListEditor" rows="14" placeholder="每行一个 IP 或域名，支持用 # 开头添加注释"></textarea>
+                        </div>
+                        <div class="action-buttons narrow">
+                            <button id="saveServerListBtn" class="btn btn-primary"><i class="fas fa-floppy-disk"></i>保存修改</button>
+                            <button id="refreshServerListBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>重新加载</button>
+                        </div>
+                        <div class="info-text">保存后，下次测试会使用新的资源列表。</div>
+                    </div>
+                </section>
+
+                <section class="view-pane" id="view-help">
+                    <div class="panel help-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <p class="eyebrow">Guide</p>
+                                <h2><i class="fas fa-circle-info"></i> 使用说明</h2>
+                            </div>
+                        </div>
+                        <div class="guide-grid">
+                            <section class="guide-block">
+                                <h3><i class="fas fa-sliders"></i> 控制台配置</h3>
+                                <p>在控制台填写目标 IP、端口、测试时长、线程数和目标 PPS。单协议模式需要选择一个测试协议；多协议联合模式会按勾选的协议组合同时调度。</p>
+                                <p>点击“启动”后，页面会自动同步目标到延迟监控，并开始刷新实时指标；点击“停止”会请求后端停止当前任务，“重置”会清空前端图表和当前状态。</p>
+                            </section>
+
+                            <section class="guide-block">
+                                <h3><i class="fas fa-gauge-high"></i> 实时监控</h3>
+                                <p>实时监控每秒读取一次后端状态接口，展示发送 PPS、出向带宽、放大倍数、反射效率和任务进度。</p>
+                                <p>多协议模式下会额外显示各协议的速率、带宽和包数，便于判断是哪一类协议贡献了主要流量。</p>
+                            </section>
+
+                            <section class="guide-block">
+                                <h3><i class="fas fa-chart-line"></i> 延迟监控</h3>
+                                <p>延迟监控每秒对目标 IP 和端口发起一次 TCP 连接探测，记录连接建立耗时。前三次成功采样会计算为基准延迟，后续显示相对基准的变化。</p>
+                                <p>如果一次探测超时，曲线会在该时间点断开，并用红色竖向区域标出超时位置；正常采样会继续按时间顺序向右推进。</p>
+                            </section>
+
+                            <section class="guide-block">
+                                <h3><i class="fas fa-server"></i> 资源池管理</h3>
+                                <p>资源池页面用于维护 Memcached、DNS、NTP 的资源列表。每行填写一个 IP 或域名，使用“保存修改”后，下次启动测试会读取新的列表。</p>
+                                <p>建议按协议分开维护资源，并在测试前确认目标、端口和资源列表符合授权测试范围。</p>
+                            </section>
+
+                            <section class="guide-block guide-wide">
+                                <h3><i class="fas fa-shield-halved"></i> 使用边界</h3>
+                                <p>本工具仅用于授权环境内的压力测试、链路验证和防护演练。请不要对未授权目标、公共服务或第三方网络执行测试。</p>
+                                <p>测试前建议先设置较低 PPS 和较短时长，观察实时监控和延迟变化，再逐步调整线程数、目标 PPS 和协议组合。</p>
+                            </section>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
