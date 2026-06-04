@@ -137,6 +137,17 @@ def run_zmap_scan(cfg: ScanConfig, run_dir: Path, zmap_workdir: Path, artifacts:
 
 def process_scan_csv(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, Path], log) -> None:
     update_stage(run_dir, "process_scan_csv", "running")
+    if cfg.dry_run:
+        log("Processing mock scan CSV")
+        _process_mock_scan_csv(artifacts["raw_csv"], artifacts["processed_csv"], cfg.result_limit, cfg.length_threshold)
+        artifacts["process_log"].write_text(
+            "dry_run: processed mock scan CSV without legacy script\n",
+            encoding="utf-8",
+        )
+        update_stage(run_dir, "process_scan_csv", "completed", dry_run=True)
+        _save_artifacts(run_dir, artifacts)
+        return
+
     command = [
         cfg.python_bin,
         str(cfg.process_py),
@@ -153,6 +164,17 @@ def process_scan_csv(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, Path],
 
 def extract_ips(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, Path], log) -> None:
     update_stage(run_dir, "extract_ips", "running")
+    if cfg.dry_run:
+        log("Extracting mock IP list")
+        ips = _extract_ips_from_processed_csv(artifacts["processed_csv"], artifacts["ip_txt"])
+        artifacts["ip_take_log"].write_text(
+            f"dry_run: extracted {len(ips)} unique IP(s) without legacy script\n",
+            encoding="utf-8",
+        )
+        update_stage(run_dir, "extract_ips", "completed", dry_run=True)
+        _save_artifacts(run_dir, artifacts)
+        return
+
     command = [cfg.python_bin, str(cfg.ip_take_py), str(artifacts["processed_csv"]), str(artifacts["ip_txt"])]
     log("Extracting IP list")
     _run_command(command, run_dir, artifacts["ip_take_log"], run_dir / "ip_take.pid")
@@ -163,11 +185,8 @@ def extract_ips(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, Path], log)
 def run_amplification_test(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, Path], log) -> None:
     update_stage(run_dir, "run_amplification_test", "running")
     if cfg.dry_run:
-        artifacts["amplification_log"].write_text(
-            f"=== dry_run | 测试IP：192.0.2.1(Example) | 扫描次数：1 ===\n"
-            "📊 放大比率：1.00（接收/发送）\n",
-            encoding="utf-8",
-        )
+        ips = _read_ip_list(artifacts["ip_txt"])
+        _write_mock_amplification_log(cfg, artifacts["amplification_log"], ips)
         artifacts["amplification_stdout"].write_text("dry_run: amplification test skipped\n", encoding="utf-8")
         update_stage(run_dir, "run_amplification_test", "completed", dry_run=True)
         _save_artifacts(run_dir, artifacts)
@@ -192,6 +211,18 @@ def run_amplification_test(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, 
 
 def analyze_amplification_log(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, Path], log) -> None:
     update_stage(run_dir, "analyze_amplification_log", "running")
+    if cfg.dry_run:
+        log("Writing mock amplification analysis")
+        ips = _read_ip_list(artifacts["ip_txt"])
+        _write_mock_analysis_report(cfg, artifacts["amplification_log"], artifacts["analysis_report"], ips)
+        artifacts["analysis_stdout"].write_text(
+            "dry_run: generated mock analysis report without legacy script\n",
+            encoding="utf-8",
+        )
+        update_stage(run_dir, "analyze_amplification_log", "completed", dry_run=True)
+        _save_artifacts(run_dir, artifacts)
+        return
+
     command = [
         cfg.python_bin,
         str(cfg.analyze_amplify_log_py),
@@ -298,7 +329,10 @@ def _run_command(command: list[str], cwd: Path, log_file: Path, pid_file: Path) 
     except FileNotFoundError:
         pass
     if return_code != 0:
-        raise RuntimeError(f"Command failed with exit code {return_code}: {' '.join(command)}")
+        raise RuntimeError(
+            f"Command failed with exit code {return_code}: {' '.join(command)}. "
+            f"See log: {log_file}"
+        )
 
 
 def cleanup_run_artifacts(run_id: str, output_root: str | Path | None = None) -> bool:
@@ -403,6 +437,117 @@ def _write_mock_scan_csv(path: Path) -> None:
         writer.writerow({"saddr": "192.0.2.1", "len": "2500", "payloadlen": "2400", "flags": "PA"})
         writer.writerow({"saddr": "192.0.2.1", "len": "100", "payloadlen": "60", "flags": "PA"})
         writer.writerow({"saddr": "198.51.100.2", "len": "1200", "payloadlen": "1000", "flags": "R"})
+
+
+def _process_mock_scan_csv(input_path: Path, output_path: Path, limit_count: int, length_threshold: int) -> None:
+    summaries: dict[str, dict[str, Any]] = {}
+    with input_path.open("r", newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            saddr = (row.get("saddr") or "").strip()
+            if not saddr:
+                continue
+            summary = summaries.setdefault(
+                saddr,
+                {"len": 0, "payloadlen": 0, "flags": set(), "count": 0},
+            )
+            summary["len"] += _safe_int(row.get("len"))
+            summary["payloadlen"] += _safe_int(row.get("payloadlen"))
+            summary["count"] += 1
+            flag = (row.get("flags") or "").strip()
+            if flag:
+                summary["flags"].add(flag)
+
+    rows = [_mock_summary_row(saddr, summary) for saddr, summary in summaries.items() if summary["len"] > length_threshold]
+    if not rows:
+        rows = [_mock_summary_row(saddr, summary) for saddr, summary in summaries.items()]
+
+    rows.sort(key=lambda item: item["len"], reverse=True)
+    if limit_count > 0:
+        rows = rows[:limit_count]
+
+    with output_path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=["saddr", "len", "payloadlen", "flags", "count"])
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _mock_summary_row(saddr: str, summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "saddr": saddr,
+        "len": summary["len"],
+        "payloadlen": summary["payloadlen"],
+        "flags": ",".join(sorted(summary["flags"])),
+        "count": summary["count"],
+    }
+
+
+def _extract_ips_from_processed_csv(input_path: Path, output_path: Path) -> list[str]:
+    ips: list[str] = []
+    seen: set[str] = set()
+    with input_path.open("r", newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            ip = (row.get("saddr") or "").strip()
+            if ip and ip not in seen:
+                ips.append(ip)
+                seen.add(ip)
+
+    output_path.write_text("".join(f"{ip}\n" for ip in ips), encoding="utf-8")
+    return ips
+
+
+def _read_ip_list(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    return [line.strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+
+
+def _write_mock_amplification_log(cfg: ScanConfig, path: Path, ips: list[str]) -> None:
+    lines = [
+        "dry_run amplification log",
+        f"pkt_method: {cfg.pkt_method}",
+        f"target_host: {cfg.target_host}",
+        f"ttl: {cfg.ttl}",
+        f"scan_count: {cfg.scan_count}",
+        "",
+    ]
+    if not ips:
+        lines.append("no candidate IPs found")
+    for ip in ips:
+        lines.extend([
+            f"=== dry_run | test_ip: {ip} (Example) | scan_count: {cfg.scan_count} ===",
+            "amplification_ratio: 1.00 (received=1 sent=1)",
+        ])
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_mock_analysis_report(cfg: ScanConfig, log_path: Path, report_path: Path, ips: list[str]) -> None:
+    lines = [
+        "TCP amplification analysis report (dry_run)",
+        "=" * 48,
+        f"generated_at: {now_iso()}",
+        f"source_log: {log_path}",
+        f"target_host: {cfg.target_host}",
+        f"pkt_method: {cfg.pkt_method}",
+        f"ttl: {cfg.ttl}",
+        f"scan_count: {cfg.scan_count}",
+        "",
+        "ranking",
+        "-" * 48,
+    ]
+    if not ips:
+        lines.append("No candidate IPs were available for dry_run analysis.")
+    for rank, ip in enumerate(ips, start=1):
+        lines.append(f"{rank}. {ip} | avg_ratio=1.00 | success_rate=100.0% | samples=1")
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _safe_host(host: str) -> str:
