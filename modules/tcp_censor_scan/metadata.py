@@ -30,7 +30,10 @@ def update_stage(run_dir: Path, stage: str, status: str, **extra: Any) -> None:
     current = stages.setdefault(stage, {})
     current.update({"status": status, **extra})
     if status == "running":
+        metadata["current_stage"] = stage
         current.setdefault("started_at", now_iso())
-    if status in {"completed", "failed", "skipped"}:
+    if status in {"completed", "failed", "skipped", "stopped"}:
         current["ended_at"] = now_iso()
+        if metadata.get("current_stage") == stage and status in {"failed", "stopped"}:
+            metadata["current_stage"] = None
     write_metadata(run_dir, metadata)

@@ -21,6 +21,8 @@ let serverMap2dZoomTransform = null;
 let isGeoMapLoading = false;
 let tcpScanPollInterval = null;
 let currentTcpRunId = null;
+let currentTcpRuns = [];
+let currentTcpFile = null;
 
 const MAX_PPS_POINTS = 40;
 const MAX_LATENCY_POINTS = 60;
@@ -162,6 +164,7 @@ function drawSmoothTimeoutConnector(ctx, fromX, fromY, toX, toY) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+    localizeTcpScanView();
     initParticles();
     initChart();
     initLatencyChart();
@@ -181,6 +184,13 @@ document.addEventListener("DOMContentLoaded", () => {
     setInterval(updateDetailedSystemInfo, 2000);
 });
 
+function localizeTcpScanView() {
+    const log = document.getElementById("tcpPipelineLog");
+    if (log && log.textContent.trim() === "No TCP scan selected.") {
+        log.textContent = "尚未选择 TCP 扫描。";
+    }
+}
+
 function bindControls() {
     document.getElementById("multi_protocol")?.addEventListener("change", toggleMultiProtocol);
     document.getElementById("startBtn")?.addEventListener("click", startTest);
@@ -198,6 +208,7 @@ function bindControls() {
     document.getElementById("tcpStartBtn")?.addEventListener("click", startTcpScan);
     document.getElementById("tcpStopBtn")?.addEventListener("click", stopTcpScan);
     document.getElementById("tcpRefreshBtn")?.addEventListener("click", refreshTcpScan);
+    document.getElementById("tcpClearRunsBtn")?.addEventListener("click", clearTcpRunRecords);
 
     document.querySelectorAll(".tab-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -234,8 +245,17 @@ function setupNavigation() {
 }
 
 async function initTcpScan() {
+    bindTcpModalControls();
     await loadTcpResources();
     await refreshTcpScan();
+}
+
+function bindTcpModalControls() {
+    document.getElementById("tcpStopCleanupBtn")?.addEventListener("click", () => stopTcpScan(true));
+    document.getElementById("tcpFileModalClose")?.addEventListener("click", closeTcpFileModal);
+    document.querySelector('[data-dismiss="tcp-file-modal"]')?.addEventListener("click", closeTcpFileModal);
+    document.getElementById("tcpFileSaveBtn")?.addEventListener("click", saveTcpFileContent);
+    document.getElementById("tcpFileReloadBtn")?.addEventListener("click", reloadTcpFileContent);
 }
 
 async function loadTcpResources() {
@@ -244,7 +264,7 @@ async function loadTcpResources() {
     try {
         const response = await fetch("/api/tcp-scan/resources");
         const data = await response.json();
-        if (!data.success) throw new Error(data.message || "Failed to load TCP resources");
+        if (!data.success) throw new Error(data.message || "TCP 资源加载失败");
         select.innerHTML = "";
         (data.resources || []).forEach((resource) => {
             const option = document.createElement("option");
@@ -254,15 +274,18 @@ async function loadTcpResources() {
             select.appendChild(option);
         });
     } catch (error) {
-        showNotification(`TCP resources failed: ${error.message}`, "error");
+        showNotification(`TCP 资源加载失败：${error.message}`, "error");
     }
 }
 
 function readTcpScanPayload() {
+    const checkedMethods = Array.from(document.querySelectorAll('#tcpMethodChecks input[type="checkbox"]:checked'))
+        .map((input) => input.value);
     return {
         ip_file: document.getElementById("tcpIpFile")?.value || "",
         target_host: document.getElementById("tcpTargetHost")?.value.trim() || "",
         pkt_method: document.getElementById("tcpPktMethod")?.value || "PSH",
+        pkt_methods: checkedMethods.length ? checkedMethods : undefined,
         scan_rate: readNumber("tcpScanRate", 2500),
         ttl: readNumber("tcpTtl", 255),
         scan_count: readNumber("tcpScanCount", 10),
@@ -276,32 +299,99 @@ function readTcpScanPayload() {
 async function startTcpScan() {
     const payload = readTcpScanPayload();
     if (!payload.ip_file || !payload.target_host) {
-        showNotification("TCP scan requires an IP resource and target host", "error");
+        showNotification("TCP 扫描需要选择 IP 资源并填写目标主机", "error");
         return;
     }
-    setTcpControls(true);
+    const methods = payload.pkt_methods?.length ? payload.pkt_methods : [payload.pkt_method];
+    if (!methods.length) {
+        showNotification("请至少选择一种报文方法", "error");
+        return;
+    }
+    setTcpControls(true, false);
     try {
+        if (!payload.dry_run) {
+            const report = await runTcpPreflight(payload);
+            if (!report.ok) {
+                setTcpControls(false, false);
+                return;
+            }
+        } else {
+            setText("tcpPreflightStatus", "当前为模拟运行，将跳过真实扫描预检。");
+        }
         const result = await postJson("/api/tcp-scan/runs", payload);
-        if (!result.success) throw new Error(result.message || "TCP scan start failed");
-        showNotification(result.message || "TCP scan started", "success");
+        if (!result.success) throw new Error(result.message || "TCP 扫描启动失败");
+        showNotification(`已创建 ${result.run_ids?.length || methods.length} 个 TCP 扫描任务`, "success");
+        if (Array.isArray(result.run_ids) && result.run_ids.length) {
+            currentTcpRunId = result.run_ids[0];
+        }
         startTcpPolling();
         await refreshTcpScan();
     } catch (error) {
-        showNotification(`TCP scan failed: ${error.message}`, "error");
-        setTcpControls(false);
+        showNotification(`TCP 扫描启动失败：${getTcpApiMessage(error.message, error.message)}`, "error");
+        setTcpControls(false, false);
     }
 }
 
-async function stopTcpScan() {
+async function runTcpPreflight(payload) {
+    const params = new URLSearchParams({
+        dry_run: String(Boolean(payload.dry_run)),
+        pkt_method: payload.pkt_method || "PSH",
+        network_interface: payload.network_interface || "eth0"
+    });
+    const response = await fetch(`/api/tcp-scan/preflight?${params.toString()}`);
+    const data = await response.json();
+    const checks = data.report?.checks || [];
+    const failures = checks.filter((item) => !item.ok).map((item) => `${item.label}：${item.message}`);
+    const statusText = failures.length
+        ? `预检未通过：${failures.join("；")}`
+        : "预检通过，可以执行真实扫描。";
+    setText("tcpPreflightStatus", statusText);
+    if (failures.length) {
+        showNotification(statusText, "error");
+        return { ok: false, checks };
+    }
+    return { ok: true, checks };
+}
+
+async function stopTcpScan(cleanup = false) {
     if (!currentTcpRunId) {
-        showNotification("No TCP scan run selected", "error");
+        showNotification("尚未选择 TCP 扫描任务", "error");
         return;
     }
     try {
-        const result = await postJson(`/api/tcp-scan/runs/${currentTcpRunId}/stop`, {});
-        showNotification(result.message || "TCP scan stop requested", result.success ? "info" : "error");
+        const result = await postJson(`/api/tcp-scan/runs/${currentTcpRunId}/stop`, { cleanup });
+        showNotification(
+            getTcpApiMessage(result.message, cleanup ? "已请求停止并清理任务" : "已请求停止 TCP 扫描"),
+            result.success ? "info" : "error"
+        );
+        await refreshTcpScan();
     } catch (error) {
-        showNotification(`TCP stop failed: ${error.message}`, "error");
+        showNotification(`TCP 扫描停止失败：${getTcpApiMessage(error.message, error.message)}`, "error");
+    }
+}
+
+async function clearTcpRunRecords() {
+    if (!confirm("清除所有已结束 TCP 扫描记录及产物？运行中的任务会保留。")) {
+        return;
+    }
+    const clearBtn = document.getElementById("tcpClearRunsBtn");
+    if (clearBtn) clearBtn.disabled = true;
+    try {
+        const response = await fetch("/api/tcp-scan/runs", { method: "DELETE" });
+        const data = await readJsonResponse(response);
+        if (!response.ok || !data?.success) {
+            throw new Error(data?.message || data?.error || `HTTP ${response.status}`);
+        }
+        if ((data.deleted || []).includes(currentTcpRunId)) {
+            currentTcpRunId = null;
+        }
+        const skippedText = data.skipped?.length ? `，保留 ${data.skipped.length} 个运行中任务` : "";
+        showNotification(`${data.message || "记录已清除"}${skippedText}`, "success");
+        await refreshTcpScan();
+    } catch (error) {
+        showNotification(`清除记录失败：${getTcpApiMessage(error.message, error.message)}`, "error");
+    } finally {
+        if (clearBtn) clearBtn.disabled = false;
     }
 }
 
@@ -314,26 +404,68 @@ async function refreshTcpScan() {
     try {
         const response = await fetch("/api/tcp-scan/runs");
         const data = await response.json();
-        if (!data.success) throw new Error(data.message || "Failed to load TCP runs");
-        const runs = data.runs || [];
-        const selected = data.active_run_id
-            ? runs.find((run) => run.run_id === data.active_run_id) || runs[0]
-            : runs[0];
-        if (!selected) {
+        if (!data.success) throw new Error(data.message || "TCP 扫描记录加载失败");
+        currentTcpRuns = data.runs || [];
+        renderTcpRunList(currentTcpRuns, data.active_run_ids || []);
+        const activeRunIds = data.active_run_ids || [];
+        const selected = currentTcpRunId
+            ? currentTcpRuns.find((run) => run.run_id === currentTcpRunId)
+            : null;
+        const preferred = selected
+            || (activeRunIds.length ? currentTcpRuns.find((run) => run.run_id === activeRunIds[0]) : null)
+            || currentTcpRuns[0];
+        if (!preferred) {
             renderTcpEmptyState();
             return;
         }
-        currentTcpRunId = selected.run_id;
-        await loadTcpRunDetail(selected.run_id);
+        currentTcpRunId = preferred.run_id;
+        await loadTcpRunDetail(preferred.run_id);
+        if (!activeRunIds.length && tcpScanPollInterval) {
+            clearInterval(tcpScanPollInterval);
+            tcpScanPollInterval = null;
+        }
     } catch (error) {
-        console.warn("TCP scan refresh failed", error);
+        console.warn("TCP 扫描刷新失败", error);
     }
+}
+
+function renderTcpRunList(runs, activeRunIds) {
+    const container = document.getElementById("tcpRunList");
+    if (!container) return;
+    if (!runs.length) {
+        container.innerHTML = `<div class="info-text">暂无 TCP 扫描任务。</div>`;
+        return;
+    }
+    container.innerHTML = runs.map((run) => {
+        const isActive = run.run_id === currentTcpRunId;
+        const running = activeRunIds.includes(run.run_id);
+        const metaText = running ? "执行中" : getTcpStatusText(run.status);
+        return `
+            <button type="button" class="tcp-run-item ${isActive ? "active" : ""}" data-run-id="${escapeHtml(run.run_id)}">
+                <span class="tcp-run-item-main">
+                    <span>${escapeHtml(run.run_id)}</span>
+                    <span>${escapeHtml(run.target_host || "-")}</span>
+                </span>
+                <span class="tcp-run-item-meta">
+                    <span>${escapeHtml(run.pkt_method || "-")}</span>
+                    <strong>${escapeHtml(metaText)}</strong>
+                </span>
+            </button>
+        `;
+    }).join("");
+    container.querySelectorAll("[data-run-id]").forEach((item) => {
+        item.addEventListener("click", async () => {
+            currentTcpRunId = item.getAttribute("data-run-id");
+            renderTcpRunList(currentTcpRuns, activeRunIds);
+            await loadTcpRunDetail(currentTcpRunId);
+        });
+    });
 }
 
 async function loadTcpRunDetail(runId) {
     const response = await fetch(`/api/tcp-scan/runs/${runId}`);
     const data = await response.json();
-    if (!data.success) throw new Error(data.message || "Failed to load TCP run");
+    if (!data.success) throw new Error(data.message || "TCP 扫描详情加载失败");
     const summary = data.summary || {};
     renderTcpSummary(summary);
     await loadTcpRunLog(runId);
@@ -350,66 +482,235 @@ async function loadTcpRunLog(runId) {
 
 function renderTcpSummary(summary) {
     const status = summary.status || "unknown";
-    const runId = summary.run_id || "-";
     const config = summary.config || {};
-    setText("tcpStatus", status);
-    setText("tcpRunId", runId);
+    setText("tcpStatus", getTcpStatusText(status));
+    setText("tcpRunId", summary.run_id || "-");
     setText("tcpRunMethod", config.pkt_method || "-");
     setText("tcpRunHost", config.target_host || "-");
+    renderTcpMeta(summary);
     renderTcpArtifacts(summary.files || []);
-    renderTcpStages(summary.stages || {});
-    setTcpControls(status === "running" || status === "stopping");
-    if (!["running", "stopping"].includes(status) && tcpScanPollInterval) {
-        clearInterval(tcpScanPollInterval);
-        tcpScanPollInterval = null;
-    }
+    renderTcpStages(summary.stages || {}, summary.current_stage || null);
+    renderTcpRuntimeError(summary);
+    setTcpControls(summary.is_running || status === "running" || status === "stopping", Boolean(summary.is_running));
+}
+
+function renderTcpMeta(summary) {
+    const container = document.getElementById("tcpRunMeta");
+    if (!container) return;
+    const items = [
+        ["当前阶段", getTcpStageText(summary.current_stage || "-")],
+        ["开始时间", summary.started_at || "-"],
+        ["结束时间", summary.ended_at || "-"],
+        ["模拟运行", summary.config?.dry_run ? "是" : "否"],
+        ["停止请求", summary.stop_requested ? "已请求" : "未请求"],
+        ["失败原因", summary.error || summary.runtime_error || "-"]
+    ];
+    container.innerHTML = items.map(([label, value]) => `
+        <div class="tcp-run-meta-item">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+        </div>
+    `).join("");
 }
 
 function renderTcpArtifacts(files) {
     const container = document.getElementById("tcpArtifacts");
     if (!container) return;
     if (!files.length) {
-        container.innerHTML = `<div class="info-text">No artifacts yet.</div>`;
+        container.innerHTML = `<div class="info-text">暂无输出文件。</div>`;
         return;
     }
-    container.innerHTML = files
-        .map((file) => `<div class="tcp-artifact-item"><span>${escapeHtml(file.name)}</span><strong>${formatBytes(file.bytes || 0)}</strong></div>`)
-        .join("");
+    container.innerHTML = files.map((file) => `
+        <button type="button" class="tcp-artifact-item tcp-file-button" data-file-name="${escapeHtml(file.name)}">
+            <span>${escapeHtml(file.name)}</span>
+            <strong>${formatBytes(file.bytes || 0)}</strong>
+        </button>
+    `).join("");
+    container.querySelectorAll("[data-file-name]").forEach((item) => {
+        item.addEventListener("click", () => openTcpFileModal(item.getAttribute("data-file-name")));
+    });
 }
 
-function renderTcpStages(stages) {
+function renderTcpStages(stages, currentStage) {
     const container = document.getElementById("tcpStages");
     if (!container) return;
-    container.innerHTML = ["prepare_zmap", "run_zmap_scan", "process_scan_csv", "extract_ips", "run_amplification_test", "analyze_amplification_log"]
-        .map((stage) => `<div class="tcp-stage-item"><span>${stage}</span><strong>${escapeHtml(stages[stage]?.status || "pending")}</strong></div>`)
-        .join("");
+    const order = ["prepare_zmap", "run_zmap_scan", "process_scan_csv", "extract_ips", "run_amplification_test", "analyze_amplification_log"];
+    container.innerHTML = order.map((stage) => {
+        const state = stages[stage]?.status || (stage === currentStage ? "running" : "pending");
+        return `<div class="tcp-stage-item"><span>${getTcpStageText(stage)}</span><strong>${escapeHtml(getTcpStatusText(state))}</strong></div>`;
+    }).join("");
+}
+
+function renderTcpRuntimeError(summary) {
+    const errorBox = document.getElementById("tcpRuntimeError");
+    if (!errorBox) return;
+    const error = summary.error || summary.runtime_error || "";
+    errorBox.textContent = error ? `失败原因：${error}` : "";
 }
 
 function renderTcpEmptyState() {
     currentTcpRunId = null;
-    setText("tcpStatus", "idle");
+    setText("tcpStatus", "空闲");
     setText("tcpRunId", "-");
     setText("tcpRunMethod", "-");
     setText("tcpRunHost", "-");
+    setText("tcpPreflightStatus", "真实扫描前会自动执行环境预检。");
+    const runList = document.getElementById("tcpRunList");
+    if (runList) runList.innerHTML = `<div class="info-text">暂无 TCP 扫描任务。</div>`;
     const stages = document.getElementById("tcpStages");
     if (stages) stages.innerHTML = "";
     const artifacts = document.getElementById("tcpArtifacts");
-    if (artifacts) artifacts.innerHTML = `<div class="info-text">No TCP scan runs yet.</div>`;
+    if (artifacts) artifacts.innerHTML = `<div class="info-text">暂无 TCP 扫描记录。</div>`;
     const log = document.getElementById("tcpPipelineLog");
-    if (log) log.textContent = "No TCP scan selected.";
-    setTcpControls(false);
+    if (log) log.textContent = "尚未选择 TCP 扫描。";
+    const meta = document.getElementById("tcpRunMeta");
+    if (meta) meta.innerHTML = "";
+    const errorBox = document.getElementById("tcpRuntimeError");
+    if (errorBox) errorBox.textContent = "";
+    setTcpControls(false, false);
 }
 
-function setTcpControls(isRunning) {
-    const start = document.getElementById("tcpStartBtn");
+function setTcpControls(hasRunningTask, canStopCurrent) {
     const stop = document.getElementById("tcpStopBtn");
-    if (start) start.disabled = isRunning;
-    if (stop) stop.disabled = !isRunning;
+    const stopCleanup = document.getElementById("tcpStopCleanupBtn");
+    if (stop) stop.disabled = !canStopCurrent;
+    if (stopCleanup) stopCleanup.disabled = !canStopCurrent;
+}
+
+async function openTcpFileModal(filename) {
+    if (!currentTcpRunId || !filename) return;
+    try {
+        const response = await fetch(`/api/tcp-scan/runs/${currentTcpRunId}/files/${encodeURIComponent(filename)}`);
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || "文件加载失败");
+        currentTcpFile = data.file;
+        renderTcpFileModal(data.file);
+        const modal = document.getElementById("tcpFileModal");
+        if (modal) modal.hidden = false;
+    } catch (error) {
+        showNotification(`文件加载失败：${error.message}`, "error");
+    }
+}
+
+function renderTcpFileModal(file) {
+    const title = document.getElementById("tcpFileModalTitle");
+    const body = document.getElementById("tcpFileModalBody");
+    const saveBtn = document.getElementById("tcpFileSaveBtn");
+    const reloadBtn = document.getElementById("tcpFileReloadBtn");
+    if (title) title.textContent = file.name || "文件内容";
+    if (reloadBtn) reloadBtn.disabled = false;
+    if (file.type === "db") {
+        if (saveBtn) saveBtn.disabled = true;
+        if (body) body.innerHTML = renderTcpDbPreview(file.preview);
+        return;
+    }
+    if (saveBtn) saveBtn.disabled = !file.editable;
+    if (body) {
+        body.innerHTML = file.editable
+            ? `<textarea id="tcpFileEditor">${escapeHtml(file.content || "")}</textarea>`
+            : `<pre>${escapeHtml(file.content || "")}</pre>`;
+        if (file.editable) {
+            const textarea = document.getElementById("tcpFileEditor");
+            if (textarea) textarea.value = file.content || "";
+        }
+    }
+}
+
+function renderTcpDbPreview(preview) {
+    const tables = preview?.preview_tables || [];
+    if (!tables.length) {
+        return `<div class="tcp-db-preview">该数据库暂无可预览数据。</div>`;
+    }
+    return `
+        <div class="tcp-db-preview">
+            <div>共 ${preview.tables?.length || 0} 张表：${escapeHtml((preview.tables || []).join(", "))}</div>
+            ${tables.map((table) => `
+                <div class="tcp-db-table">
+                    <table>
+                        <thead>
+                            <tr>${table.columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>
+                        </thead>
+                        <tbody>
+                            ${table.rows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(String(value ?? ""))}</td>`).join("")}</tr>`).join("")}
+                        </tbody>
+                    </table>
+                </div>
+            `).join("")}
+        </div>
+    `;
+}
+
+function closeTcpFileModal() {
+    const modal = document.getElementById("tcpFileModal");
+    if (modal) modal.hidden = true;
+    currentTcpFile = null;
+}
+
+async function saveTcpFileContent() {
+    if (!currentTcpRunId || !currentTcpFile?.editable) return;
+    const textarea = document.getElementById("tcpFileEditor");
+    const content = textarea?.value ?? "";
+    try {
+        const result = await fetch(`/api/tcp-scan/runs/${currentTcpRunId}/files/${encodeURIComponent(currentTcpFile.name)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content })
+        });
+        const data = await result.json();
+        if (!data.success) throw new Error(data.message || "文件保存失败");
+        showNotification(data.message || "文件已保存", "success");
+        await refreshTcpScan();
+        await reloadTcpFileContent();
+    } catch (error) {
+        showNotification(`文件保存失败：${error.message}`, "error");
+    }
+}
+
+async function reloadTcpFileContent() {
+    if (!currentTcpFile?.name) return;
+    await openTcpFileModal(currentTcpFile.name);
 }
 
 function readNumberAllowZero(id, fallback) {
     const value = Number(document.getElementById(id)?.value);
     return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function getTcpStageText(stage) {
+    return {
+        prepare_zmap: "准备 ZMap",
+        run_zmap_scan: "执行 ZMap 扫描",
+        process_scan_csv: "处理扫描 CSV",
+        extract_ips: "提取 IP",
+        run_amplification_test: "执行放大测试",
+        analyze_amplification_log: "分析放大日志",
+        "-": "-"
+    }[stage] || stage || "-";
+}
+
+function getTcpStatusText(status) {
+    return {
+        idle: "空闲",
+        running: "运行中",
+        stopping: "停止中",
+        stopped: "已停止",
+        completed: "已完成",
+        failed: "失败",
+        skipped: "已跳过",
+        pending: "等待中",
+        unknown: "未知"
+    }[status] || status || "未知";
+}
+
+function getTcpApiMessage(message, fallback) {
+    if (!message) return fallback;
+    return {
+        "TCP scan started": "TCP 扫描已启动",
+        "TCP scan is already running": "TCP 扫描正在运行",
+        "Stopping TCP scan": "正在停止 TCP 扫描",
+        "No running process found": "未找到正在运行的扫描进程",
+        "Run not found": "未找到扫描记录"
+    }[message] || message;
 }
 
 function formatBytes(bytes) {
@@ -1322,8 +1623,21 @@ async function postJson(url, payload) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
+    const data = await readJsonResponse(response);
+    if (!response.ok) {
+        throw new Error(data?.message || data?.error || `HTTP ${response.status}`);
+    }
+    return data ?? {};
+}
+
+async function readJsonResponse(response) {
+    const contentType = response.headers.get("Content-Type") || "";
+    if (!contentType.includes("application/json")) return null;
+    try {
+        return await response.json();
+    } catch (error) {
+        return null;
+    }
 }
 
 function readNumber(id, fallback) {

@@ -11,7 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
     <script src="https://unpkg.com/globe.gl"></script>
-    <link rel="stylesheet" href="/static/style.css?v=geo-areas-5">
+    <link rel="stylesheet" href="/static/style.css?v=tcp-layout-3">
 </head>
 <body>
     <canvas id="particleCanvas" class="particle-bg"></canvas>
@@ -36,8 +36,8 @@
                 <a href="#" class="nav-item" data-view="servers" title="资源池">
                     <i class="fas fa-server"></i><span>资源池</span>
                 </a>
-                <a href="#" class="nav-item" data-view="tcp-scan" title="TCP Censor Scan">
-                    <i class="fas fa-network-wired"></i><span>TCP Scan</span>
+                <a href="#" class="nav-item" data-view="tcp-scan" title="TCP 审查扫描">
+                    <i class="fas fa-network-wired"></i><span>TCP 扫描</span>
                 </a>
                 <a href="#" class="nav-item" data-view="help" title="说明">
                     <i class="fas fa-circle-question"></i><span>说明</span>
@@ -320,122 +320,171 @@
 
                 <section class="view-pane" id="view-tcp-scan">
                     <div class="dashboard-grid tcp-scan-grid">
-                        <section class="panel config-panel">
-                            <div class="panel-heading">
-                                <div>
-                                    <p class="eyebrow">TCP Middlebox</p>
-                                    <h2><i class="fas fa-network-wired"></i> TCP Censor Scan</h2>
-                                </div>
-                                <span class="panel-chip">dry-run by default</span>
-                            </div>
-
-                            <form id="tcpScanForm">
-                                <div class="form-grid">
-                                    <div class="form-group wide">
-                                        <label for="tcpIpFile">IP Resource</label>
-                                        <select id="tcpIpFile"></select>
+                        <div class="tcp-column tcp-left-column">
+                            <section class="panel config-panel">
+                                <div class="panel-heading">
+                                    <div>
+                                        <p class="eyebrow">TCP 中间盒</p>
+                                        <h2><i class="fas fa-network-wired"></i> TCP 审查扫描</h2>
                                     </div>
-                                    <div class="form-group wide">
-                                        <label for="tcpTargetHost">Target Host</label>
-                                        <input type="text" id="tcpTargetHost" value="www.youporn.com" autocomplete="off">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="tcpPktMethod">Packet Method</label>
-                                        <select id="tcpPktMethod">
-                                            <option value="PSH">PSH</option>
-                                            <option value="PSH_ACK">PSH_ACK</option>
-                                            <option value="SYN">SYN</option>
-                                            <option value="SYN_PSH_ACK">SYN_PSH_ACK</option>
-                                            <option value="SYN_PSH">SYN_PSH</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="tcpScanRate">Scan Rate</label>
-                                        <input type="number" id="tcpScanRate" value="2500" min="1">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="tcpTtl">TTL</label>
-                                        <input type="number" id="tcpTtl" value="255" min="1" max="255">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="tcpScanCount">Scan Count</label>
-                                        <input type="number" id="tcpScanCount" value="10" min="1" max="100">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="tcpResultLimit">Result Limit</label>
-                                        <input type="number" id="tcpResultLimit" value="30" min="0">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="tcpLengthThreshold">Length Threshold</label>
-                                        <input type="number" id="tcpLengthThreshold" value="2000" min="0">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="tcpNetworkInterface">Interface</label>
-                                        <input type="text" id="tcpNetworkInterface" value="eth0">
-                                    </div>
+                                    <span class="panel-chip">默认模拟运行</span>
                                 </div>
 
-                                <div class="proto-check-group tcp-dry-run-row">
-                                    <label><input type="checkbox" id="tcpDryRun" checked> Dry run</label>
-                                </div>
+                                <form id="tcpScanForm">
+                                    <div class="form-grid">
+                                        <div class="form-group wide">
+                                            <label for="tcpIpFile">IP 资源</label>
+                                            <select id="tcpIpFile"></select>
+                                        </div>
+                                        <div class="form-group wide">
+                                            <label for="tcpTargetHost">目标主机</label>
+                                            <input type="text" id="tcpTargetHost" value="www.youporn.com" autocomplete="off">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="tcpPktMethod">报文方法</label>
+                                            <select id="tcpPktMethod">
+                                                <option value="PSH">PSH</option>
+                                                <option value="PSH_ACK">PSH_ACK</option>
+                                                <option value="SYN">SYN</option>
+                                                <option value="SYN_PSH_ACK">SYN_PSH_ACK</option>
+                                                <option value="SYN_PSH">SYN_PSH</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>批量方法</label>
+                                            <div id="tcpMethodChecks" class="proto-check-group tcp-method-checks">
+                                                <label><input type="checkbox" value="PSH"> PSH</label>
+                                                <label><input type="checkbox" value="PSH_ACK"> PSH_ACK</label>
+                                                <label><input type="checkbox" value="SYN"> SYN</label>
+                                                <label><input type="checkbox" value="SYN_PSH_ACK"> SYN_PSH_ACK</label>
+                                                <label><input type="checkbox" value="SYN_PSH"> SYN_PSH</label>
+                                            </div>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="tcpScanRate">扫描速率</label>
+                                            <input type="number" id="tcpScanRate" value="2500" min="1">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="tcpTtl">TTL</label>
+                                            <input type="number" id="tcpTtl" value="255" min="1" max="255">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="tcpScanCount">扫描次数</label>
+                                            <input type="number" id="tcpScanCount" value="10" min="1" max="100">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="tcpResultLimit">结果限制</label>
+                                            <input type="number" id="tcpResultLimit" value="30" min="0">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="tcpLengthThreshold">长度阈值</label>
+                                            <input type="number" id="tcpLengthThreshold" value="2000" min="0">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="tcpNetworkInterface">网卡接口</label>
+                                            <input type="text" id="tcpNetworkInterface" value="eth0">
+                                        </div>
+                                    </div>
 
-                                <div class="action-buttons">
-                                    <button type="button" id="tcpStartBtn" class="btn btn-primary"><i class="fas fa-play"></i>Start TCP Scan</button>
-                                    <button type="button" id="tcpStopBtn" class="btn btn-danger" disabled><i class="fas fa-stop"></i>Stop</button>
-                                    <button type="button" id="tcpRefreshBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>Refresh</button>
-                                </div>
-                            </form>
-                        </section>
+                                    <div class="proto-check-group tcp-dry-run-row">
+                                        <label><input type="checkbox" id="tcpDryRun" checked> 模拟运行</label>
+                                    </div>
 
-                        <section class="panel metrics-panel">
-                            <div class="panel-heading">
-                                <div>
-                                    <p class="eyebrow">Pipeline</p>
-                                    <h2><i class="fas fa-list-check"></i> Run Status</h2>
-                                </div>
-                            </div>
-                            <div class="stats-grid tcp-status-grid">
-                                <div class="stat-card">
-                                    <div class="stat-title">Status</div>
-                                    <div class="stat-value tcp-small-value" id="tcpStatus">idle</div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-title">Run ID</div>
-                                    <div class="stat-value tcp-small-value" id="tcpRunId">-</div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-title">Method</div>
-                                    <div class="stat-value tcp-small-value" id="tcpRunMethod">-</div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-title">Host</div>
-                                    <div class="stat-value tcp-small-value" id="tcpRunHost">-</div>
-                                </div>
-                            </div>
-                            <div id="tcpStages" class="tcp-stage-list"></div>
-                        </section>
+                                    <div class="action-buttons">
+                                        <button type="button" id="tcpStartBtn" class="btn btn-primary"><i class="fas fa-play"></i>开始扫描</button>
+                                        <button type="button" id="tcpStopBtn" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
+                                        <button type="button" id="tcpStopCleanupBtn" class="btn btn-danger" disabled><i class="fas fa-trash"></i>停止并清理</button>
+                                        <button type="button" id="tcpRefreshBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>刷新</button>
+                                    </div>
+                                    <div id="tcpPreflightStatus" class="info-text">真实扫描前会自动执行环境预检。</div>
+                                </form>
+                            </section>
 
-                        <section class="panel chart-panel tcp-log-panel">
-                            <div class="panel-heading">
-                                <div>
-                                    <p class="eyebrow">Logs</p>
-                                    <h2><i class="fas fa-terminal"></i> Pipeline Log</h2>
+                            <section class="panel tcp-runs-panel">
+                                <div class="panel-heading">
+                                    <div>
+                                        <p class="eyebrow">已有任务</p>
+                                        <h2><i class="fas fa-list-check"></i> 任务记录</h2>
+                                    </div>
+                                    <button type="button" id="tcpClearRunsBtn" class="btn btn-secondary tcp-panel-action">
+                                        <i class="fas fa-trash-can"></i>清除记录
+                                    </button>
                                 </div>
-                            </div>
-                            <pre id="tcpPipelineLog" class="tcp-log-box">No TCP scan selected.</pre>
-                        </section>
+                                <div id="tcpRunList" class="tcp-run-list"></div>
+                            </section>
 
-                        <section class="panel resources-panel">
-                            <div class="panel-heading">
-                                <div>
-                                    <p class="eyebrow">Artifacts</p>
-                                    <h2><i class="fas fa-folder-open"></i> Output Files</h2>
+                            <section class="panel resources-panel">
+                                <div class="panel-heading">
+                                    <div>
+                                        <p class="eyebrow">产物</p>
+                                        <h2><i class="fas fa-folder-open"></i> 输出文件</h2>
+                                    </div>
                                 </div>
-                            </div>
-                            <div id="tcpArtifacts" class="tcp-artifact-list"></div>
-                        </section>
+                                <div id="tcpArtifacts" class="tcp-artifact-list"></div>
+                            </section>
+                        </div>
+
+                        <div class="tcp-column tcp-right-column">
+                            <section class="panel metrics-panel">
+                                <div class="panel-heading">
+                                    <div>
+                                        <p class="eyebrow">当前任务</p>
+                                        <h2><i class="fas fa-chart-simple"></i> 任务详情</h2>
+                                    </div>
+                                </div>
+                                <div class="stats-grid tcp-status-grid">
+                                    <div class="stat-card">
+                                        <div class="stat-title">状态</div>
+                                        <div class="stat-value tcp-small-value" id="tcpStatus">空闲</div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="stat-title">运行 ID</div>
+                                        <div class="stat-value tcp-small-value" id="tcpRunId">-</div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="stat-title">方法</div>
+                                        <div class="stat-value tcp-small-value" id="tcpRunMethod">-</div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="stat-title">主机</div>
+                                        <div class="stat-value tcp-small-value" id="tcpRunHost">-</div>
+                                    </div>
+                                </div>
+                                <div id="tcpRunMeta" class="tcp-run-meta"></div>
+                                <div id="tcpStages" class="tcp-stage-list"></div>
+                            </section>
+
+                            <section class="panel chart-panel tcp-log-panel">
+                                <div class="panel-heading">
+                                    <div>
+                                        <p class="eyebrow">日志</p>
+                                        <h2><i class="fas fa-terminal"></i> 流水线日志</h2>
+                                    </div>
+                                </div>
+                                <pre id="tcpPipelineLog" class="tcp-log-box">尚未选择 TCP 扫描。</pre>
+                                <div id="tcpRuntimeError" class="info-text"></div>
+                            </section>
+                        </div>
                     </div>
                 </section>
+
+                <div id="tcpFileModal" class="tcp-modal" hidden>
+                    <div class="tcp-modal-backdrop" data-dismiss="tcp-file-modal"></div>
+                    <div class="tcp-modal-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <p class="eyebrow">产物查看器</p>
+                                <h2><i class="fas fa-file-lines"></i> <span id="tcpFileModalTitle">文件内容</span></h2>
+                            </div>
+                            <button type="button" id="tcpFileModalClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
+                        </div>
+                        <div id="tcpFileModalBody" class="tcp-file-view"></div>
+                        <div class="action-buttons narrow">
+                            <button type="button" id="tcpFileSaveBtn" class="btn btn-primary" disabled><i class="fas fa-floppy-disk"></i>保存</button>
+                            <button type="button" id="tcpFileReloadBtn" class="btn btn-secondary" disabled><i class="fas fa-rotate"></i>重新加载</button>
+                        </div>
+                    </div>
+                </div>
 
                 <section class="view-pane" id="view-help">
                     <div class="panel help-panel">
@@ -482,6 +531,6 @@
         </main>
     </div>
 
-    <script src="/static/script.js?v=geo-areas-5"></script>
+    <script src="/static/script.js?v=tcp-layout-3"></script>
 </body>
 </html>

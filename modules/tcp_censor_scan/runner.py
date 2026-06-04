@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any, Iterator
 import csv
 import os
+import platform
+import stat
+import time
 import shutil
 import signal
 import subprocess
@@ -24,9 +27,9 @@ TCP_FLAG_MAP = {
 }
 
 
-def run_pipeline(config: ScanConfig | str | Path) -> dict[str, Any]:
+def run_pipeline(config: ScanConfig | str | Path, run_dir: Path | None = None) -> dict[str, Any]:
     cfg = load_config(config) if not isinstance(config, ScanConfig) else config
-    run_dir = _prepare_run(cfg)
+    run_dir = run_dir or _prepare_run(cfg)
     log_path = run_dir / "pipeline.log"
     artifacts = _artifact_paths(cfg, run_dir)
 
@@ -42,21 +45,29 @@ def run_pipeline(config: ScanConfig | str | Path) -> dict[str, Any]:
             analyze_amplification_log(cfg, run_dir, artifacts, log)
         except Exception as exc:
             metadata = read_metadata(run_dir)
+            current_stage = metadata.get("current_stage")
+            if current_stage:
+                update_stage(run_dir, current_stage, "failed", error=str(exc))
+                metadata = read_metadata(run_dir)
             metadata["status"] = "failed"
             metadata["ended_at"] = now_iso()
             metadata["error"] = str(exc)
+            metadata["current_stage"] = None
             write_metadata(run_dir, metadata)
             log(f"FAILED: {exc}")
+            _cleanup_if_requested(run_dir)
             raise
 
     metadata = read_metadata(run_dir)
     metadata["status"] = "completed"
     metadata["ended_at"] = now_iso()
+    metadata["current_stage"] = None
     write_metadata(run_dir, metadata)
+    _cleanup_if_requested(run_dir)
     return metadata
 
 
-def stop_run(run_id: str, output_root: str | Path | None = None) -> bool:
+def stop_run(run_id: str, output_root: str | Path | None = None, cleanup: bool = False) -> bool:
     root = Path(output_root) if output_root else repo_root() / "runs"
     run_dir = root / run_id
     stopped = False
@@ -70,6 +81,8 @@ def stop_run(run_id: str, output_root: str | Path | None = None) -> bool:
     if stopped:
         metadata = read_metadata(run_dir)
         metadata["status"] = "stopping"
+        metadata["stop_requested"] = True
+        metadata["cleanup_requested"] = cleanup
         write_metadata(run_dir, metadata)
     return stopped
 
@@ -191,7 +204,7 @@ def analyze_amplification_log(cfg: ScanConfig, run_dir: Path, artifacts: dict[st
     _save_artifacts(run_dir, artifacts)
 
 
-def _prepare_run(cfg: ScanConfig) -> Path:
+def prepare_run(cfg: ScanConfig) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id = f"{timestamp}_{cfg.ip_file.stem}_{cfg.pkt_method}_{_safe_host(cfg.target_host)}"
     run_dir = cfg.output_root / run_id
@@ -208,9 +221,17 @@ def _prepare_run(cfg: ScanConfig) -> Path:
         "config": cfg.to_dict(),
         "stages": {},
         "artifacts": {},
+        "current_stage": None,
+        "error": "",
+        "stop_requested": False,
+        "cleanup_requested": False,
     }
     write_metadata(run_dir, metadata)
     return run_dir
+
+
+def _prepare_run(cfg: ScanConfig) -> Path:
+    return prepare_run(cfg)
 
 
 def _artifact_paths(cfg: ScanConfig, run_dir: Path) -> dict[str, Path]:
@@ -278,6 +299,101 @@ def _run_command(command: list[str], cwd: Path, log_file: Path, pid_file: Path) 
         pass
     if return_code != 0:
         raise RuntimeError(f"Command failed with exit code {return_code}: {' '.join(command)}")
+
+
+def cleanup_run_artifacts(run_id: str, output_root: str | Path | None = None) -> bool:
+    root = Path(output_root) if output_root else repo_root() / "runs"
+    run_dir = root / run_id
+    if not run_dir.exists():
+        return False
+    shutil.rmtree(run_dir)
+    return True
+
+
+def _cleanup_if_requested(run_dir: Path) -> None:
+    metadata = read_metadata(run_dir)
+    if metadata.get("cleanup_requested"):
+        shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def preflight_check(cfg: ScanConfig) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    checks.append(_check_path("ip_file", cfg.ip_file, "IP 资源文件"))
+    checks.append(_check_path("process_py", cfg.process_py, "CSV 处理脚本"))
+    checks.append(_check_path("ip_take_py", cfg.ip_take_py, "IP 提取脚本"))
+    checks.append(_check_path("magnification_test_py", cfg.magnification_test_py, "放大测试脚本"))
+    checks.append(_check_path("analyze_amplify_log_py", cfg.analyze_amplify_log_py, "分析脚本"))
+    checks.append(_check_python(cfg.python_bin))
+    checks.append(_check_interface(cfg.network_interface))
+    if not cfg.dry_run:
+        checks.append(_check_path("geoip_db_path", cfg.geoip_db_path, "GeoIP 数据库"))
+        checks.append(_check_path("selected_zmap_root", cfg.selected_zmap_root, "ZMap 源码目录"))
+        checks.append(_check_zmap_binary(cfg.selected_zmap_root))
+    return {
+        "ok": all(item["ok"] for item in checks),
+        "dry_run": cfg.dry_run,
+        "pkt_method": cfg.pkt_method,
+        "checks": checks,
+        "hints": _preflight_hints(cfg),
+    }
+
+
+def _check_path(key: str, path: Path, label: str) -> dict[str, Any]:
+    return {
+        "key": key,
+        "label": label,
+        "ok": path.exists(),
+        "path": str(path),
+        "message": f"{label}存在" if path.exists() else f"{label}不存在",
+    }
+
+
+def _check_python(python_bin: str) -> dict[str, Any]:
+    resolved = shutil.which(python_bin) if python_bin else None
+    return {
+        "key": "python_bin",
+        "label": "Python 解释器",
+        "ok": bool(resolved or python_bin in {"python", "python3"}),
+        "path": resolved or python_bin,
+        "message": "Python 可用" if (resolved or python_bin in {"python", "python3"}) else "Python 不可用",
+    }
+
+
+def _check_interface(name: str) -> dict[str, Any]:
+    ok = bool(name.strip())
+    message = "网卡名称已提供"
+    if platform.system().lower().startswith("linux"):
+        ok = ok and Path("/sys/class/net", name).exists()
+        message = "网卡存在" if ok else "网卡不存在"
+    return {
+        "key": "network_interface",
+        "label": "网卡接口",
+        "ok": ok,
+        "path": name,
+        "message": message,
+    }
+
+
+def _check_zmap_binary(zmap_root: Path) -> dict[str, Any]:
+    zmap_bin = zmap_root / "src" / "zmap"
+    executable = zmap_bin.exists() and os.access(zmap_bin, os.X_OK)
+    return {
+        "key": "zmap_binary",
+        "label": "ZMap 可执行文件",
+        "ok": executable,
+        "path": str(zmap_bin),
+        "message": "ZMap 可执行文件可用" if executable else "ZMap 可执行文件不可用",
+    }
+
+
+def _preflight_hints(cfg: ScanConfig) -> list[str]:
+    hints = [
+        f"当前报文方法: {cfg.pkt_method}",
+        f"当前网卡接口: {cfg.network_interface}",
+    ]
+    if not cfg.dry_run:
+        hints.append("真实扫描需要 ZMap 可执行文件、可用网卡，以及具备原始报文发送能力的运行环境。")
+    return hints
 
 
 def _write_mock_scan_csv(path: Path) -> None:

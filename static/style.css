@@ -17,15 +17,61 @@
 }
 
 .tcp-scan-grid {
-    grid-template-columns: minmax(360px, 0.9fr) minmax(360px, 1.1fr);
+    grid-template-columns: minmax(360px, 0.92fr) minmax(420px, 1.08fr);
+}
+
+.tcp-column {
+    display: grid;
+    align-content: start;
+    gap: 16px;
+    min-width: 0;
+}
+
+.tcp-left-column {
+    grid-column: 1;
+}
+
+.tcp-right-column {
+    grid-column: 2;
+}
+
+.tcp-column > .config-panel {
+    grid-row: auto;
+}
+
+.tcp-panel-action {
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 0.78rem;
+    white-space: nowrap;
 }
 
 .tcp-dry-run-row {
     margin: 14px 0 4px;
 }
 
+.tcp-method-checks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tcp-method-checks label,
+.tcp-dry-run-row label {
+    min-height: 34px;
+    padding: 0 9px;
+}
+
+.tcp-method-checks input,
+.tcp-dry-run-row input {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--cyan);
+}
+
 .tcp-status-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 14px;
 }
 
 .tcp-small-value {
@@ -35,14 +81,32 @@
 }
 
 .tcp-stage-list,
-.tcp-artifact-list {
+.tcp-artifact-list,
+.tcp-run-list {
     display: grid;
     gap: 9px;
     margin-top: 16px;
 }
 
+.tcp-runs-panel .tcp-run-list {
+    max-height: 260px;
+    overflow: auto;
+    padding-right: 2px;
+}
+
+.tcp-left-column .resources-panel {
+    grid-column: auto;
+}
+
+.tcp-left-column .tcp-artifact-list {
+    max-height: 260px;
+    overflow: auto;
+    padding-right: 2px;
+}
+
 .tcp-stage-item,
-.tcp-artifact-item {
+.tcp-artifact-item,
+.tcp-run-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -55,9 +119,67 @@
 }
 
 .tcp-stage-item strong,
-.tcp-artifact-item strong {
+.tcp-artifact-item strong,
+.tcp-run-item strong {
     color: var(--cyan);
     font-size: 0.82rem;
+}
+
+.tcp-run-item {
+    align-items: flex-start;
+    cursor: pointer;
+}
+
+.tcp-run-item.active {
+    border-color: var(--line-strong);
+    background: rgba(64, 231, 255, 0.08);
+}
+
+.tcp-run-item-main {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.tcp-run-item-main span,
+.tcp-run-item-meta span {
+    word-break: break-word;
+}
+
+.tcp-run-item-meta {
+    display: grid;
+    gap: 4px;
+    text-align: right;
+    color: var(--muted);
+    font-size: 0.78rem;
+}
+
+.tcp-run-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+    margin-top: 14px;
+}
+
+.tcp-run-meta-item {
+    padding: 10px 12px;
+    border: 1px solid rgba(143, 168, 199, 0.18);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.tcp-run-meta-item span {
+    display: block;
+    color: var(--muted);
+    font-size: 0.74rem;
+}
+
+.tcp-run-meta-item strong {
+    display: block;
+    margin-top: 4px;
+    color: var(--text);
+    font-size: 0.88rem;
+    word-break: break-word;
 }
 
 .tcp-log-panel {
@@ -77,8 +199,105 @@
     background: rgba(2, 6, 12, 0.72);
 }
 
-@media (max-width: 1100px) {
+.tcp-file-button {
+    justify-content: space-between;
+}
+
+.tcp-file-button span {
+    color: var(--text);
+}
+
+.tcp-file-view {
+    min-height: 280px;
+    max-height: 60vh;
+    overflow: auto;
+}
+
+.tcp-file-view textarea,
+.tcp-file-view pre,
+.tcp-db-preview {
+    width: 100%;
+    min-height: 280px;
+    padding: 14px;
+    color: #c7d8ef;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border: 1px solid rgba(143, 168, 199, 0.18);
+    border-radius: 8px;
+    background: rgba(2, 6, 12, 0.72);
+}
+
+.tcp-file-view textarea {
+    resize: vertical;
+}
+
+.tcp-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+}
+
+.tcp-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(2, 8, 18, 0.76);
+    backdrop-filter: blur(8px);
+}
+
+.tcp-modal-panel {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    gap: 16px;
+    width: min(960px, calc(100vw - 32px));
+    margin: 48px auto;
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(5, 12, 24, 0.96);
+    box-shadow: var(--shadow);
+}
+
+.tcp-db-table {
+    margin-top: 12px;
+    overflow: auto;
+    border: 1px solid rgba(143, 168, 199, 0.18);
+    border-radius: 8px;
+}
+
+.tcp-db-table table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.tcp-db-table th,
+.tcp-db-table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid rgba(143, 168, 199, 0.14);
+}
+
+.tcp-db-table th {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+@media (max-width: 1180px) {
     .tcp-scan-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .tcp-left-column,
+    .tcp-right-column {
+        grid-column: 1;
+    }
+
+    .tcp-runs-panel .tcp-run-list {
+        max-height: none;
+    }
+
+    .tcp-run-meta {
         grid-template-columns: 1fr;
     }
 }
@@ -550,7 +769,7 @@ input:checked + .toggle-slider::before {
 
 .action-buttons {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
     margin-top: 16px;
 }

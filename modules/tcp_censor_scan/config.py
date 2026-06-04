@@ -100,7 +100,7 @@ def load_config(path: str | Path) -> ScanConfig:
     return validate_config(cfg)
 
 
-def validate_config(cfg: ScanConfig) -> ScanConfig:
+def validate_config(cfg: ScanConfig, check_runtime: bool = True) -> ScanConfig:
     errors: list[str] = []
     if cfg.pkt_method not in VALID_PKT_METHODS:
         errors.append(f"pkt_method must be one of {sorted(VALID_PKT_METHODS)}")
@@ -120,7 +120,7 @@ def validate_config(cfg: ScanConfig) -> ScanConfig:
         if not path.exists():
             errors.append(f"{name} does not exist: {path}")
 
-    if not cfg.dry_run and not cfg.selected_zmap_root.exists():
+    if check_runtime and not cfg.dry_run and not cfg.selected_zmap_root.exists():
         errors.append(f"selected zmap root does not exist: {cfg.selected_zmap_root}")
 
     if errors:
