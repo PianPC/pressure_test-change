@@ -14,12 +14,52 @@ let attackStartTimeForLatency = null;
 let currentProto = "memcached";
 let serverGlobe = null;
 let lastGeoPoints = [];
+let lastGeoAreas = [];
+let serverMapMode = "3d";
+let serverMapShapes = null;
+let serverMap2dZoomTransform = null;
 let isGeoMapLoading = false;
 let tcpScanPollInterval = null;
 let currentTcpRunId = null;
 
 const MAX_PPS_POINTS = 40;
 const MAX_LATENCY_POINTS = 60;
+const CHINA_REGION_ADCODE = {
+    BJ: "110000",
+    TJ: "120000",
+    HE: "130000",
+    SX: "140000",
+    NM: "150000",
+    LN: "210000",
+    JL: "220000",
+    HL: "230000",
+    SH: "310000",
+    JS: "320000",
+    ZJ: "330000",
+    AH: "340000",
+    FJ: "350000",
+    JX: "360000",
+    SD: "370000",
+    HA: "410000",
+    HB: "420000",
+    HN: "430000",
+    GD: "440000",
+    GX: "450000",
+    HI: "460000",
+    CQ: "500000",
+    SC: "510000",
+    GZ: "520000",
+    YN: "530000",
+    XZ: "540000",
+    SN: "610000",
+    GS: "620000",
+    QH: "630000",
+    NX: "640000",
+    XJ: "650000",
+    TW: "710000",
+    HK: "810000",
+    MO: "820000"
+};
 
 const latencyTimeoutBandPlugin = {
     id: "latencyTimeoutBand",
@@ -152,6 +192,9 @@ function bindControls() {
     document.getElementById("saveServerListBtn")?.addEventListener("click", saveServerList);
     document.getElementById("refreshServerListBtn")?.addEventListener("click", refreshServerResources);
     document.getElementById("refreshGeoMapBtn")?.addEventListener("click", loadServerGeoMap);
+    document.querySelectorAll(".map-view-btn").forEach((btn) => {
+        btn.addEventListener("click", () => switchServerMapMode(btn.dataset.mapView || "3d"));
+    });
     document.getElementById("tcpStartBtn")?.addEventListener("click", startTcpScan);
     document.getElementById("tcpStopBtn")?.addEventListener("click", stopTcpScan);
     document.getElementById("tcpRefreshBtn")?.addEventListener("click", refreshTcpScan);
@@ -481,76 +524,6 @@ function resizeCharts() {
     }, 60);
 }
 
-function initServerGlobe() {
-    const container = document.getElementById("serverGlobe");
-    if (!container) return;
-    if (!window.Globe) {
-        setMapStatus("3D 地图库加载失败，仍可继续编辑资源列表。", false);
-        return;
-    }
-    serverGlobe = window.Globe()(container)
-        .backgroundColor("rgba(0,0,0,0)")
-        .globeImageUrl("//unpkg.com/three-globe/example/img/earth-blue-marble.jpg")
-        .bumpImageUrl("//unpkg.com/three-globe/example/img/earth-topology.png")
-        .pointsData([])
-        .pointLat((point) => point.lat)
-        .pointLng((point) => point.lon)
-        .pointAltitude((point) => Math.max(0.035, Math.min(0.18, 0.035 + (point.entryCount || 1) * 0.01)))
-        .pointRadius((point) => Math.max(0.32, Math.min(0.9, 0.32 + (point.entryCount || 1) * 0.08)))
-        .pointColor((point) => getProtocolPointColor(point.protocol))
-        .pointLabel((point) => renderGeoTooltip(point));
-    const controls = serverGlobe.controls();
-    if (controls) {
-        controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.35;
-        controls.enableDamping = true;
-    }
-    resizeServerGlobe();
-}
-
-function resizeServerGlobe() {
-    if (!serverGlobe) return;
-    const container = document.getElementById("serverGlobe");
-    if (!container) return;
-    const width = Math.max(280, container.clientWidth);
-    const height = Math.max(300, container.clientHeight);
-    serverGlobe.width(width).height(height);
-}
-
-async function loadServerGeoMap() {
-    if (isGeoMapLoading) return;
-    isGeoMapLoading = true;
-    setMapStatus("正在定位资源池 IP...", true);
-    try {
-        const response = await fetch(`/api/servers/${currentProto}/geo`);
-        const data = await response.json();
-        if (!data.success) throw new Error(data.message || "定位失败");
-        updateGeoStats(data);
-        renderGeoUnresolved(data.unresolved || []);
-        lastGeoPoints = normalizeGeoPoints(data.points || []);
-        if (serverGlobe) {
-            serverGlobe.pointsData(lastGeoPoints);
-            if (lastGeoPoints.length) serverGlobe.pointOfView({ lat: lastGeoPoints[0].lat, lng: lastGeoPoints[0].lon, altitude: 2.1 }, 900);
-        }
-        if (!window.Globe) {
-            setMapStatus("3D 地图库加载失败，已保留资源定位统计。", false);
-        } else if (data.geo_api_degraded) {
-            setMapStatus("GeoIP 服务暂不可用，地图已使用可用缓存和已解析数据。", false);
-        } else if (!lastGeoPoints.length) {
-            setMapStatus("当前资源池没有可定位的公网 IP。", false);
-        } else {
-            setMapStatus(`已定位 ${lastGeoPoints.length} 个公网 IP。`, false, true);
-        }
-    } catch (error) {
-        updateGeoStats({ total: 0, located_count: 0, unresolved_count: 0 });
-        renderGeoUnresolved([]);
-        setMapStatus(`地图定位失败：${error.message}`, false);
-    } finally {
-        isGeoMapLoading = false;
-        resizeServerGlobe();
-    }
-}
-
 function normalizeGeoPoints(points) {
     return points
         .filter((point) => Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lon)))
@@ -561,12 +534,6 @@ function normalizeGeoPoints(points) {
             lon: Number(point.lon),
             entryCount: Array.isArray(point.entries) ? point.entries.length : 1
         }));
-}
-
-function updateGeoStats(data) {
-    setText("geoTotalCount", String(data.total || 0));
-    setText("geoLocatedCount", String(data.located_count || 0));
-    setText("geoUnresolvedCount", String(data.unresolved_count || 0));
 }
 
 function renderGeoUnresolved(items) {
@@ -593,27 +560,292 @@ function setMapStatus(message, loading = false, hide = false) {
     status.style.borderLeft = loading ? "4px solid var(--cyan)" : "1px solid rgba(143, 168, 199, 0.2)";
 }
 
-function renderGeoTooltip(point) {
-    const location = [point.city, point.country].filter(Boolean).join(", ") || "未知位置";
-    const aliases = Array.isArray(point.entries) && point.entries.length > 1
-        ? `<div>资源条目：${point.entries.map(escapeHtml).join(", ")}</div>`
-        : "";
-    return `
-        <div class="globe-tooltip">
-            <strong>${escapeHtml(point.ip)}</strong>
-            <div>${escapeHtml(location)}</div>
-            <div>${escapeHtml(point.isp || "未知 ISP")}</div>
-            ${aliases}
-        </div>
-    `;
+function initServerGlobe() {
+    const container = document.getElementById("serverGlobe");
+    if (!container) return;
+    if (!window.Globe) {
+        setMapStatus("3D 地图库加载失败，仍可切换 2D 查看资源区域。", false);
+        return;
+    }
+    serverGlobe = window.Globe()(container)
+        .backgroundColor("rgba(0,0,0,0)")
+        .globeImageUrl("//unpkg.com/three-globe/example/img/earth-blue-marble.jpg")
+        .bumpImageUrl("//unpkg.com/three-globe/example/img/earth-topology.png")
+        .polygonsData([])
+        .polygonAltitude(() => 0.004)
+        .polygonCapColor((feature) => getAreaFillColor(feature.properties?._resourceArea))
+        .polygonSideColor(() => "rgba(64, 231, 255, 0.08)")
+        .polygonStrokeColor(() => "rgba(223, 245, 255, 0.78)")
+        .polygonLabel((feature) => renderAreaTooltip(feature.properties?._resourceArea));
+    const controls = serverGlobe.controls();
+    if (controls) {
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.35;
+        controls.enableDamping = true;
+    }
+    resizeServerGlobe();
 }
 
-function getProtocolPointColor(protocol) {
-    return {
-        memcached: "#9d5cff",
-        dns: "#40e7ff",
-        ntp: "#5cffb1"
-    }[protocol] || "#40e7ff";
+function resizeServerGlobe() {
+    renderServerMap();
+}
+
+function resizeServerMapSurface() {
+    const container = document.getElementById("serverGlobe");
+    if (!container || !serverGlobe) return;
+    const width = Math.max(280, container.clientWidth);
+    const height = Math.max(300, container.clientHeight);
+    serverGlobe.width(width).height(height);
+}
+
+async function loadServerGeoMap() {
+    if (isGeoMapLoading) return;
+    isGeoMapLoading = true;
+    setMapStatus("正在定位资源池 IP...", true);
+    try {
+        const response = await fetch(`/api/servers/${currentProto}/geo`);
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || "定位失败");
+        updateGeoStats(data);
+        renderGeoUnresolved(data.unresolved || []);
+        lastGeoPoints = normalizeGeoPoints(data.points || []);
+        lastGeoAreas = normalizeGeoAreas(data.areas || []);
+        await ensureServerMapShapes();
+        renderServerMap();
+        if (!window.Globe) {
+            setMapStatus("3D 地图库加载失败，已保留资源区域统计。", false);
+        } else if (data.geo_api_degraded) {
+            setMapStatus("GeoIP 服务暂不可用，地图已使用可用缓存和已解析数据。", false);
+        } else if (!lastGeoAreas.length) {
+            setMapStatus("当前资源池没有可显示的国家或省份区域。", false);
+        } else {
+            setMapStatus(`已显示 ${lastGeoAreas.length} 个资源归属区域。`, false, true);
+        }
+    } catch (error) {
+        updateGeoStats({ total: 0, located_count: 0, unresolved_count: 0, area_count: 0 });
+        renderGeoUnresolved([]);
+        setMapStatus(`地图定位失败：${error.message}`, false);
+    } finally {
+        isGeoMapLoading = false;
+        renderServerMap();
+    }
+}
+
+function normalizeGeoAreas(areas) {
+    return areas.map((area) => ({
+        ...area,
+        protocol: currentProto,
+        resource_count: Number(area.resource_count || 0),
+        entries: Array.isArray(area.entries) ? area.entries : [],
+        ips: Array.isArray(area.ips) ? area.ips : []
+    }));
+}
+
+function updateGeoStats(data) {
+    setText("geoTotalCount", String(data.total || 0));
+    setText("geoLocatedCount", String(data.located_count || 0));
+    setText("geoUnresolvedCount", String(data.unresolved_count || 0));
+    setText("geoAreaCount", String(data.area_count || 0));
+}
+
+async function ensureServerMapShapes() {
+    if (serverMapShapes) return serverMapShapes;
+    const [countries, admin1, china] = await Promise.all([
+        fetch("/static/maps/countries.geojson").then((response) => response.json()),
+        fetch("/static/maps/admin1.geojson").then((response) => response.json()),
+        fetch("/static/maps/china-provinces.geojson").then((response) => response.json())
+    ]);
+    serverMapShapes = { countries, admin1, china };
+    return serverMapShapes;
+}
+
+function switchServerMapMode(mode) {
+    serverMapMode = mode === "2d" ? "2d" : "3d";
+    document.querySelectorAll(".map-view-btn").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.mapView === serverMapMode);
+    });
+    renderServerMap();
+}
+
+function renderServerMap() {
+    const globe = document.getElementById("serverGlobe");
+    const map2d = document.getElementById("serverMap2d");
+    if (globe) globe.hidden = serverMapMode !== "3d";
+    if (map2d) map2d.hidden = serverMapMode !== "2d";
+    const features = buildAreaFeatures();
+    if (serverMapMode === "3d") renderServerMap3d(features);
+    if (serverMapMode === "2d") renderServerMap2d(features);
+}
+
+function renderServerMap3d(features) {
+    resizeServerMapSurface();
+    if (!serverGlobe) return;
+    serverGlobe.polygonsData(features.map(normalizeFeatureForGlobe));
+    const first = lastGeoPoints.find((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon));
+    if (first) serverGlobe.pointOfView({ lat: first.lat, lng: first.lon, altitude: 2.1 }, 700);
+}
+
+function renderServerMap2d(features) {
+    const svg = document.getElementById("serverMap2dSvg");
+    const container = document.getElementById("serverMap2d");
+    if (!svg || !container || !window.d3 || !serverMapShapes) return;
+    const normalizedFeatures = features.map(normalizeFeatureForGlobe);
+    const width = Math.max(280, container.clientWidth);
+    const height = Math.max(300, container.clientHeight);
+    const selection = d3.select(svg);
+    selection.attr("viewBox", `0 0 ${width} ${height}`).selectAll("*").remove();
+
+    const projection = d3.geoNaturalEarth1().fitSize([width, height], serverMapShapes.countries);
+    const path = d3.geoPath(projection);
+    const zoomLayer = selection.append("g").attr("class", "map-zoom-layer");
+    const initialTransform = serverMap2dZoomTransform || d3.zoomIdentity;
+
+    zoomLayer.append("g")
+        .selectAll("path")
+        .data(serverMapShapes.countries.features || [])
+        .join("path")
+        .attr("class", "map-base")
+        .attr("d", path);
+
+    zoomLayer.append("g")
+        .selectAll("path")
+        .data(normalizedFeatures)
+        .join("path")
+        .attr("class", "map-area")
+        .attr("d", path)
+        .attr("fill", (feature) => getAreaFillColor(feature.properties?._resourceArea))
+        .append("title")
+        .text((feature) => getAreaTooltipText(feature.properties?._resourceArea));
+
+    zoomLayer.attr("transform", initialTransform);
+    const zoom = d3.zoom()
+        .scaleExtent([1, 9])
+        .extent([[0, 0], [width, height]])
+        .translateExtent([[-width * 0.5, -height * 0.5], [width * 1.5, height * 1.5]])
+        .on("zoom", (event) => {
+            serverMap2dZoomTransform = event.transform;
+            zoomLayer.attr("transform", serverMap2dZoomTransform);
+        });
+    selection.call(zoom).call(zoom.transform, initialTransform).on("dblclick.zoom", null);
+}
+
+function buildAreaFeatures() {
+    if (!serverMapShapes || !lastGeoAreas.length) return [];
+    return lastGeoAreas
+        .map((area) => {
+            const feature = findAreaFeature(area);
+            if (!feature) return null;
+            return {
+                ...feature,
+                properties: {
+                    ...(feature.properties || {}),
+                    _resourceArea: area
+                }
+            };
+        })
+        .filter(Boolean);
+}
+
+function normalizeFeatureForGlobe(feature) {
+    const clone = {
+        ...feature,
+        properties: { ...(feature.properties || {}) },
+        geometry: {
+            ...(feature.geometry || {}),
+            coordinates: JSON.parse(JSON.stringify(feature.geometry?.coordinates || []))
+        }
+    };
+    if (clone.geometry.type === "Polygon") {
+        clone.geometry.coordinates = normalizePolygonRingsForGlobe(clone.geometry.coordinates);
+    }
+    if (clone.geometry.type === "MultiPolygon") {
+        clone.geometry.coordinates = clone.geometry.coordinates.map(normalizePolygonRingsForGlobe);
+    }
+    return clone;
+}
+
+function normalizePolygonRingsForGlobe(rings) {
+    return rings.map((ring, index) => {
+        const shouldBeClockwise = index === 0;
+        const isClockwise = getRingSignedArea(ring) < 0;
+        return shouldBeClockwise === isClockwise ? ring : [...ring].reverse();
+    });
+}
+
+function getRingSignedArea(ring) {
+    let area = 0;
+    for (let index = 0; index < ring.length; index += 1) {
+        const current = ring[index];
+        const next = ring[(index + 1) % ring.length];
+        area += Number(current?.[0] || 0) * Number(next?.[1] || 0)
+            - Number(next?.[0] || 0) * Number(current?.[1] || 0);
+    }
+    return area / 2;
+}
+
+function findAreaFeature(area) {
+    if (area.level === "region") {
+        if (area.country_code === "CN") return findChinaRegionFeature(area);
+        const areaCode = String(area.area_code || "").toUpperCase();
+        const regionCode = String(area.region_code || "").toUpperCase();
+        return (serverMapShapes.admin1.features || []).find((feature) => {
+            const props = feature.properties || {};
+            return String(props.iso_3166_2 || "").toUpperCase() === areaCode
+                || (String(props.iso_a2 || "").toUpperCase() === area.country_code && String(props.postal || "").toUpperCase() === regionCode);
+        }) || findCountryFeature(area.country_code);
+    }
+    return findCountryFeature(area.country_code);
+}
+
+function findChinaRegionFeature(area) {
+    const regionCode = String(area.region_code || "").toUpperCase();
+    const adcode = CHINA_REGION_ADCODE[regionCode];
+    const regionName = String(area.region || "").toLowerCase();
+    return (serverMapShapes.china.features || []).find((feature) => {
+        const props = feature.properties || {};
+        return (adcode && String(props.adcode) === adcode)
+            || (regionName && String(props.name || "").toLowerCase().includes(regionName));
+    }) || findCountryFeature("CN");
+}
+
+function findCountryFeature(countryCode) {
+    const code = String(countryCode || "").toUpperCase();
+    return (serverMapShapes.countries.features || []).find((feature) => {
+        const props = feature.properties || {};
+        return String(props.ISO_A2 || props.iso_a2 || "").toUpperCase() === code;
+    });
+}
+
+function getAreaFillColor(area) {
+    const count = Number(area?.resource_count || 0);
+    const max = Math.max(1, ...lastGeoAreas.map((item) => Number(item.resource_count || 0)));
+    const ratio = Math.log1p(count) / Math.log1p(max);
+    const base = {
+        memcached: [157, 92, 255],
+        dns: [64, 231, 255],
+        ntp: [92, 255, 177]
+    }[area?.protocol || currentProto] || [64, 231, 255];
+    const alpha = 0.28 + ratio * 0.5;
+    return `rgba(${base[0]}, ${base[1]}, ${base[2]}, ${alpha.toFixed(2)})`;
+}
+
+function renderAreaTooltip(area) {
+    return `<div class="globe-tooltip">${escapeHtml(getAreaTooltipText(area)).replace(/\n/g, "<br>")}</div>`;
+}
+
+function getAreaTooltipText(area) {
+    if (!area) return "未知区域";
+    const name = area.level === "region"
+        ? `${area.country || "-"} / ${area.region || area.name || "-"}`
+        : `${area.country || area.name || "-"}`;
+    const samples = (area.ips || []).slice(0, 5).join(", ");
+    const suffix = (area.ips || []).length > 5 ? `，另有 ${(area.ips || []).length - 5} 个 IP` : "";
+    return [
+        name,
+        `协议：${getMethodText(area.protocol)}`,
+        `资源数：${area.resource_count || 0}`,
+        samples ? `IP：${samples}${suffix}` : ""
+    ].filter(Boolean).join("\n");
 }
 
 function formatGeoReason(reason) {

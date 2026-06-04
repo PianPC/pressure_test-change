@@ -9,8 +9,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
     <script src="https://unpkg.com/globe.gl"></script>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=geo-areas-5">
 </head>
 <body>
     <canvas id="particleCanvas" class="particle-bg"></canvas>
@@ -283,17 +284,27 @@
                             <div class="server-map-header">
                                 <div>
                                     <p class="eyebrow">Geo Distribution</p>
-                                    <h3><i class="fas fa-earth-asia"></i> 3D IP 世界地图</h3>
+                                    <h3><i class="fas fa-earth-asia"></i> 资源地理分布</h3>
                                 </div>
-                                <button id="refreshGeoMapBtn" class="btn btn-outline map-refresh-btn"><i class="fas fa-location-crosshairs"></i>刷新定位</button>
+                                <div class="map-actions">
+                                    <div class="map-view-toggle" aria-label="地图视角">
+                                        <button type="button" class="map-view-btn active" data-map-view="3d">3D</button>
+                                        <button type="button" class="map-view-btn" data-map-view="2d">2D</button>
+                                    </div>
+                                    <button id="refreshGeoMapBtn" class="btn btn-outline map-refresh-btn"><i class="fas fa-location-crosshairs"></i>刷新定位</button>
+                                </div>
                             </div>
                             <div class="geo-stat-row">
                                 <div><span>资源总数</span><strong id="geoTotalCount">0</strong></div>
                                 <div><span>已定位</span><strong id="geoLocatedCount">0</strong></div>
                                 <div><span>未定位</span><strong id="geoUnresolvedCount">0</strong></div>
+                                <div><span>覆盖区域</span><strong id="geoAreaCount">0</strong></div>
                             </div>
                             <div id="serverGlobeStatus" class="map-status">正在加载地图...</div>
                             <div id="serverGlobe" class="server-globe" aria-label="资源池 IP 3D 世界地图"></div>
+                            <div id="serverMap2d" class="server-map-2d" aria-label="资源池 IP 2D 世界地图" hidden>
+                                <svg id="serverMap2dSvg" role="img"></svg>
+                            </div>
                             <div id="geoUnresolvedList" class="geo-unresolved-list"></div>
                         </section>
                         <div class="editor-area">
@@ -471,6 +482,6 @@
         </main>
     </div>
 
-    <script src="/static/script.js"></script>
+    <script src="/static/script.js?v=geo-areas-5"></script>
 </body>
 </html>

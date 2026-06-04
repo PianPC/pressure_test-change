@@ -24,6 +24,12 @@ import urllib.request
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
 from flask_session import Session
 
+try:
+    import geoip2.database
+    import geoip2.errors
+except ImportError:
+    geoip2 = None
+
 # 导入测试模块
 from modules.memcached_test import MemcachedTester
 from modules.dns_test import DNSTester
@@ -83,13 +89,74 @@ app.secret_key = 'your-secret-key-here-change-in-production'
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
 app.config['SESSION_USE_SIGNER'] = True
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 Session(app)
 app.register_blueprint(tcp_censor_bp)
 
 VALID_SERVER_PROTOCOLS = {'memcached', 'dns', 'ntp'}
 GEOIP_CACHE_FILE = os.path.join('config', 'geoip_cache.json')
+GEOIP_LOCAL_DB_FILE = os.path.join('tcp_scan_data', 'geoip', 'GeoLite2-City.mmdb')
 GEOIP_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 GEOIP_BATCH_SIZE = 100
+SUBDIVISION_COUNTRY_CODES = {'CN', 'US', 'RU', 'CA', 'AU', 'BR', 'IN'}
+CHINA_AREA_ALIASES = {
+    'HK': ('HK', 'Hong Kong'),
+    'HKG': ('HK', 'Hong Kong'),
+    'HONG KONG': ('HK', 'Hong Kong'),
+    'HONG KONG SAR': ('HK', 'Hong Kong'),
+    'MO': ('MO', 'Macao'),
+    'MAC': ('MO', 'Macao'),
+    'MACAO': ('MO', 'Macao'),
+    'MACAU': ('MO', 'Macao'),
+    'MACAO SAR': ('MO', 'Macao'),
+    'TW': ('TW', 'Taiwan'),
+    'TWN': ('TW', 'Taiwan'),
+    'TAIWAN': ('TW', 'Taiwan'),
+}
+COUNTRY_NAME_TO_CODE = {
+    'ARGENTINA': 'AR',
+    'AUSTRALIA': 'AU',
+    'AZERBAIJAN': 'AZ',
+    'BANGLADESH': 'BD',
+    'BRAZIL': 'BR',
+    'CANADA': 'CA',
+    'CHINA': 'CN',
+    'COLOMBIA': 'CO',
+    'CROATIA': 'HR',
+    'CZECHIA': 'CZ',
+    'ECUADOR': 'EC',
+    'FRANCE': 'FR',
+    'GERMANY': 'DE',
+    'HUNGARY': 'HU',
+    'INDIA': 'IN',
+    'INDONESIA': 'ID',
+    'IRAN': 'IR',
+    'JAPAN': 'JP',
+    'KENYA': 'KE',
+    'LEBANON': 'LB',
+    'MALI': 'ML',
+    'MEXICO': 'MX',
+    'PAKISTAN': 'PK',
+    'PERU': 'PE',
+    'POLAND': 'PL',
+    'PORTUGAL': 'PT',
+    'ROMANIA': 'RO',
+    'RUSSIA': 'RU',
+    'SAUDI ARABIA': 'SA',
+    'SINGAPORE': 'SG',
+    'SOUTH AFRICA': 'ZA',
+    'SOUTH KOREA': 'KR',
+    'SPAIN': 'ES',
+    'TAJIKISTAN': 'TJ',
+    'THAILAND': 'TH',
+    'TUNISIA': 'TN',
+    'UKRAINE': 'UA',
+    'UNITED KINGDOM': 'GB',
+    'UNITED STATES': 'US',
+    'UNITED STATES OF AMERICA': 'US',
+    'VIETNAM': 'VN',
+}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -341,10 +408,85 @@ def resolve_public_ip(entry: str) -> Tuple[Optional[str], Optional[str]]:
         return None, 'private_or_reserved'
     return ip, None
 
+def normalize_geo_record(geo: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(geo)
+    country = (normalized.get('country') or '').strip()
+    country_code = (normalized.get('country_code') or normalized.get('countryCode') or '').strip().upper()
+    region = (normalized.get('region') or normalized.get('regionName') or '').strip()
+    region_code = (normalized.get('region_code') or normalized.get('regionCode') or '').strip().upper()
+    if not country_code and country:
+        country_code = COUNTRY_NAME_TO_CODE.get(country.upper(), '')
+
+    china_alias = None
+    for value in (country_code, country, region_code, region):
+        key = str(value or '').strip().upper()
+        if key in CHINA_AREA_ALIASES:
+            china_alias = CHINA_AREA_ALIASES[key]
+            break
+
+    if china_alias:
+        country = 'China'
+        country_code = 'CN'
+        region_code = region_code or china_alias[0]
+        region = region or china_alias[1]
+
+    normalized['country'] = country
+    normalized['country_code'] = country_code
+    normalized['region'] = region
+    normalized['region_code'] = region_code
+    normalized.pop('countryCode', None)
+    normalized.pop('regionName', None)
+    normalized.pop('regionCode', None)
+    return normalized
+
+def is_geo_cache_complete(cached: Dict[str, Any]) -> bool:
+    normalized = normalize_geo_record(cached)
+    if normalized.get('lat') is None or normalized.get('lon') is None:
+        return False
+    if not normalized.get('country') or not normalized.get('country_code'):
+        return False
+    if normalized.get('country_code') in SUBDIVISION_COUNTRY_CODES:
+        return bool(normalized.get('region') or normalized.get('region_code'))
+    return True
+
+def query_geoip_local_batch(ips: List[str]) -> Dict[str, Dict[str, Any]]:
+    if not ips or geoip2 is None or not os.path.exists(GEOIP_LOCAL_DB_FILE):
+        return {}
+    located = {}
+    try:
+        reader = geoip2.database.Reader(GEOIP_LOCAL_DB_FILE)
+    except (OSError, ValueError) as exc:
+        logger.warning("Local GeoIP database could not be opened: %s", exc)
+        return {}
+    try:
+        for ip in ips:
+            try:
+                result = reader.city(ip)
+            except (geoip2.errors.AddressNotFoundError, ValueError):
+                continue
+            region = result.subdivisions.most_specific
+            geo = normalize_geo_record({
+                'ip': ip,
+                'lat': result.location.latitude,
+                'lon': result.location.longitude,
+                'country': result.country.name or '',
+                'country_code': result.country.iso_code or '',
+                'region': region.name or '',
+                'region_code': region.iso_code or '',
+                'city': result.city.name or '',
+                'isp': '',
+                'cached_at': time.time()
+            })
+            if geo.get('lat') is not None and geo.get('lon') is not None:
+                located[ip] = geo
+    finally:
+        reader.close()
+    return located
+
 def query_geoip_batch(ips: List[str]) -> Dict[str, Dict[str, Any]]:
     if not ips:
         return {}
-    url = 'http://ip-api.com/batch?fields=status,message,query,lat,lon,country,city,isp'
+    url = 'http://ip-api.com/batch?fields=status,message,query,lat,lon,country,countryCode,region,regionName,city,isp'
     payload = json.dumps(ips).encode('utf-8')
     request_obj = urllib.request.Request(
         url,
@@ -363,16 +505,64 @@ def query_geoip_batch(ips: List[str]) -> Dict[str, Dict[str, Any]]:
             continue
         ip = item.get('query')
         if item.get('status') == 'success' and ip and item.get('lat') is not None and item.get('lon') is not None:
-            located[ip] = {
+            located[ip] = normalize_geo_record({
                 'ip': ip,
                 'lat': float(item.get('lat')),
                 'lon': float(item.get('lon')),
                 'country': item.get('country') or '',
+                'country_code': item.get('countryCode') or '',
+                'region': item.get('regionName') or '',
+                'region_code': item.get('region') or '',
                 'city': item.get('city') or '',
                 'isp': item.get('isp') or '',
                 'cached_at': time.time()
-            }
+            })
     return located
+
+def build_geo_areas(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    area_map: Dict[str, Dict[str, Any]] = {}
+    for point in points:
+        geo = normalize_geo_record(point)
+        country_code = geo.get('country_code') or ''
+        country = geo.get('country') or 'Unknown'
+        region_code = geo.get('region_code') or ''
+        region = geo.get('region') or ''
+        entries = geo.get('entries') if isinstance(geo.get('entries'), list) else []
+        entry_count = max(1, len(entries))
+
+        if country_code in SUBDIVISION_COUNTRY_CODES and (region_code or region):
+            level = 'region'
+            area_code = f"{country_code}-{region_code}" if region_code else f"{country_code}:{region.lower()}"
+            area_name = region or area_code
+        else:
+            level = 'country'
+            area_code = country_code or country.lower()
+            area_name = country
+
+        key = f"{level}:{area_code}"
+        area = area_map.setdefault(key, {
+            'level': level,
+            'area_code': area_code,
+            'name': area_name,
+            'country_code': country_code,
+            'country': country,
+            'region_code': region_code if level == 'region' else '',
+            'region': region if level == 'region' else '',
+            'resource_count': 0,
+            'ips': [],
+            'entries': []
+        })
+        area['resource_count'] += entry_count
+        if geo.get('ip') and geo.get('ip') not in area['ips']:
+            area['ips'].append(geo.get('ip'))
+        for entry in entries:
+            if entry not in area['entries']:
+                area['entries'].append(entry)
+
+    return sorted(
+        area_map.values(),
+        key=lambda item: (-int(item.get('resource_count') or 0), item.get('country') or '', item.get('region') or '')
+    )
 
 def build_geo_points(method: str) -> Dict[str, Any]:
     entries = read_server_entries(method)
@@ -393,30 +583,45 @@ def build_geo_points(method: str) -> Dict[str, Any]:
     missing_ips = []
     for ip in ip_entries:
         cached = cache.get(ip)
-        if isinstance(cached, dict) and cached.get('lat') is not None and cached.get('lon') is not None:
+        if isinstance(cached, dict) and is_geo_cache_complete(cached):
+            cached = normalize_geo_record(cached)
             if now - float(cached.get('cached_at', 0)) <= GEOIP_CACHE_TTL_SECONDS:
                 points_by_ip[ip] = cached
             else:
                 stale_points[ip] = cached
                 missing_ips.append(ip)
         else:
+            if isinstance(cached, dict) and cached.get('lat') is not None and cached.get('lon') is not None:
+                stale_points[ip] = normalize_geo_record(cached)
             missing_ips.append(ip)
 
     api_failed = False
     for index in range(0, len(missing_ips), GEOIP_BATCH_SIZE):
         batch = missing_ips[index:index + GEOIP_BATCH_SIZE]
+        located = query_geoip_local_batch(batch)
+        api_lookup_failed = False
+        unresolved_batch = [ip for ip in batch if ip not in located]
+        if unresolved_batch:
+            try:
+                located.update(query_geoip_batch(unresolved_batch))
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+                api_failed = True
+                api_lookup_failed = True
+                logger.warning("GeoIP lookup failed: %s", exc)
         try:
-            located = query_geoip_batch(batch)
             for ip, geo in located.items():
                 cache[ip] = geo
                 points_by_ip[ip] = geo
                 stale_points.pop(ip, None)
             for ip in batch:
                 if ip not in located and ip not in stale_points:
-                    unresolved.append({'entry': ip_entries[ip][0], 'ip': ip, 'reason': 'geo_not_found'})
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+                    unresolved.append({'entry': ip_entries[ip][0], 'ip': ip, 'reason': 'geo_api_failed' if api_lookup_failed else 'geo_not_found'})
+            for ip in batch:
+                if ip in stale_points:
+                    points_by_ip[ip] = stale_points[ip]
+        except (OSError, ValueError) as exc:
             api_failed = True
-            logger.warning("GeoIP lookup failed: %s", exc)
+            logger.warning("GeoIP processing failed: %s", exc)
             for ip in batch:
                 if ip in stale_points:
                     points_by_ip[ip] = stale_points[ip]
@@ -431,16 +636,21 @@ def build_geo_points(method: str) -> Dict[str, Any]:
 
     points = []
     for ip, geo in points_by_ip.items():
+        geo = normalize_geo_record(geo)
         points.append({
             'ip': ip,
             'entries': ip_entries.get(ip, [ip]),
             'lat': geo.get('lat'),
             'lon': geo.get('lon'),
             'country': geo.get('country') or '',
+            'country_code': geo.get('country_code') or '',
+            'region': geo.get('region') or '',
+            'region_code': geo.get('region_code') or '',
             'city': geo.get('city') or '',
             'isp': geo.get('isp') or '',
             'stale': ip in stale_points
         })
+    areas = build_geo_areas(points)
 
     return {
         'success': True,
@@ -448,6 +658,8 @@ def build_geo_points(method: str) -> Dict[str, Any]:
         'total': len(entries),
         'located_count': len(points),
         'unresolved_count': len(unresolved),
+        'area_count': len(areas),
+        'areas': areas,
         'points': points,
         'unresolved': unresolved,
         'geo_api_degraded': api_failed
