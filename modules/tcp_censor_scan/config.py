@@ -36,8 +36,8 @@ class ScanConfig:
     ip_take_py: Path = field(default_factory=lambda: repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "IP_take.py")
     magnification_test_py: Path = field(default_factory=lambda: repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "magnification_test_1.py")
     analyze_amplify_log_py: Path = field(default_factory=lambda: repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "analyze_amplify_log.py")
-    zmap_root: Path = field(default_factory=lambda: repo_root() / "weaponizing-censors" / "zmap")
-    zmap_multiple_probes_root: Path = field(default_factory=lambda: repo_root() / "weaponizing-censors" / "zmap_multiple_probes")
+    zmap_root: Path = field(default_factory=lambda: repo_root() / "vendor" / "weaponizing-censors" / "zmap")
+    zmap_multiple_probes_root: Path = field(default_factory=lambda: repo_root() / "vendor" / "weaponizing-censors" / "zmap_multiple_probes")
     dry_run: bool = False
     python_bin: str = "python3"
 
@@ -92,8 +92,8 @@ def load_config(path: str | Path) -> ScanConfig:
         ip_take_py=_path(scripts.get("ip_take_py", repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "IP_take.py")),
         magnification_test_py=_path(scripts.get("magnification_test_py", repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "magnification_test_1.py")),
         analyze_amplify_log_py=_path(scripts.get("analyze_amplify_log_py", repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "analyze_amplify_log.py")),
-        zmap_root=_path(zmap.get("single_probe_root", repo_root() / "weaponizing-censors" / "zmap")),
-        zmap_multiple_probes_root=_path(zmap.get("multiple_probes_root", repo_root() / "weaponizing-censors" / "zmap_multiple_probes")),
+        zmap_root=_path(zmap.get("single_probe_root", repo_root() / "vendor" / "weaponizing-censors" / "zmap")),
+        zmap_multiple_probes_root=_path(zmap.get("multiple_probes_root", repo_root() / "vendor" / "weaponizing-censors" / "zmap_multiple_probes")),
         dry_run=_bool(general.get("dry_run", False), "dry_run"),
         python_bin=_string(general.get("python_bin", "python3"), "python_bin"),
     )

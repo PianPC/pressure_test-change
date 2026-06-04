@@ -1,0 +1,10 @@
+# Hashes of file build rules.
+655534c6c6ce8d0b6d4c7c6002104b45 src/CMakeFiles/git_versioning
+3e8b7fe1917c3bae2be3a2126b94e691 src/CMakeFiles/manpages
+e6f4e850668f58914a468f5f366365ee src/lexer.c
+9d2cfc822e389c92c42888b8f8b88fcd src/parser.c
+29bcf83f9454312349c5715438e4b99d src/topt.h
+9ddf0e5b2c413ccab727cb0f91cc68d6 src/zbopt.h
+e47165edb0adb479de43c48cc1f1be43 src/zitopt.h
+0f8f9219e53c7c09c889b2beee19c752 src/zopt.h
+ea4817ac4ef4386de773b02d5ff5061d src/ztopt.h

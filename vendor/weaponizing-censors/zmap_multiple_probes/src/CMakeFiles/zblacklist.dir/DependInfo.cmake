@@ -1,0 +1,21 @@
+
+# Consider dependencies only in project.
+set(CMAKE_DEPENDS_IN_PROJECT_ONLY OFF)
+
+# The set of languages for which implicit dependencies are needed:
+set(CMAKE_DEPENDS_LANGUAGES
+  )
+
+# The set of dependency files which are needed:
+set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/home/weaponizing-censors/zmap_multiple_probes/src/zblacklist.c" "src/CMakeFiles/zblacklist.dir/zblacklist.c.o" "gcc" "src/CMakeFiles/zblacklist.dir/zblacklist.c.o.d"
+  "/home/weaponizing-censors/zmap_multiple_probes/src/zbopt_compat.c" "src/CMakeFiles/zblacklist.dir/zbopt_compat.c.o" "gcc" "src/CMakeFiles/zblacklist.dir/zbopt_compat.c.o.d"
+  )
+
+# Targets to which this target links.
+set(CMAKE_TARGET_LINKED_INFO_FILES
+  "/home/weaponizing-censors/zmap_multiple_probes/lib/CMakeFiles/zmaplib.dir/DependInfo.cmake"
+  )
+
+# Fortran module output directory.
+set(CMAKE_Fortran_TARGET_MODULE_DIR "")

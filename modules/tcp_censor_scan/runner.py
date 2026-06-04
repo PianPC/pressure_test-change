@@ -115,8 +115,8 @@ def run_zmap_scan(cfg: ScanConfig, run_dir: Path, zmap_workdir: Path, artifacts:
         return
 
     zmap_bin = zmap_workdir / "src" / "zmap"
-    if not zmap_bin.exists():
-        raise FileNotFoundError(f"zmap executable not found: {zmap_bin}. Build zmap before running real scans.")
+    if not _ensure_executable(zmap_bin):
+        raise FileNotFoundError(f"zmap executable not available: {zmap_bin}. Build zmap before running real scans.")
 
     command = [
         str(zmap_bin),
@@ -361,6 +361,8 @@ def preflight_check(cfg: ScanConfig) -> dict[str, Any]:
     checks.append(_check_interface(cfg.network_interface))
     if not cfg.dry_run:
         checks.append(_check_path("geoip_db_path", cfg.geoip_db_path, "GeoIP 数据库"))
+        checks.extend(_check_python_modules(cfg.python_bin, ["geoip2", "scapy", "numpy"]))
+        checks.append(_check_command("traceroute"))
         checks.append(_check_path("selected_zmap_root", cfg.selected_zmap_root, "ZMap 源码目录"))
         checks.append(_check_zmap_binary(cfg.selected_zmap_root))
     return {
@@ -393,6 +395,39 @@ def _check_python(python_bin: str) -> dict[str, Any]:
     }
 
 
+def _check_python_modules(python_bin: str, modules: list[str]) -> list[dict[str, Any]]:
+    return [_check_python_module(python_bin, module) for module in modules]
+
+
+def _check_python_module(python_bin: str, module: str) -> dict[str, Any]:
+    command = [python_bin, "-c", f"import {module}"]
+    if python_bin in {"python", "python3"}:
+        command[0] = sys.executable
+    try:
+        result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8)
+        ok = result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        ok = False
+    return {
+        "key": f"python_module_{module}",
+        "label": f"Python 模块 {module}",
+        "ok": ok,
+        "path": python_bin,
+        "message": f"{module} 可导入" if ok else f"{module} 未安装或不可导入",
+    }
+
+
+def _check_command(name: str) -> dict[str, Any]:
+    resolved = shutil.which(name)
+    return {
+        "key": f"command_{name}",
+        "label": f"系统命令 {name}",
+        "ok": bool(resolved),
+        "path": resolved or name,
+        "message": f"{name} 可用" if resolved else f"{name} 不可用",
+    }
+
+
 def _check_interface(name: str) -> dict[str, Any]:
     ok = bool(name.strip())
     message = "网卡名称已提供"
@@ -410,7 +445,7 @@ def _check_interface(name: str) -> dict[str, Any]:
 
 def _check_zmap_binary(zmap_root: Path) -> dict[str, Any]:
     zmap_bin = zmap_root / "src" / "zmap"
-    executable = zmap_bin.exists() and os.access(zmap_bin, os.X_OK)
+    executable = _ensure_executable(zmap_bin)
     return {
         "key": "zmap_binary",
         "label": "ZMap 可执行文件",
@@ -418,6 +453,18 @@ def _check_zmap_binary(zmap_root: Path) -> dict[str, Any]:
         "path": str(zmap_bin),
         "message": "ZMap 可执行文件可用" if executable else "ZMap 可执行文件不可用",
     }
+
+
+def _ensure_executable(path: Path) -> bool:
+    if not path.exists():
+        return False
+    if os.access(path, os.X_OK):
+        return True
+    try:
+        path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    except OSError:
+        return False
+    return os.access(path, os.X_OK)
 
 
 def _preflight_hints(cfg: ScanConfig) -> list[str]:

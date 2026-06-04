@@ -310,10 +310,12 @@ async function startTcpScan() {
     setTcpControls(true, false);
     try {
         if (!payload.dry_run) {
-            const report = await runTcpPreflight(payload);
-            if (!report.ok) {
-                setTcpControls(false, false);
-                return;
+            for (const method of methods) {
+                const report = await runTcpPreflight({ ...payload, pkt_method: method });
+                if (!report.ok) {
+                    setTcpControls(false, false);
+                    return;
+                }
             }
         } else {
             setText("tcpPreflightStatus", "当前为模拟运行，将跳过真实扫描预检。");
@@ -340,8 +342,16 @@ async function runTcpPreflight(payload) {
     });
     const response = await fetch(`/api/tcp-scan/preflight?${params.toString()}`);
     const data = await response.json();
+    if (!response.ok || (!data?.success && !data?.report)) {
+        const message = data?.message || data?.error || `HTTP ${response.status}`;
+        setText("tcpPreflightStatus", `预检请求失败：${message}`);
+        showNotification(`预检请求失败：${message}`, "error");
+        return { ok: false, checks: [] };
+    }
     const checks = data.report?.checks || [];
-    const failures = checks.filter((item) => !item.ok).map((item) => `${item.label}：${item.message}`);
+    const failures = checks
+        .filter((item) => !item.ok)
+        .map((item) => `${item.label}：${item.message}${item.path ? `：${item.path}` : ""}`);
     const statusText = failures.length
         ? `预检未通过：${failures.join("；")}`
         : "预检通过，可以执行真实扫描。";

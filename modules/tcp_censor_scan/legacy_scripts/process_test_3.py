@@ -169,15 +169,12 @@ def _commit_batch_to_db(conn, cursor, batch_summary_data, batch_flags_data):
     # 更新 packet_summary 中的 flags_str
     for saddr in batch_summary_data.keys():
         cursor.execute('''
-            SELECT GROUP_CONCAT(flag_value)
-            FROM (
-                SELECT flag_value
-                FROM saddr_flags
-                WHERE saddr = ?
-                ORDER BY flag_value
-            );
+            SELECT flag_value
+            FROM saddr_flags
+            WHERE saddr = ?
+            ORDER BY flag_value;
         ''', (saddr,))
-        flags_str = cursor.fetchone()[0] # GROUP_CONCAT 返回的是一个字符串，fetchone()[0] 获取它
+        flags_str = ",".join(row[0] for row in cursor.fetchall())
         cursor.execute('''
             UPDATE packet_summary
             SET flags_str = ?

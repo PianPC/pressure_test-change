@@ -24,5 +24,5 @@ magnification_test_py = "modules/tcp_censor_scan/legacy_scripts/magnification_te
 analyze_amplify_log_py = "modules/tcp_censor_scan/legacy_scripts/analyze_amplify_log.py"
 
 [zmap]
-single_probe_root = "../TCP-weaponizing-censors/weaponizing-censors/zmap"
-multiple_probes_root = "../TCP-weaponizing-censors/weaponizing-censors/zmap_multiple_probes"
+single_probe_root = "vendor/weaponizing-censors/zmap"
+multiple_probes_root = "vendor/weaponizing-censors/zmap_multiple_probes"
