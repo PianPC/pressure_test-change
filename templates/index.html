@@ -36,8 +36,8 @@
                 <a href="#" class="nav-item" data-view="servers" title="资源池">
                     <i class="fas fa-server"></i><span>资源池</span>
                 </a>
-                <a href="#" class="nav-item" data-view="tcp-scan" title="TCP 审查扫描">
-                    <i class="fas fa-network-wired"></i><span>TCP 扫描</span>
+                <a href="#" class="nav-item" data-view="attack-resources" title="攻击资源获取">
+                    <i class="fas fa-network-wired"></i><span>攻击资源获取</span>
                 </a>
                 <a href="#" class="nav-item" data-view="help" title="说明">
                     <i class="fas fa-circle-question"></i><span>说明</span>
@@ -360,152 +360,403 @@
                     </div>
                 </section>
 
-                <section class="view-pane" id="view-tcp-scan">
-                    <div class="dashboard-grid tcp-scan-grid">
-                        <div class="tcp-column tcp-left-column">
-                            <section class="panel config-panel">
-                                <div class="panel-heading">
-                                    <div>
-                                        <p class="eyebrow">TCP 中间盒</p>
-                                        <h2><i class="fas fa-network-wired"></i> TCP 审查扫描</h2>
-                                    </div>
-                                    <span class="panel-chip">默认模拟运行</span>
+                <section class="view-pane" id="view-attack-resources">
+                    <div class="attack-resource-layout">
+                        <section class="panel attack-resource-overview">
+                            <div class="panel-heading">
+                                <div>
+                                    <p class="eyebrow">Attack Resource Center</p>
+                                    <h2><i class="fas fa-satellite-dish"></i> 攻击资源获取</h2>
                                 </div>
+                                <span class="panel-chip">TCP 已接入</span>
+                            </div>
+                            <div class="monitor-note">
+                                <i class="fas fa-circle-info"></i>
+                                <span>这里统一承载 TCP、Memcached、DNS、NTP 的资源获取流程。当前 TCP 已可直接使用，其余协议先提供完整前端设计与任务骨架，等待后端接入。</span>
+                            </div>
+                            <div class="attack-resource-card-grid">
+                                <button type="button" class="attack-resource-card active" data-proto="tcp">
+                                    <span class="attack-resource-card-icon tcp"><i class="fas fa-network-wired"></i></span>
+                                    <span class="attack-resource-card-body">
+                                        <strong>TCP 资源获取</strong>
+                                        <span>已接入，可直接执行任务、查看产物和日志。</span>
+                                    </span>
+                                    <span class="attack-resource-card-state live">已接入</span>
+                                </button>
+                                <button type="button" class="attack-resource-card" data-proto="memcached">
+                                    <span class="attack-resource-card-icon memcached"><i class="fas fa-database"></i></span>
+                                    <span class="attack-resource-card-body">
+                                        <strong>Memcached 资源获取</strong>
+                                        <span>前端已设计完成，等待后端任务与结果链路接入。</span>
+                                    </span>
+                                    <span class="attack-resource-card-state pending">待接入</span>
+                                </button>
+                                <button type="button" class="attack-resource-card" data-proto="dns">
+                                    <span class="attack-resource-card-icon dns"><i class="fas fa-globe"></i></span>
+                                    <span class="attack-resource-card-body">
+                                        <strong>DNS 资源获取</strong>
+                                        <span>预留完整参数、状态与日志区域，便于后续联调。</span>
+                                    </span>
+                                    <span class="attack-resource-card-state pending">待接入</span>
+                                </button>
+                                <button type="button" class="attack-resource-card" data-proto="ntp">
+                                    <span class="attack-resource-card-icon ntp"><i class="fas fa-clock"></i></span>
+                                    <span class="attack-resource-card-body">
+                                        <strong>NTP 资源获取</strong>
+                                        <span>保留高保真任务骨架，后续只需补后端能力。</span>
+                                    </span>
+                                    <span class="attack-resource-card-state pending">待接入</span>
+                                </button>
+                            </div>
+                        </section>
 
-                                <form id="tcpScanForm">
-                                    <div class="form-grid">
-                                        <div class="form-group wide">
-                                            <label for="tcpIpFile">IP 资源</label>
-                                            <select id="tcpIpFile"></select>
-                                        </div>
-                                        <div class="form-group wide">
-                                            <label for="tcpTargetHost">目标主机</label>
-                                            <input type="text" id="tcpTargetHost" value="www.youporn.com" autocomplete="off">
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="tcpPktMethod">报文方法</label>
-                                            <select id="tcpPktMethod">
-                                                <option value="PSH">PSH</option>
-                                                <option value="PSH_ACK">PSH_ACK</option>
-                                                <option value="SYN">SYN</option>
-                                                <option value="SYN_PSH_ACK">SYN_PSH_ACK</option>
-                                                <option value="SYN_PSH">SYN_PSH</option>
-                                            </select>
-                                        </div>
-                                        <div class="form-group">
-                                            <label>批量方法</label>
-                                            <div id="tcpMethodChecks" class="proto-check-group tcp-method-checks">
-                                                <label><input type="checkbox" value="PSH"> PSH</label>
-                                                <label><input type="checkbox" value="PSH_ACK"> PSH_ACK</label>
-                                                <label><input type="checkbox" value="SYN"> SYN</label>
-                                                <label><input type="checkbox" value="SYN_PSH_ACK"> SYN_PSH_ACK</label>
-                                                <label><input type="checkbox" value="SYN_PSH"> SYN_PSH</label>
+                        <div class="attack-resource-panels">
+                            <div class="attack-resource-panel active" data-proto-panel="tcp">
+                                <div class="dashboard-grid tcp-scan-grid">
+                                    <div class="tcp-column tcp-left-column">
+                                        <section class="panel config-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <p class="eyebrow">TCP Resource Workflow</p>
+                                                    <h2><i class="fas fa-network-wired"></i> TCP 资源获取</h2>
+                                                </div>
+                                                <span class="panel-chip">默认模拟运行</span>
                                             </div>
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="tcpScanRate">扫描速率</label>
-                                            <input type="number" id="tcpScanRate" value="2500" min="1">
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="tcpTtl">TTL</label>
-                                            <input type="number" id="tcpTtl" value="255" min="1" max="255">
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="tcpScanCount">扫描次数</label>
-                                            <input type="number" id="tcpScanCount" value="10" min="1" max="100">
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="tcpResultLimit">结果限制</label>
-                                            <input type="number" id="tcpResultLimit" value="30" min="0">
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="tcpLengthThreshold">长度阈值</label>
-                                            <input type="number" id="tcpLengthThreshold" value="2000" min="0">
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="tcpNetworkInterface">网卡接口</label>
-                                            <input type="text" id="tcpNetworkInterface" value="eth0">
-                                        </div>
+
+                                            <form id="tcpScanForm">
+                                                <div class="form-grid">
+                                                    <div class="form-group wide">
+                                                        <label for="tcpIpFile">IP 资源</label>
+                                                        <select id="tcpIpFile"></select>
+                                                    </div>
+                                                    <div class="form-group wide">
+                                                        <label for="tcpTargetHost">目标主机</label>
+                                                        <input type="text" id="tcpTargetHost" value="www.youporn.com" autocomplete="off">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="tcpPktMethod">报文方法</label>
+                                                        <select id="tcpPktMethod">
+                                                            <option value="PSH">PSH</option>
+                                                            <option value="PSH_ACK">PSH_ACK</option>
+                                                            <option value="SYN">SYN</option>
+                                                            <option value="SYN_PSH_ACK">SYN_PSH_ACK</option>
+                                                            <option value="SYN_PSH">SYN_PSH</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label>批量方法</label>
+                                                        <div id="tcpMethodChecks" class="proto-check-group tcp-method-checks">
+                                                            <label><input type="checkbox" value="PSH"> PSH</label>
+                                                            <label><input type="checkbox" value="PSH_ACK"> PSH_ACK</label>
+                                                            <label><input type="checkbox" value="SYN"> SYN</label>
+                                                            <label><input type="checkbox" value="SYN_PSH_ACK"> SYN_PSH_ACK</label>
+                                                            <label><input type="checkbox" value="SYN_PSH"> SYN_PSH</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="tcpScanRate">资源获取速率</label>
+                                                        <input type="number" id="tcpScanRate" value="2500" min="1">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="tcpTtl">TTL</label>
+                                                        <input type="number" id="tcpTtl" value="255" min="1" max="255">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="tcpScanCount">获取次数</label>
+                                                        <input type="number" id="tcpScanCount" value="10" min="1" max="100">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="tcpResultLimit">结果限制</label>
+                                                        <input type="number" id="tcpResultLimit" value="30" min="0">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="tcpLengthThreshold">长度阈值</label>
+                                                        <input type="number" id="tcpLengthThreshold" value="2000" min="0">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="tcpNetworkInterface">网卡接口</label>
+                                                        <input type="text" id="tcpNetworkInterface" value="eth0">
+                                                    </div>
+                                                </div>
+
+                                                <div class="proto-check-group tcp-dry-run-row">
+                                                    <label><input type="checkbox" id="tcpDryRun" checked> 模拟运行</label>
+                                                </div>
+
+                                                <div class="action-buttons">
+                                                    <button type="button" id="tcpStartBtn" class="btn btn-primary"><i class="fas fa-play"></i>开始获取</button>
+                                                    <button type="button" id="tcpStopBtn" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
+                                                    <button type="button" id="tcpStopCleanupBtn" class="btn btn-danger" disabled><i class="fas fa-trash"></i>停止并清理</button>
+                                                    <button type="button" id="tcpRefreshBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>刷新</button>
+                                                </div>
+                                                <div id="tcpPreflightStatus" class="info-text">真实资源获取前会自动执行环境预检。</div>
+                                            </form>
+                                        </section>
+
+                                        <section class="panel tcp-runs-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <p class="eyebrow">Existing Tasks</p>
+                                                    <h2><i class="fas fa-list-check"></i> 任务记录</h2>
+                                                </div>
+                                                <button type="button" id="tcpClearRunsBtn" class="btn btn-secondary tcp-panel-action">
+                                                    <i class="fas fa-trash-can"></i>清除记录
+                                                </button>
+                                            </div>
+                                            <div id="tcpRunList" class="tcp-run-list"></div>
+                                        </section>
+
+                                        <section class="panel resources-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <p class="eyebrow">Artifacts</p>
+                                                    <h2><i class="fas fa-folder-open"></i> 输出文件</h2>
+                                                </div>
+                                            </div>
+                                            <div id="tcpArtifacts" class="tcp-artifact-list"></div>
+                                        </section>
                                     </div>
 
-                                    <div class="proto-check-group tcp-dry-run-row">
-                                        <label><input type="checkbox" id="tcpDryRun" checked> 模拟运行</label>
-                                    </div>
+                                    <div class="tcp-column tcp-right-column">
+                                        <section class="panel metrics-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <p class="eyebrow">Current Task</p>
+                                                    <h2><i class="fas fa-chart-simple"></i> 任务详情</h2>
+                                                </div>
+                                            </div>
+                                            <div class="stats-grid tcp-status-grid">
+                                                <div class="stat-card">
+                                                    <div class="stat-title">状态</div>
+                                                    <div class="stat-value tcp-small-value" id="tcpStatus">空闲</div>
+                                                </div>
+                                                <div class="stat-card">
+                                                    <div class="stat-title">运行 ID</div>
+                                                    <div class="stat-value tcp-small-value" id="tcpRunId">-</div>
+                                                </div>
+                                                <div class="stat-card">
+                                                    <div class="stat-title">方法</div>
+                                                    <div class="stat-value tcp-small-value" id="tcpRunMethod">-</div>
+                                                </div>
+                                                <div class="stat-card">
+                                                    <div class="stat-title">主机</div>
+                                                    <div class="stat-value tcp-small-value" id="tcpRunHost">-</div>
+                                                </div>
+                                            </div>
+                                            <div id="tcpRunMeta" class="tcp-run-meta"></div>
+                                            <div id="tcpStages" class="tcp-stage-list"></div>
+                                        </section>
 
-                                    <div class="action-buttons">
-                                        <button type="button" id="tcpStartBtn" class="btn btn-primary"><i class="fas fa-play"></i>开始扫描</button>
-                                        <button type="button" id="tcpStopBtn" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
-                                        <button type="button" id="tcpStopCleanupBtn" class="btn btn-danger" disabled><i class="fas fa-trash"></i>停止并清理</button>
-                                        <button type="button" id="tcpRefreshBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>刷新</button>
+                                        <section class="panel chart-panel tcp-log-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <p class="eyebrow">Pipeline Log</p>
+                                                    <h2><i class="fas fa-terminal"></i> 流水线日志</h2>
+                                                </div>
+                                            </div>
+                                            <pre id="tcpPipelineLog" class="tcp-log-box">尚未选择 TCP 资源获取任务。</pre>
+                                            <div id="tcpRuntimeError" class="info-text"></div>
+                                        </section>
                                     </div>
-                                    <div id="tcpPreflightStatus" class="info-text">真实扫描前会自动执行环境预检。</div>
-                                </form>
-                            </section>
-
-                            <section class="panel tcp-runs-panel">
-                                <div class="panel-heading">
-                                    <div>
-                                        <p class="eyebrow">已有任务</p>
-                                        <h2><i class="fas fa-list-check"></i> 任务记录</h2>
-                                    </div>
-                                    <button type="button" id="tcpClearRunsBtn" class="btn btn-secondary tcp-panel-action">
-                                        <i class="fas fa-trash-can"></i>清除记录
-                                    </button>
                                 </div>
-                                <div id="tcpRunList" class="tcp-run-list"></div>
-                            </section>
+                            </div>
 
-                            <section class="panel resources-panel">
-                                <div class="panel-heading">
-                                    <div>
-                                        <p class="eyebrow">产物</p>
-                                        <h2><i class="fas fa-folder-open"></i> 输出文件</h2>
+                            <div class="attack-resource-panel" data-proto-panel="memcached">
+                                <div class="dashboard-grid tcp-scan-grid attack-placeholder-grid">
+                                    <div class="tcp-column tcp-left-column">
+                                        <section class="panel config-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <p class="eyebrow">Placeholder Workflow</p>
+                                                    <h2><i class="fas fa-database"></i> Memcached 资源获取</h2>
+                                                </div>
+                                                <span class="panel-chip">后端待接入</span>
+                                            </div>
+                                            <div class="attack-placeholder-banner">
+                                                <i class="fas fa-screwdriver-wrench"></i>
+                                                <span>前端流程已设计完成，当前仅提供高保真占位，不会触发真实后端请求。</span>
+                                            </div>
+                                            <div class="form-grid">
+                                                <div class="form-group wide"><label>资源文件</label><input type="text" value="memcached.txt" disabled></div>
+                                                <div class="form-group wide"><label>查询目标</label><input type="text" value="stats / version / slabs" disabled></div>
+                                                <div class="form-group"><label>放大方向</label><select disabled><option>反射资源筛选</option></select></div>
+                                                <div class="form-group"><label>并发策略</label><select disabled><option>批量获取</option></select></div>
+                                                <div class="form-group"><label>速率限制</label><input type="number" value="8000" disabled></div>
+                                                <div class="form-group"><label>结果阈值</label><input type="number" value="50" disabled></div>
+                                            </div>
+                                            <div class="action-buttons">
+                                                <button type="button" class="btn btn-primary" disabled><i class="fas fa-play"></i>开始获取</button>
+                                                <button type="button" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
+                                                <button type="button" class="btn btn-secondary" disabled><i class="fas fa-rotate"></i>刷新</button>
+                                                <button type="button" class="btn btn-outline" disabled><i class="fas fa-floppy-disk"></i>保存模板</button>
+                                            </div>
+                                            <div class="info-text">建议后续接入资源探测、放大因子筛选、任务轮询与产物归档接口。</div>
+                                        </section>
+                                        <section class="panel tcp-runs-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Task Queue</p><h2><i class="fas fa-list-check"></i> 任务记录</h2></div></div>
+                                            <div class="attack-placeholder-list">
+                                                <div class="tcp-run-item"><span class="tcp-run-item-main"><span>尚无 Memcached 资源获取记录</span><span>后端接入后在此显示任务 ID、目标与执行状态。</span></span><span class="tcp-run-item-meta"><span>占位</span><strong>待接入</strong></span></div>
+                                            </div>
+                                        </section>
+                                        <section class="panel resources-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Artifacts</p><h2><i class="fas fa-folder-open"></i> 输出文件</h2></div></div>
+                                            <div class="attack-placeholder-list">
+                                                <div class="tcp-artifact-item"><span>资源结果 CSV / 日志 / 可视化摘要将在此展示</span><strong>待接入</strong></div>
+                                            </div>
+                                        </section>
                                     </div>
-                                </div>
-                                <div id="tcpArtifacts" class="tcp-artifact-list"></div>
-                            </section>
-                        </div>
+                                    <div class="tcp-column tcp-right-column">
+                                        <section class="panel metrics-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Task Detail</p><h2><i class="fas fa-chart-simple"></i> 任务详情</h2></div></div>
+                                            <div class="stats-grid tcp-status-grid">
+                                                <div class="stat-card"><div class="stat-title">状态</div><div class="stat-value tcp-small-value">待接入</div></div>
+                                                <div class="stat-card"><div class="stat-title">任务 ID</div><div class="stat-value tcp-small-value">MEMCACHED-PLACEHOLDER</div></div>
+                                                <div class="stat-card"><div class="stat-title">模式</div><div class="stat-value tcp-small-value">资源筛选</div></div>
+                                                <div class="stat-card"><div class="stat-title">结果</div><div class="stat-value tcp-small-value">前端占位</div></div>
+                                            </div>
+                                            <div class="attack-placeholder-stage-list">
+                                                <div class="tcp-stage-item"><span>加载资源清单</span><strong>待接入</strong></div>
+                                                <div class="tcp-stage-item"><span>执行协议探测</span><strong>待接入</strong></div>
+                                                <div class="tcp-stage-item"><span>筛选高价值目标</span><strong>待接入</strong></div>
+                                                <div class="tcp-stage-item"><span>输出结果文件</span><strong>待接入</strong></div>
+                                            </div>
+                                        </section>
+                                        <section class="panel chart-panel tcp-log-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Pipeline Log</p><h2><i class="fas fa-terminal"></i> 流水线日志</h2></div></div>
+                                            <pre class="tcp-log-box">Memcached 资源获取前端已就绪。
+后端尚未接入，因此当前不会发送真实请求。
 
-                        <div class="tcp-column tcp-right-column">
-                            <section class="panel metrics-panel">
-                                <div class="panel-heading">
-                                    <div>
-                                        <p class="eyebrow">当前任务</p>
-                                        <h2><i class="fas fa-chart-simple"></i> 任务详情</h2>
+建议后续接入：
+1. 资源文件读取与预检
+2. 协议探测与放大因子判断
+3. 任务状态轮询
+4. 结果产物与日志归档</pre>
+                                        </section>
                                     </div>
                                 </div>
-                                <div class="stats-grid tcp-status-grid">
-                                    <div class="stat-card">
-                                        <div class="stat-title">状态</div>
-                                        <div class="stat-value tcp-small-value" id="tcpStatus">空闲</div>
-                                    </div>
-                                    <div class="stat-card">
-                                        <div class="stat-title">运行 ID</div>
-                                        <div class="stat-value tcp-small-value" id="tcpRunId">-</div>
-                                    </div>
-                                    <div class="stat-card">
-                                        <div class="stat-title">方法</div>
-                                        <div class="stat-value tcp-small-value" id="tcpRunMethod">-</div>
-                                    </div>
-                                    <div class="stat-card">
-                                        <div class="stat-title">主机</div>
-                                        <div class="stat-value tcp-small-value" id="tcpRunHost">-</div>
-                                    </div>
-                                </div>
-                                <div id="tcpRunMeta" class="tcp-run-meta"></div>
-                                <div id="tcpStages" class="tcp-stage-list"></div>
-                            </section>
+                            </div>
 
-                            <section class="panel chart-panel tcp-log-panel">
-                                <div class="panel-heading">
-                                    <div>
-                                        <p class="eyebrow">日志</p>
-                                        <h2><i class="fas fa-terminal"></i> 流水线日志</h2>
+                            <div class="attack-resource-panel" data-proto-panel="dns">
+                                <div class="dashboard-grid tcp-scan-grid attack-placeholder-grid">
+                                    <div class="tcp-column tcp-left-column">
+                                        <section class="panel config-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Placeholder Workflow</p><h2><i class="fas fa-globe"></i> DNS 资源获取</h2></div><span class="panel-chip">后端待接入</span></div>
+                                            <div class="attack-placeholder-banner"><i class="fas fa-screwdriver-wrench"></i><span>已预留参数编排、状态展示和日志区域，等待接入 DNS 资源获取链路。</span></div>
+                                            <div class="form-grid">
+                                                <div class="form-group wide"><label>资源文件</label><input type="text" value="dns.txt" disabled></div>
+                                                <div class="form-group wide"><label>查询记录类型</label><input type="text" value="ANY / TXT / DNSSEC" disabled></div>
+                                                <div class="form-group"><label>域名池</label><select disabled><option>高回包候选</option></select></div>
+                                                <div class="form-group"><label>协议模式</label><select disabled><option>递归资源筛选</option></select></div>
+                                                <div class="form-group"><label>批量速率</label><input type="number" value="12000" disabled></div>
+                                                <div class="form-group"><label>输出限制</label><input type="number" value="100" disabled></div>
+                                            </div>
+                                            <div class="action-buttons">
+                                                <button type="button" class="btn btn-primary" disabled><i class="fas fa-play"></i>开始获取</button>
+                                                <button type="button" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
+                                                <button type="button" class="btn btn-secondary" disabled><i class="fas fa-rotate"></i>刷新</button>
+                                                <button type="button" class="btn btn-outline" disabled><i class="fas fa-floppy-disk"></i>保存模板</button>
+                                            </div>
+                                            <div class="info-text">建议后续补充域名模板库、应答长度统计和递归可用性筛选接口。</div>
+                                        </section>
+                                        <section class="panel tcp-runs-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Task Queue</p><h2><i class="fas fa-list-check"></i> 任务记录</h2></div></div>
+                                            <div class="attack-placeholder-list"><div class="tcp-run-item"><span class="tcp-run-item-main"><span>尚无 DNS 资源获取记录</span><span>接入后可在此查看批次、域名模板与任务状态。</span></span><span class="tcp-run-item-meta"><span>占位</span><strong>待接入</strong></span></div></div>
+                                        </section>
+                                        <section class="panel resources-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Artifacts</p><h2><i class="fas fa-folder-open"></i> 输出文件</h2></div></div>
+                                            <div class="attack-placeholder-list"><div class="tcp-artifact-item"><span>预期输出域名清单、探测日志、放大统计摘要</span><strong>待接入</strong></div></div>
+                                        </section>
+                                    </div>
+                                    <div class="tcp-column tcp-right-column">
+                                        <section class="panel metrics-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Task Detail</p><h2><i class="fas fa-chart-simple"></i> 任务详情</h2></div></div>
+                                            <div class="stats-grid tcp-status-grid">
+                                                <div class="stat-card"><div class="stat-title">状态</div><div class="stat-value tcp-small-value">待接入</div></div>
+                                                <div class="stat-card"><div class="stat-title">任务 ID</div><div class="stat-value tcp-small-value">DNS-PLACEHOLDER</div></div>
+                                                <div class="stat-card"><div class="stat-title">模式</div><div class="stat-value tcp-small-value">递归筛选</div></div>
+                                                <div class="stat-card"><div class="stat-title">结果</div><div class="stat-value tcp-small-value">前端占位</div></div>
+                                            </div>
+                                            <div class="attack-placeholder-stage-list">
+                                                <div class="tcp-stage-item"><span>载入域名与服务器资源</span><strong>待接入</strong></div>
+                                                <div class="tcp-stage-item"><span>构造查询模板</span><strong>待接入</strong></div>
+                                                <div class="tcp-stage-item"><span>筛选高回包目标</span><strong>待接入</strong></div>
+                                                <div class="tcp-stage-item"><span>输出结构化结果</span><strong>待接入</strong></div>
+                                            </div>
+                                        </section>
+                                        <section class="panel chart-panel tcp-log-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Pipeline Log</p><h2><i class="fas fa-terminal"></i> 流水线日志</h2></div></div>
+                                            <pre class="tcp-log-box">DNS 资源获取前端占位已准备完成。
+当前建议后端接入方向：
+- DNS 服务器资源加载
+- 查询模板与记录类型选择
+- 应答大小与可用性评估
+- 任务日志与结果持久化</pre>
+                                        </section>
                                     </div>
                                 </div>
-                                <pre id="tcpPipelineLog" class="tcp-log-box">尚未选择 TCP 扫描。</pre>
-                                <div id="tcpRuntimeError" class="info-text"></div>
-                            </section>
+                            </div>
+
+                            <div class="attack-resource-panel" data-proto-panel="ntp">
+                                <div class="dashboard-grid tcp-scan-grid attack-placeholder-grid">
+                                    <div class="tcp-column tcp-left-column">
+                                        <section class="panel config-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Placeholder Workflow</p><h2><i class="fas fa-clock"></i> NTP 资源获取</h2></div><span class="panel-chip">后端待接入</span></div>
+                                            <div class="attack-placeholder-banner"><i class="fas fa-screwdriver-wrench"></i><span>NTP 面板已预设为完整任务视图，后续接入探测与筛选能力即可启用。</span></div>
+                                            <div class="form-grid">
+                                                <div class="form-group wide"><label>资源文件</label><input type="text" value="ntp.txt" disabled></div>
+                                                <div class="form-group wide"><label>探测动作</label><input type="text" value="monlist / readvar / control message" disabled></div>
+                                                <div class="form-group"><label>资源模式</label><select disabled><option>放大目标筛选</option></select></div>
+                                                <div class="form-group"><label>执行批次</label><select disabled><option>阶段化获取</option></select></div>
+                                                <div class="form-group"><label>发送速率</label><input type="number" value="6000" disabled></div>
+                                                <div class="form-group"><label>结果条数</label><input type="number" value="40" disabled></div>
+                                            </div>
+                                            <div class="action-buttons">
+                                                <button type="button" class="btn btn-primary" disabled><i class="fas fa-play"></i>开始获取</button>
+                                                <button type="button" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
+                                                <button type="button" class="btn btn-secondary" disabled><i class="fas fa-rotate"></i>刷新</button>
+                                                <button type="button" class="btn btn-outline" disabled><i class="fas fa-floppy-disk"></i>保存模板</button>
+                                            </div>
+                                            <div class="info-text">建议后续接入 NTP 版本识别、可用命令筛选和放大潜力分析接口。</div>
+                                        </section>
+                                        <section class="panel tcp-runs-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Task Queue</p><h2><i class="fas fa-list-check"></i> 任务记录</h2></div></div>
+                                            <div class="attack-placeholder-list"><div class="tcp-run-item"><span class="tcp-run-item-main"><span>尚无 NTP 资源获取记录</span><span>后端接入后可在此查看批次、资源过滤结果与执行日志。</span></span><span class="tcp-run-item-meta"><span>占位</span><strong>待接入</strong></span></div></div>
+                                        </section>
+                                        <section class="panel resources-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Artifacts</p><h2><i class="fas fa-folder-open"></i> 输出文件</h2></div></div>
+                                            <div class="attack-placeholder-list"><div class="tcp-artifact-item"><span>预期输出高价值资源列表、日志、摘要报告</span><strong>待接入</strong></div></div>
+                                        </section>
+                                    </div>
+                                    <div class="tcp-column tcp-right-column">
+                                        <section class="panel metrics-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Task Detail</p><h2><i class="fas fa-chart-simple"></i> 任务详情</h2></div></div>
+                                            <div class="stats-grid tcp-status-grid">
+                                                <div class="stat-card"><div class="stat-title">状态</div><div class="stat-value tcp-small-value">待接入</div></div>
+                                                <div class="stat-card"><div class="stat-title">任务 ID</div><div class="stat-value tcp-small-value">NTP-PLACEHOLDER</div></div>
+                                                <div class="stat-card"><div class="stat-title">模式</div><div class="stat-value tcp-small-value">阶段化获取</div></div>
+                                                <div class="stat-card"><div class="stat-title">结果</div><div class="stat-value tcp-small-value">前端占位</div></div>
+                                            </div>
+                                            <div class="attack-placeholder-stage-list">
+                                                <div class="tcp-stage-item"><span>载入 NTP 资源</span><strong>待接入</strong></div>
+                                                <div class="tcp-stage-item"><span>执行版本与能力识别</span><strong>待接入</strong></div>
+                                                <div class="tcp-stage-item"><span>筛选高价值目标</span><strong>待接入</strong></div>
+                                                <div class="tcp-stage-item"><span>输出结构化资产</span><strong>待接入</strong></div>
+                                            </div>
+                                        </section>
+                                        <section class="panel chart-panel tcp-log-panel">
+                                            <div class="panel-heading"><div><p class="eyebrow">Pipeline Log</p><h2><i class="fas fa-terminal"></i> 流水线日志</h2></div></div>
+                                            <pre class="tcp-log-box">NTP 资源获取界面已搭建完成。
+当前尚未绑定后端逻辑，因此按钮保持禁用。
+
+后续建议接入：
+1. NTP 资源文件管理
+2. 版本/命令可用性探测
+3. 高价值目标筛选
+4. 结果文件与阶段日志输出</pre>
+                                        </section>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </section>

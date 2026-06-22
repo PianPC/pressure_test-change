@@ -29,6 +29,7 @@ let tcpScanPollInterval = null;
 let currentTcpRunId = null;
 let currentTcpRuns = [];
 let currentTcpFile = null;
+let currentAttackResourceProto = "tcp";
 
 const MAX_PPS_POINTS = 40;
 const MAX_LATENCY_POINTS = 60;
@@ -178,6 +179,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupNavigation();
     initProtocolCheckboxes();
     bindControls();
+    initAttackResourceView();
     toggleMultiProtocol();
     loadAllServerCounts();
     loadServerGeoMap();
@@ -191,8 +193,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function localizeTcpScanView() {
     const log = document.getElementById("tcpPipelineLog");
-    if (log && log.textContent.trim() === "No TCP scan selected.") {
-        log.textContent = "尚未选择 TCP 扫描。";
+    if (log && (log.textContent.trim() === "No TCP scan selected." || !log.textContent.trim())) {
+        log.textContent = "尚未选择 TCP 资源获取任务。";
+    }
+}
+
+function initAttackResourceView() {
+    document.querySelectorAll(".attack-resource-card").forEach((card) => {
+        card.addEventListener("click", () => {
+            switchAttackResourceProto(card.dataset.proto || "tcp");
+        });
+    });
+    switchAttackResourceProto(currentAttackResourceProto);
+}
+
+function switchAttackResourceProto(proto = "tcp") {
+    currentAttackResourceProto = proto;
+    document.querySelectorAll(".attack-resource-card").forEach((card) => {
+        card.classList.toggle("active", (card.dataset.proto || "") === proto);
+    });
+    document.querySelectorAll(".attack-resource-panel").forEach((panel) => {
+        panel.classList.toggle("active", (panel.dataset.protoPanel || "") === proto);
+    });
+    if (proto === "tcp") {
+        refreshTcpScan();
     }
 }
 
@@ -241,8 +265,8 @@ function setupNavigation() {
                 loadServerGeoMap();
                 resizeServerGlobe();
             }
-            if (view === "tcp-scan") {
-                refreshTcpScan();
+            if (view === "attack-resources") {
+                switchAttackResourceProto("tcp");
             }
             resizeCharts();
         });
@@ -420,6 +444,7 @@ function startTcpPolling() {
 }
 
 async function refreshTcpScan() {
+    if (currentAttackResourceProto !== "tcp") return;
     try {
         const response = await fetch("/api/tcp-scan/runs");
         const data = await response.json();
