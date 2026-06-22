@@ -280,41 +280,83 @@
                             <button class="tab-btn" data-proto="dns">DNS</button>
                             <button class="tab-btn" data-proto="ntp">NTP</button>
                         </div>
-                        <section class="server-map-panel">
-                            <div class="server-map-header">
-                                <div>
-                                    <p class="eyebrow">Geo Distribution</p>
-                                    <h3><i class="fas fa-earth-asia"></i> 资源地理分布</h3>
-                                </div>
-                                <div class="map-actions">
-                                    <div class="map-view-toggle" aria-label="地图视角">
-                                        <button type="button" class="map-view-btn active" data-map-view="3d">3D</button>
-                                        <button type="button" class="map-view-btn" data-map-view="2d">2D</button>
+                        <div class="servers-workspace">
+                            <div class="servers-map-column">
+                                <section class="server-map-panel">
+                                    <div class="server-map-header">
+                                        <div>
+                                            <p class="eyebrow">Geo Distribution</p>
+                                            <h3><i class="fas fa-earth-asia"></i> 资源地理分布</h3>
+                                        </div>
+                                        <div class="map-actions">
+                                            <div class="map-view-toggle" aria-label="地图视角">
+                                                <button type="button" class="map-view-btn active" data-map-view="3d">3D</button>
+                                                <button type="button" class="map-view-btn" data-map-view="2d">2D</button>
+                                            </div>
+                                            <button id="refreshGeoMapBtn" class="btn btn-outline map-refresh-btn"><i class="fas fa-location-crosshairs"></i>刷新定位</button>
+                                        </div>
                                     </div>
-                                    <button id="refreshGeoMapBtn" class="btn btn-outline map-refresh-btn"><i class="fas fa-location-crosshairs"></i>刷新定位</button>
-                                </div>
+                                    <div class="geo-stat-row">
+                                        <div><span>资源总数</span><strong id="geoTotalCount">0</strong></div>
+                                        <div><span>已定位</span><strong id="geoLocatedCount">0</strong></div>
+                                        <div><span>未定位</span><strong id="geoUnresolvedCount">0</strong></div>
+                                        <div><span>覆盖区域</span><strong id="geoAreaCount">0</strong></div>
+                                    </div>
+                                    <div id="serverGlobeStatus" class="map-status">正在加载地图...</div>
+                                    <div id="serverGlobe" class="server-globe" aria-label="资源池 IP 3D 世界地图"></div>
+                                    <div id="serverMap2d" class="server-map-2d" aria-label="资源池 IP 2D 世界地图" hidden>
+                                        <svg id="serverMap2dSvg" role="img"></svg>
+                                    </div>
+                                </section>
                             </div>
-                            <div class="geo-stat-row">
-                                <div><span>资源总数</span><strong id="geoTotalCount">0</strong></div>
-                                <div><span>已定位</span><strong id="geoLocatedCount">0</strong></div>
-                                <div><span>未定位</span><strong id="geoUnresolvedCount">0</strong></div>
-                                <div><span>覆盖区域</span><strong id="geoAreaCount">0</strong></div>
+
+                            <div class="servers-list-column">
+                                <section class="panel server-resource-panel">
+                                    <div class="panel-heading">
+                                        <div>
+                                            <p class="eyebrow">Resource Browser</p>
+                                            <h2><i class="fas fa-server"></i> IP 与区域联动</h2>
+                                        </div>
+                                        <div class="server-panel-actions">
+                                            <button type="button" id="openServerFileBtn" class="btn btn-primary"><i class="fas fa-file-pen"></i>查看/编辑源文件</button>
+                                            <button type="button" id="reloadServerWorkspaceBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>重新加载</button>
+                                        </div>
+                                    </div>
+
+                                    <div class="server-filter-summary">
+                                        <div>
+                                            <span class="server-summary-label">当前视图</span>
+                                            <strong id="serverFilterTitle">全部资源</strong>
+                                        </div>
+                                        <div>
+                                            <span class="server-summary-label">结构化条目</span>
+                                            <strong id="serverVisibleCount">0</strong>
+                                        </div>
+                                        <button type="button" id="clearServerSelectionBtn" class="btn btn-outline">清除筛选</button>
+                                    </div>
+
+                                    <div id="serverSelectionDetail" class="server-selection-detail">
+                                        <div class="info-text">点击地图区域可筛选资源，点击 IP 列表可反向定位所在区域。</div>
+                                    </div>
+
+                                    <div class="server-resource-section">
+                                        <div class="server-resource-section-header">
+                                            <span>已定位资源</span>
+                                        </div>
+                                        <div id="serverResourceList" class="server-resource-list"></div>
+                                    </div>
+
+                                    <div class="server-resource-section unresolved">
+                                        <div class="server-resource-section-header">
+                                            <span>未定位条目</span>
+                                        </div>
+                                        <div id="serverUnresolvedList" class="server-unresolved-list"></div>
+                                    </div>
+
+                                    <div id="geoUnresolvedList" class="geo-unresolved-list"></div>
+                                </section>
                             </div>
-                            <div id="serverGlobeStatus" class="map-status">正在加载地图...</div>
-                            <div id="serverGlobe" class="server-globe" aria-label="资源池 IP 3D 世界地图"></div>
-                            <div id="serverMap2d" class="server-map-2d" aria-label="资源池 IP 2D 世界地图" hidden>
-                                <svg id="serverMap2dSvg" role="img"></svg>
-                            </div>
-                            <div id="geoUnresolvedList" class="geo-unresolved-list"></div>
-                        </section>
-                        <div class="editor-area">
-                            <textarea id="serverListEditor" rows="14" placeholder="每行一个 IP 或域名，支持用 # 开头添加注释"></textarea>
                         </div>
-                        <div class="action-buttons narrow">
-                            <button id="saveServerListBtn" class="btn btn-primary"><i class="fas fa-floppy-disk"></i>保存修改</button>
-                            <button id="refreshServerListBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>重新加载</button>
-                        </div>
-                        <div class="info-text">保存后，下次测试会使用新的资源列表。</div>
                     </div>
                 </section>
 
@@ -482,6 +524,24 @@
                         <div class="action-buttons narrow">
                             <button type="button" id="tcpFileSaveBtn" class="btn btn-primary" disabled><i class="fas fa-floppy-disk"></i>保存</button>
                             <button type="button" id="tcpFileReloadBtn" class="btn btn-secondary" disabled><i class="fas fa-rotate"></i>重新加载</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="serverFileModal" class="tcp-modal" hidden>
+                    <div class="tcp-modal-backdrop" data-dismiss="server-file-modal"></div>
+                    <div class="tcp-modal-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <p class="eyebrow">Resource Source</p>
+                                <h2><i class="fas fa-file-lines"></i> <span id="serverFileModalTitle">资源文件</span></h2>
+                            </div>
+                            <button type="button" id="serverFileModalClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
+                        </div>
+                        <div id="serverFileModalBody" class="tcp-file-view"></div>
+                        <div class="action-buttons narrow">
+                            <button type="button" id="serverFileSaveBtn" class="btn btn-primary" disabled><i class="fas fa-floppy-disk"></i>保存</button>
+                            <button type="button" id="serverFileReloadBtn" class="btn btn-secondary" disabled><i class="fas fa-rotate"></i>重新加载</button>
                         </div>
                     </div>
                 </div>

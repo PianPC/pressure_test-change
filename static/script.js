@@ -19,6 +19,12 @@ let serverMapMode = "3d";
 let serverMapShapes = null;
 let serverMap2dZoomTransform = null;
 let isGeoMapLoading = false;
+let serverResourceItems = [];
+let serverUnresolvedItems = [];
+let selectedAreaCode = "";
+let selectedIp = "";
+let serverListFilterMode = "all";
+let currentServerFile = null;
 let tcpScanPollInterval = null;
 let currentTcpRunId = null;
 let currentTcpRuns = [];
@@ -174,7 +180,6 @@ document.addEventListener("DOMContentLoaded", () => {
     bindControls();
     toggleMultiProtocol();
     loadAllServerCounts();
-    loadServerListForEdit();
     loadServerGeoMap();
     initTcpScan();
     pollStatus();
@@ -199,9 +204,10 @@ function bindControls() {
     document.getElementById("method")?.addEventListener("change", updateMethodSettings);
     document.getElementById("startLatencyMonitor")?.addEventListener("click", startLatencyMonitoring);
     document.getElementById("stopLatencyMonitor")?.addEventListener("click", stopLatencyMonitoring);
-    document.getElementById("saveServerListBtn")?.addEventListener("click", saveServerList);
-    document.getElementById("refreshServerListBtn")?.addEventListener("click", refreshServerResources);
     document.getElementById("refreshGeoMapBtn")?.addEventListener("click", loadServerGeoMap);
+    document.getElementById("reloadServerWorkspaceBtn")?.addEventListener("click", refreshServerResources);
+    document.getElementById("openServerFileBtn")?.addEventListener("click", openServerFileModal);
+    document.getElementById("clearServerSelectionBtn")?.addEventListener("click", clearServerSelection);
     document.querySelectorAll(".map-view-btn").forEach((btn) => {
         btn.addEventListener("click", () => switchServerMapMode(btn.dataset.mapView || "3d"));
     });
@@ -215,7 +221,7 @@ function bindControls() {
             document.querySelectorAll(".tab-btn").forEach((item) => item.classList.remove("active"));
             btn.classList.add("active");
             currentProto = btn.dataset.proto || "memcached";
-            loadServerListForEdit();
+            resetServerSelectionState();
             loadServerGeoMap();
         });
     });
@@ -232,7 +238,6 @@ function setupNavigation() {
             item.classList.add("active");
             document.getElementById(`view-${view}`)?.classList.add("active");
             if (view === "servers") {
-                loadServerListForEdit();
                 loadServerGeoMap();
                 resizeServerGlobe();
             }
@@ -256,6 +261,10 @@ function bindTcpModalControls() {
     document.querySelector('[data-dismiss="tcp-file-modal"]')?.addEventListener("click", closeTcpFileModal);
     document.getElementById("tcpFileSaveBtn")?.addEventListener("click", saveTcpFileContent);
     document.getElementById("tcpFileReloadBtn")?.addEventListener("click", reloadTcpFileContent);
+    document.getElementById("serverFileModalClose")?.addEventListener("click", closeServerFileModal);
+    document.querySelector('[data-dismiss="server-file-modal"]')?.addEventListener("click", closeServerFileModal);
+    document.getElementById("serverFileSaveBtn")?.addEventListener("click", saveServerFileContent);
+    document.getElementById("serverFileReloadBtn")?.addEventListener("click", reloadServerFileContent);
 }
 
 async function loadTcpResources() {
@@ -863,6 +872,285 @@ function renderGeoUnresolved(items) {
     container.innerHTML = `<strong>未定位：</strong>${preview}${suffix}`;
 }
 
+function resetServerSelectionState() {
+    selectedAreaCode = "";
+    selectedIp = "";
+    serverListFilterMode = "all";
+}
+
+function buildServerResourceItems(points) {
+    return points.flatMap((point) => {
+        const entries = Array.isArray(point.entries) && point.entries.length ? point.entries : [point.ip];
+        return entries.map((entry, index) => ({
+            id: `${point.ip || "unknown"}:${entry}:${index}`,
+            entry,
+            ip: point.ip || entry,
+            country: point.country || "",
+            country_code: point.country_code || "",
+            region: point.region || "",
+            region_code: point.region_code || "",
+            city: point.city || "",
+            isp: point.isp || "",
+            lat: Number(point.lat),
+            lon: Number(point.lon),
+            stale: Boolean(point.stale)
+        }));
+    });
+}
+
+function buildServerUnresolvedItems(items) {
+    return items.map((item, index) => ({
+        id: `unresolved:${index}:${item.entry || item.ip || ""}`,
+        entry: item.entry || item.ip || "-",
+        ip: item.ip || "",
+        reason: item.reason || "unknown"
+    }));
+}
+
+function getAreaDisplayName(area) {
+    if (!area) return "未知区域";
+    return area.level === "region"
+        ? `${area.country || "-"} / ${area.region || area.name || "-"}`
+        : `${area.country || area.name || "-"}`;
+}
+
+function getSelectedArea() {
+    return lastGeoAreas.find((area) => String(area.area_code || "") === selectedAreaCode) || null;
+}
+
+function getAreaForItem(item) {
+    if (!item) return null;
+    return lastGeoAreas.find((area) => Array.isArray(area.ips) && area.ips.includes(item.ip)) || null;
+}
+
+function getVisibleServerResourceItems() {
+    if (serverListFilterMode === "area" && selectedAreaCode) {
+        const area = getSelectedArea();
+        if (!area) return [];
+        return serverResourceItems.filter((item) => area.ips.includes(item.ip));
+    }
+    if (serverListFilterMode === "ip" && selectedIp) {
+        return serverResourceItems.filter((item) => item.ip === selectedIp);
+    }
+    return serverResourceItems;
+}
+
+function clearServerSelection() {
+    resetServerSelectionState();
+    renderServerWorkspace();
+}
+
+function selectServerArea(areaCode) {
+    const area = lastGeoAreas.find((item) => String(item.area_code || "") === String(areaCode || ""));
+    if (!area) return;
+    selectedAreaCode = String(area.area_code || "");
+    selectedIp = "";
+    serverListFilterMode = "area";
+    focusServerArea(area);
+    renderServerWorkspace();
+}
+
+function selectServerIp(ip) {
+    const item = serverResourceItems.find((resource) => resource.ip === ip);
+    if (!item) return;
+    selectedIp = ip;
+    const area = getAreaForItem(item);
+    selectedAreaCode = area?.area_code || "";
+    serverListFilterMode = "ip";
+    if (area) focusServerArea(area, item);
+    renderServerWorkspace();
+}
+
+function focusServerArea(area, item = null) {
+    const targetLat = item && Number.isFinite(item.lat) ? item.lat : null;
+    const targetLon = item && Number.isFinite(item.lon) ? item.lon : null;
+    if (serverGlobe) {
+        if (targetLat !== null && targetLon !== null) {
+            serverGlobe.pointOfView({ lat: targetLat, lng: targetLon, altitude: 1.3 }, 900);
+        } else {
+            const firstAreaPoint = lastGeoPoints.find((point) => area.ips.includes(point.ip));
+            if (firstAreaPoint) {
+                serverGlobe.pointOfView({ lat: firstAreaPoint.lat, lng: firstAreaPoint.lon, altitude: 1.7 }, 900);
+            }
+        }
+    }
+}
+
+function renderServerWorkspace() {
+    renderServerFilterSummary();
+    renderServerSelectionDetail();
+    renderServerResourceList();
+    renderServerUnresolvedItems();
+    renderServerMap();
+}
+
+function renderServerFilterSummary() {
+    const title = document.getElementById("serverFilterTitle");
+    const count = document.getElementById("serverVisibleCount");
+    const clearBtn = document.getElementById("clearServerSelectionBtn");
+    const visibleItems = getVisibleServerResourceItems();
+    const area = getSelectedArea();
+    let filterTitle = "全部资源";
+    if (serverListFilterMode === "area" && area) {
+        filterTitle = `区域筛选 · ${getAreaDisplayName(area)}`;
+    } else if (serverListFilterMode === "ip" && selectedIp) {
+        filterTitle = `IP 定位 · ${selectedIp}`;
+    }
+    if (title) title.textContent = filterTitle;
+    if (count) count.textContent = String(visibleItems.length);
+    if (clearBtn) clearBtn.disabled = serverListFilterMode === "all";
+}
+
+function renderServerSelectionDetail() {
+    const container = document.getElementById("serverSelectionDetail");
+    if (!container) return;
+    if (serverListFilterMode === "all") {
+        container.innerHTML = `<div class="info-text">点击地图区域可筛选资源，点击 IP 列表可反向定位所在区域。</div>`;
+        return;
+    }
+    if (serverListFilterMode === "area") {
+        const area = getSelectedArea();
+        if (!area) {
+            container.innerHTML = `<div class="info-text">当前区域已不可用，请重新选择。</div>`;
+            return;
+        }
+        container.innerHTML = `
+            <div class="server-detail-grid">
+                <div><span>当前区域</span><strong>${escapeHtml(getAreaDisplayName(area))}</strong></div>
+                <div><span>资源条目</span><strong>${escapeHtml(String(area.resource_count || 0))}</strong></div>
+                <div><span>IP 数量</span><strong>${escapeHtml(String((area.ips || []).length))}</strong></div>
+                <div><span>协议</span><strong>${escapeHtml(getMethodText(area.protocol))}</strong></div>
+            </div>
+        `;
+        return;
+    }
+    const selectedItem = serverResourceItems.find((item) => item.ip === selectedIp);
+    const area = selectedItem ? getAreaForItem(selectedItem) : null;
+    if (!selectedItem) {
+        container.innerHTML = `<div class="info-text">当前 IP 已不可用，请重新选择。</div>`;
+        return;
+    }
+    container.innerHTML = `
+        <div class="server-detail-grid">
+            <div><span>资源条目</span><strong>${escapeHtml(selectedItem.entry)}</strong></div>
+            <div><span>IP</span><strong>${escapeHtml(selectedItem.ip)}</strong></div>
+            <div><span>地区</span><strong>${escapeHtml(area ? getAreaDisplayName(area) : "未定位")}</strong></div>
+            <div><span>城市</span><strong>${escapeHtml(selectedItem.city || "-")}</strong></div>
+        </div>
+    `;
+}
+
+function renderServerResourceList() {
+    const container = document.getElementById("serverResourceList");
+    if (!container) return;
+    const visibleItems = getVisibleServerResourceItems();
+    if (!visibleItems.length) {
+        container.innerHTML = `<div class="info-text">当前筛选条件下没有可展示的资源。</div>`;
+        return;
+    }
+    container.innerHTML = visibleItems.map((item) => {
+        const area = getAreaForItem(item);
+        const isActive = selectedIp === item.ip && serverListFilterMode === "ip";
+        const inSelectedArea = selectedAreaCode && area?.area_code === selectedAreaCode;
+        return `
+            <button type="button" class="server-resource-item ${isActive ? "active" : ""}" data-server-ip="${escapeHtml(item.ip)}">
+                <span class="server-resource-main">
+                    <strong>${escapeHtml(item.entry)}</strong>
+                    <span>${escapeHtml(item.ip)}</span>
+                </span>
+                <span class="server-resource-meta">
+                    <span>${escapeHtml(area ? getAreaDisplayName(area) : "未定位")}</span>
+                    <span>${escapeHtml(item.city || item.country || "-")}</span>
+                    ${inSelectedArea ? `<em>当前区域</em>` : ""}
+                </span>
+            </button>
+        `;
+    }).join("");
+    container.querySelectorAll("[data-server-ip]").forEach((item) => {
+        item.addEventListener("click", () => selectServerIp(item.getAttribute("data-server-ip") || ""));
+    });
+}
+
+function renderServerUnresolvedItems() {
+    const container = document.getElementById("serverUnresolvedList");
+    if (!container) return;
+    if (!serverUnresolvedItems.length) {
+        container.innerHTML = `<div class="info-text">当前没有未定位条目。</div>`;
+        return;
+    }
+    container.innerHTML = serverUnresolvedItems.map((item) => `
+        <div class="server-unresolved-item">
+            <strong>${escapeHtml(item.entry)}</strong>
+            <span>${escapeHtml(formatGeoReason(item.reason))}</span>
+        </div>
+    `).join("");
+}
+
+function renderServerFileModal(file) {
+    const title = document.getElementById("serverFileModalTitle");
+    const body = document.getElementById("serverFileModalBody");
+    const saveBtn = document.getElementById("serverFileSaveBtn");
+    const reloadBtn = document.getElementById("serverFileReloadBtn");
+    if (title) title.textContent = file.name || "资源文件";
+    if (saveBtn) saveBtn.disabled = !file.editable;
+    if (reloadBtn) reloadBtn.disabled = false;
+    if (body) {
+        body.innerHTML = file.editable
+            ? `<textarea id="serverFileEditor">${escapeHtml(file.content || "")}</textarea>`
+            : `<pre>${escapeHtml(file.content || "")}</pre>`;
+        if (file.editable) {
+            const textarea = document.getElementById("serverFileEditor");
+            if (textarea) textarea.value = file.content || "";
+        }
+    }
+}
+
+async function openServerFileModal() {
+    try {
+        const response = await fetch(`/api/servers/${currentProto}/file`);
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || "资源文件加载失败");
+        currentServerFile = data.file;
+        renderServerFileModal(data.file);
+        const modal = document.getElementById("serverFileModal");
+        if (modal) modal.hidden = false;
+    } catch (error) {
+        showNotification(`资源文件加载失败：${error.message}`, "error");
+    }
+}
+
+function closeServerFileModal() {
+    const modal = document.getElementById("serverFileModal");
+    if (modal) modal.hidden = true;
+    currentServerFile = null;
+}
+
+async function saveServerFileContent() {
+    if (!currentServerFile?.editable) return;
+    const textarea = document.getElementById("serverFileEditor");
+    const content = textarea?.value ?? "";
+    try {
+        const response = await fetch(`/api/servers/${currentProto}/file`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content })
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || "资源文件保存失败");
+        showNotification(data.message || "资源文件已保存", "success");
+        await loadServerGeoMap();
+        await reloadServerFileContent();
+        loadAllServerCounts();
+    } catch (error) {
+        showNotification(`资源文件保存失败：${error.message}`, "error");
+    }
+}
+
+async function reloadServerFileContent() {
+    if (!currentServerFile?.name) return;
+    await openServerFileModal();
+}
+
 function setMapStatus(message, loading = false, hide = false) {
     const status = document.getElementById("serverGlobeStatus");
     if (!status) return;
@@ -921,8 +1209,16 @@ async function loadServerGeoMap() {
         renderGeoUnresolved(data.unresolved || []);
         lastGeoPoints = normalizeGeoPoints(data.points || []);
         lastGeoAreas = normalizeGeoAreas(data.areas || []);
+        serverResourceItems = buildServerResourceItems(lastGeoPoints);
+        serverUnresolvedItems = buildServerUnresolvedItems(data.unresolved || []);
+        if (serverListFilterMode === "area" && !getSelectedArea()) {
+            resetServerSelectionState();
+        }
+        if (serverListFilterMode === "ip" && selectedIp && !serverResourceItems.some((item) => item.ip === selectedIp)) {
+            resetServerSelectionState();
+        }
         await ensureServerMapShapes();
-        renderServerMap();
+        renderServerWorkspace();
         if (!window.Globe) {
             setMapStatus("3D 地图库加载失败，已保留资源区域统计。", false);
         } else if (data.geo_api_degraded) {
@@ -935,6 +1231,10 @@ async function loadServerGeoMap() {
     } catch (error) {
         updateGeoStats({ total: 0, located_count: 0, unresolved_count: 0, area_count: 0 });
         renderGeoUnresolved([]);
+        serverResourceItems = [];
+        serverUnresolvedItems = [];
+        resetServerSelectionState();
+        renderServerWorkspace();
         setMapStatus(`地图定位失败：${error.message}`, false);
     } finally {
         isGeoMapLoading = false;
@@ -991,7 +1291,26 @@ function renderServerMap() {
 function renderServerMap3d(features) {
     resizeServerMapSurface();
     if (!serverGlobe) return;
-    serverGlobe.polygonsData(features.map(normalizeFeatureForGlobe));
+    serverGlobe
+        .polygonsData(features.map(normalizeFeatureForGlobe))
+        .polygonCapColor((feature) => getAreaFillColor(feature.properties?._resourceArea))
+        .onPolygonClick((feature) => {
+            const area = feature?.properties?._resourceArea;
+            if (area?.area_code) selectServerArea(area.area_code);
+        });
+    const activeItem = selectedIp ? serverResourceItems.find((item) => item.ip === selectedIp) : null;
+    const activeArea = getSelectedArea();
+    if (activeItem && Number.isFinite(activeItem.lat) && Number.isFinite(activeItem.lon)) {
+        serverGlobe.pointOfView({ lat: activeItem.lat, lng: activeItem.lon, altitude: 1.3 }, 700);
+        return;
+    }
+    if (activeArea) {
+        const areaPoint = lastGeoPoints.find((point) => activeArea.ips.includes(point.ip));
+        if (areaPoint) {
+            serverGlobe.pointOfView({ lat: areaPoint.lat, lng: areaPoint.lon, altitude: 1.7 }, 700);
+            return;
+        }
+    }
     const first = lastGeoPoints.find((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon));
     if (first) serverGlobe.pointOfView({ lat: first.lat, lng: first.lon, altitude: 2.1 }, 700);
 }
@@ -1022,9 +1341,13 @@ function renderServerMap2d(features) {
         .selectAll("path")
         .data(normalizedFeatures)
         .join("path")
-        .attr("class", "map-area")
+        .attr("class", (feature) => `map-area${isAreaSelected(feature.properties?._resourceArea) ? " selected" : ""}`)
         .attr("d", path)
         .attr("fill", (feature) => getAreaFillColor(feature.properties?._resourceArea))
+        .on("click", (_, feature) => {
+            const area = feature?.properties?._resourceArea;
+            if (area?.area_code) selectServerArea(area.area_code);
+        })
         .append("title")
         .text((feature) => getAreaTooltipText(feature.properties?._resourceArea));
 
@@ -1136,8 +1459,13 @@ function getAreaFillColor(area) {
         dns: [64, 231, 255],
         ntp: [92, 255, 177]
     }[area?.protocol || currentProto] || [64, 231, 255];
-    const alpha = 0.28 + ratio * 0.5;
+    const selected = isAreaSelected(area);
+    const alpha = selected ? 0.88 : 0.28 + ratio * 0.5;
     return `rgba(${base[0]}, ${base[1]}, ${base[2]}, ${alpha.toFixed(2)})`;
+}
+
+function isAreaSelected(area) {
+    return Boolean(area && selectedAreaCode && String(area.area_code || "") === String(selectedAreaCode));
 }
 
 function renderAreaTooltip(area) {
@@ -1240,40 +1568,9 @@ function loadAllServerCounts() {
     loadReflectorCount(["memcached", "dns", "ntp"]);
 }
 
-async function loadServerListForEdit() {
-    const editor = document.getElementById("serverListEditor");
-    if (!editor) return;
-    try {
-        const response = await fetch(`/api/servers/${currentProto}/list`);
-        const data = await response.json();
-        if (!data.success) throw new Error(data.message || "加载失败");
-        editor.value = (data.servers || []).join("\n");
-    } catch (error) {
-        showNotification(`资源列表加载失败：${error.message}`, "error");
-    }
-}
-
 function refreshServerResources() {
-    loadServerListForEdit();
+    resetServerSelectionState();
     loadServerGeoMap();
-}
-
-async function saveServerList() {
-    const editor = document.getElementById("serverListEditor");
-    if (!editor) return;
-    const servers = editor.value
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter((line) => line && !line.startsWith("#"));
-    try {
-        const data = await postJson(`/api/servers/${currentProto}/update`, { servers });
-        if (!data.success) throw new Error(data.message || "保存失败");
-        showNotification(data.message || "资源列表已保存", "success");
-        loadAllServerCounts();
-        loadServerGeoMap();
-    } catch (error) {
-        showNotification(`保存失败：${error.message}`, "error");
-    }
 }
 
 async function startTest() {

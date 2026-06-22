@@ -363,6 +363,9 @@ def is_valid_server_method(method: str) -> bool:
 def get_server_file(method: str) -> str:
     return os.path.join('servers', f'{method}.txt')
 
+def get_default_server_file_content(method: str) -> str:
+    return '# 每行一个反射器IP或域名\n'
+
 def read_server_entries(method: str) -> List[str]:
     filename = get_server_file(method)
     servers = []
@@ -792,6 +795,26 @@ def get_server_list(method):
                     servers.append(line)
     return jsonify({'success': True, 'servers': servers})
 
+@app.route('/api/servers/<method>/file', methods=['GET'])
+def get_server_file_content(method):
+    if not is_valid_server_method(method):
+        return jsonify({'success': False, 'message': 'Unsupported method'})
+    filename = get_server_file(method)
+    content = get_default_server_file_content(method)
+    if os.path.exists(filename):
+        with open(filename, 'r', encoding='utf-8') as f:
+            content = f.read()
+    return jsonify({
+        'success': True,
+        'file': {
+            'name': os.path.basename(filename),
+            'path': filename,
+            'type': 'text',
+            'editable': True,
+            'content': content
+        }
+    })
+
 @app.route('/api/servers/<method>/geo', methods=['GET'])
 def get_server_geo(method):
     if not is_valid_server_method(method):
@@ -800,6 +823,28 @@ def get_server_geo(method):
         return jsonify(build_geo_points(method))
     except Exception as e:
         logger.error("GeoIP endpoint failed: %s", e, exc_info=True)
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/servers/<method>/file', methods=['PUT'])
+def update_server_file_content(method):
+    if not is_valid_server_method(method):
+        return jsonify({'success': False, 'message': 'Unsupported method'})
+    data = request.json or {}
+    content = data.get('content', '')
+    if not isinstance(content, str):
+        return jsonify({'success': False, 'message': 'File content must be a string'})
+    filename = get_server_file(method)
+    normalized = content.replace('\r\n', '\n')
+    try:
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        with open(filename, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(normalized)
+        valid_count = len([
+            line for line in normalized.split('\n')
+            if line.strip() and not line.strip().startswith('#')
+        ])
+        return jsonify({'success': True, 'message': f'Saved {valid_count} active entries'})
+    except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/api/servers/<method>/update', methods=['POST'])
