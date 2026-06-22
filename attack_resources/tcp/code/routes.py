@@ -8,7 +8,7 @@ import traceback
 
 from flask import Blueprint, jsonify, request
 
-from modules.tcp_censor_scan import (
+from attack_resources.tcp.code.tcp_censor_scan import (
     cleanup_run_artifacts,
     load_config,
     list_ip_resources,
@@ -22,13 +22,13 @@ from modules.tcp_censor_scan import (
     stop_run,
     write_run_file,
 )
-from modules.tcp_censor_scan.config import ConfigError, ScanConfig, repo_root, validate_config
+from attack_resources.tcp.code.tcp_censor_scan.config import ConfigError, ScanConfig, repo_root, validate_config
 
 
 tcp_censor_bp = Blueprint("tcp_censor_scan", __name__, url_prefix="/api/tcp-scan")
 
-DEFAULT_CONFIG_PATH = repo_root() / "config" / "tcp_censor_scan" / "scan.example.toml"
-TCP_OUTPUT_ROOT = repo_root() / "runs" / "tcp_censor_scan"
+DEFAULT_CONFIG_PATH = repo_root() / "attack_resources" / "tcp" / "config" / "scan.example.toml"
+TCP_OUTPUT_ROOT = repo_root() / "attack_resources" / "tcp" / "runs" / "tcp_censor_scan"
 
 
 class TcpScanRegistry:
@@ -71,7 +71,7 @@ tcp_scan_registry = TcpScanRegistry()
 
 @tcp_censor_bp.route("/resources", methods=["GET"])
 def tcp_scan_resources():
-    return jsonify({"success": True, "resources": list_ip_resources(repo_root() / "tcp_scan_data" / "ip_lists")})
+    return jsonify({"success": True, "resources": list_ip_resources(repo_root() / "attack_resources" / "tcp" / "resources" / "ip_lists")})
 
 
 @tcp_censor_bp.route("/preflight", methods=["GET"])
@@ -270,7 +270,7 @@ def _resolve_ip_file(value: str) -> Path:
     path = Path(value)
     if path.is_absolute() and path.exists():
         return path
-    ip_root = repo_root() / "tcp_scan_data" / "ip_lists"
+    ip_root = repo_root() / "attack_resources" / "tcp" / "resources" / "ip_lists"
     candidate = ip_root / path.name
     if candidate.exists():
         return candidate

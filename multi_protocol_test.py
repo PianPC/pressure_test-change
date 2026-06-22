@@ -9,9 +9,9 @@ import logging
 from typing import Dict, List, Optional, Callable, Any
 from threading import Lock
 
-from modules.memcached_test import MemcachedTester
-from modules.dns_test import DNSTester
-from modules.ntp_test import NTPTester
+from attack_resources.memcached.code.tester import MemcachedTester
+from attack_resources.dns.code.tester import DNSTester
+from attack_resources.ntp.code.tester import NTPTester
 
 logger = logging.getLogger(__name__)
 

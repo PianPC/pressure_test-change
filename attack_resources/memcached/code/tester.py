@@ -37,7 +37,7 @@ class MemcachedTester:
         self.server_keys: Dict[str, str] = {}
         self.keys_lock = Lock()
 
-        self.servers_file = "servers/memcached.txt"
+        self.servers_file = "attack_resources/memcached/resources/servers.txt"
         self.initialized_servers: List[str] = []
         
         # 远程监控（与DNS/NTP保持一致）

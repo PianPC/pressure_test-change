@@ -9,7 +9,7 @@ from .config import repo_root
 
 
 def list_ip_resources(ip_root: str | Path | None = None) -> list[dict[str, Any]]:
-    root = Path(ip_root) if ip_root else repo_root() / "tcp_scan_data" / "ip_lists"
+    root = Path(ip_root) if ip_root else repo_root() / "attack_resources" / "tcp" / "resources" / "ip_lists"
     if not root.exists():
         return []
     resources = []
@@ -26,7 +26,7 @@ def list_ip_resources(ip_root: str | Path | None = None) -> list[dict[str, Any]]
 
 
 def list_runs(output_root: str | Path | None = None) -> list[dict[str, Any]]:
-    root = Path(output_root) if output_root else repo_root() / "runs" / "tcp_censor_scan"
+    root = Path(output_root) if output_root else repo_root() / "attack_resources" / "tcp" / "runs" / "tcp_censor_scan"
     if not root.exists():
         return []
     runs = []
@@ -92,7 +92,7 @@ def read_result_summary(run_id: str, output_root: str | Path | None = None) -> d
 
 
 def _run_dir(run_id: str, output_root: str | Path | None = None) -> Path:
-    root = Path(output_root) if output_root else repo_root() / "runs" / "tcp_censor_scan"
+    root = Path(output_root) if output_root else repo_root() / "attack_resources" / "tcp" / "runs" / "tcp_censor_scan"
     run_dir = root / run_id
     if not run_dir.exists():
         raise FileNotFoundError(f"Run not found: {run_id}")

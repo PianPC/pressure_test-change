@@ -5,10 +5,10 @@ import stat
 import tempfile
 import unittest
 
-from modules.tcp_censor_routes import _config_from_request
-from modules.tcp_censor_scan.config import MULTI_PROBE_METHODS, ScanConfig, repo_root
-from modules.tcp_censor_scan.legacy_scripts.process_test_3 import process_csv_optimized
-from modules.tcp_censor_scan.runner import preflight_check
+from attack_resources.tcp.code.routes import _config_from_request
+from attack_resources.tcp.code.tcp_censor_scan.config import MULTI_PROBE_METHODS, ScanConfig, repo_root
+from attack_resources.tcp.code.tcp_censor_scan.legacy_scripts.process_test_3 import process_csv_optimized
+from attack_resources.tcp.code.tcp_censor_scan.runner import preflight_check
 
 
 class TcpCensorRouteConfigTests(unittest.TestCase):

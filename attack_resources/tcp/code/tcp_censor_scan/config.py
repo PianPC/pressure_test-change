@@ -16,7 +16,7 @@ class ConfigError(ValueError):
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[4]
 
 
 @dataclass(frozen=True)
@@ -27,15 +27,15 @@ class ScanConfig:
     scan_rate: int = 8000
     result_limit: int = 0
     length_threshold: int = 1000
-    geoip_db_path: Path = field(default_factory=lambda: repo_root() / "tcp_scan_data" / "geoip" / "GeoLite2-City.mmdb")
+    geoip_db_path: Path = field(default_factory=lambda: repo_root() / "attack_resources" / "tcp" / "resources" / "geoip" / "GeoLite2-City.mmdb")
     scan_count: int = 1
     ttl: int = 64
     network_interface: str = "eth0"
-    output_root: Path = field(default_factory=lambda: repo_root() / "runs" / "tcp_censor_scan")
-    process_py: Path = field(default_factory=lambda: repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "process_test_3.py")
-    ip_take_py: Path = field(default_factory=lambda: repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "IP_take.py")
-    magnification_test_py: Path = field(default_factory=lambda: repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "magnification_test_1.py")
-    analyze_amplify_log_py: Path = field(default_factory=lambda: repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "analyze_amplify_log.py")
+    output_root: Path = field(default_factory=lambda: repo_root() / "attack_resources" / "tcp" / "runs" / "tcp_censor_scan")
+    process_py: Path = field(default_factory=lambda: repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "process_test_3.py")
+    ip_take_py: Path = field(default_factory=lambda: repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "IP_take.py")
+    magnification_test_py: Path = field(default_factory=lambda: repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "magnification_test_1.py")
+    analyze_amplify_log_py: Path = field(default_factory=lambda: repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "analyze_amplify_log.py")
     zmap_root: Path = field(default_factory=lambda: repo_root() / "vendor" / "weaponizing-censors" / "zmap")
     zmap_multiple_probes_root: Path = field(default_factory=lambda: repo_root() / "vendor" / "weaponizing-censors" / "zmap_multiple_probes")
     dry_run: bool = False
@@ -83,15 +83,15 @@ def load_config(path: str | Path) -> ScanConfig:
         scan_rate=_int(scan.get("scan_rate", 8000), "scan_rate", minimum=1),
         result_limit=_int(general.get("result_limit", 0), "result_limit", minimum=0),
         length_threshold=_int(general.get("length_threshold", 1000), "length_threshold", minimum=0),
-        geoip_db_path=_path(amplify.get("geoip_db_path", repo_root() / "tcp_scan_data" / "geoip" / "GeoLite2-City.mmdb")),
+        geoip_db_path=_path(amplify.get("geoip_db_path", repo_root() / "attack_resources" / "tcp" / "resources" / "geoip" / "GeoLite2-City.mmdb")),
         scan_count=_int(amplify.get("scan_count", 1), "scan_count", minimum=1, maximum=100),
         ttl=_int(amplify.get("ttl", 64), "ttl", minimum=1, maximum=255),
         network_interface=_string(scan.get("network_interface", "eth0"), "network_interface"),
-        output_root=_path(paths.get("output_root", repo_root() / "runs" / "tcp_censor_scan")),
-        process_py=_path(scripts.get("process_py", repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "process_test_3.py")),
-        ip_take_py=_path(scripts.get("ip_take_py", repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "IP_take.py")),
-        magnification_test_py=_path(scripts.get("magnification_test_py", repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "magnification_test_1.py")),
-        analyze_amplify_log_py=_path(scripts.get("analyze_amplify_log_py", repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "analyze_amplify_log.py")),
+        output_root=_path(paths.get("output_root", repo_root() / "attack_resources" / "tcp" / "runs" / "tcp_censor_scan")),
+        process_py=_path(scripts.get("process_py", repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "process_test_3.py")),
+        ip_take_py=_path(scripts.get("ip_take_py", repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "IP_take.py")),
+        magnification_test_py=_path(scripts.get("magnification_test_py", repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "magnification_test_1.py")),
+        analyze_amplify_log_py=_path(scripts.get("analyze_amplify_log_py", repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "analyze_amplify_log.py")),
         zmap_root=_path(zmap.get("single_probe_root", repo_root() / "vendor" / "weaponizing-censors" / "zmap")),
         zmap_multiple_probes_root=_path(zmap.get("multiple_probes_root", repo_root() / "vendor" / "weaponizing-censors" / "zmap_multiple_probes")),
         dry_run=_bool(general.get("dry_run", False), "dry_run"),
@@ -134,7 +134,11 @@ def _load_legacy_ini(path: Path) -> dict[str, dict[str, Any]]:
     parser.read(path, encoding="utf-8")
     return {
         "general": {
-            "output_root": parser.get("GENERAL_CONFIG", "OUTPUT_DIR", fallback=str(repo_root() / "runs")),
+            "output_root": parser.get(
+                "GENERAL_CONFIG",
+                "OUTPUT_DIR",
+                fallback=str(repo_root() / "attack_resources" / "tcp" / "runs" / "tcp_censor_scan"),
+            ),
             "result_limit": parser.get("GENERAL_CONFIG", "RESULT_LIMIT", fallback="0"),
             "length_threshold": parser.get("GENERAL_CONFIG", "LENGTH_THRESHOLD", fallback="1000"),
         },
@@ -145,15 +149,15 @@ def _load_legacy_ini(path: Path) -> dict[str, dict[str, Any]]:
             "scan_rate": parser.get("SCAN_CONFIG", "SCAN_RATE", fallback="8000"),
         },
         "amplify": {
-            "geoip_db_path": parser.get("AMPLIFY_CONFIG", "GEOIP_DB_PATH", fallback=str(repo_root() / "tcp_scan_data" / "geoip" / "GeoLite2-City.mmdb")),
+            "geoip_db_path": parser.get("AMPLIFY_CONFIG", "GEOIP_DB_PATH", fallback=str(repo_root() / "attack_resources" / "tcp" / "resources" / "geoip" / "GeoLite2-City.mmdb")),
             "scan_count": parser.get("AMPLIFY_CONFIG", "SCAN_COUNT", fallback="1"),
             "ttl": parser.get("AMPLIFY_CONFIG", "TTL", fallback="64"),
         },
         "scripts": {
-            "process_py": parser.get("SCRIPT_CONFIG", "PROCESS_PY", fallback=str(repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "process_test_3.py")),
-            "ip_take_py": parser.get("SCRIPT_CONFIG", "IP_TAKE_PY", fallback=str(repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "IP_take.py")),
-            "magnification_test_py": parser.get("SCRIPT_CONFIG", "MAGNIFICATION_TEST_PY", fallback=str(repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "magnification_test_1.py")),
-            "analyze_amplify_log_py": parser.get("SCRIPT_CONFIG", "ANALYZE_AMPLIFY_LOG_PY", fallback=str(repo_root() / "modules" / "tcp_censor_scan" / "legacy_scripts" / "analyze_amplify_log.py")),
+            "process_py": parser.get("SCRIPT_CONFIG", "PROCESS_PY", fallback=str(repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "process_test_3.py")),
+            "ip_take_py": parser.get("SCRIPT_CONFIG", "IP_TAKE_PY", fallback=str(repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "IP_take.py")),
+            "magnification_test_py": parser.get("SCRIPT_CONFIG", "MAGNIFICATION_TEST_PY", fallback=str(repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "magnification_test_1.py")),
+            "analyze_amplify_log_py": parser.get("SCRIPT_CONFIG", "ANALYZE_AMPLIFY_LOG_PY", fallback=str(repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "analyze_amplify_log.py")),
         },
     }
 

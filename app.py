@@ -31,11 +31,11 @@ except ImportError:
     geoip2 = None
 
 # 导入测试模块
-from modules.memcached_test import MemcachedTester
-from modules.dns_test import DNSTester
-from modules.ntp_test import NTPTester
+from attack_resources.memcached.code.tester import MemcachedTester
+from attack_resources.dns.code.tester import DNSTester
+from attack_resources.ntp.code.tester import NTPTester
 from multi_protocol_test import MultiProtocolTester
-from modules.tcp_censor_routes import tcp_censor_bp
+from attack_resources.tcp.code.routes import tcp_censor_bp
 
 # ========= 配置 =========
 class TestMethod(Enum):
@@ -96,9 +96,10 @@ app.register_blueprint(tcp_censor_bp)
 
 VALID_SERVER_PROTOCOLS = {'memcached', 'dns', 'ntp'}
 GEOIP_CACHE_FILE = os.path.join('config', 'geoip_cache.json')
-GEOIP_LOCAL_DB_FILE = os.path.join('tcp_scan_data', 'geoip', 'GeoLite2-City.mmdb')
+GEOIP_LOCAL_DB_FILE = os.path.join('attack_resources', 'tcp', 'resources', 'geoip', 'GeoLite2-City.mmdb')
 GEOIP_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 GEOIP_BATCH_SIZE = 100
+ATTACK_RESOURCES_ROOT = os.path.join('attack_resources')
 SUBDIVISION_COUNTRY_CODES = {'CN', 'US', 'RU', 'CA', 'AU', 'BR', 'IN'}
 CHINA_AREA_ALIASES = {
     'HK': ('HK', 'Hong Kong'),
@@ -361,13 +362,16 @@ def is_valid_server_method(method: str) -> bool:
     return method in VALID_SERVER_PROTOCOLS
 
 def get_server_file(method: str) -> str:
-    return os.path.join('servers', f'{method}.txt')
+    return os.path.join(ATTACK_RESOURCES_ROOT, method, 'resources', 'servers.txt')
 
 def get_default_server_file_content(method: str) -> str:
     return '# 每行一个反射器IP或域名\n'
 
+def get_effective_server_file(method: str) -> str:
+    return get_server_file(method)
+
 def read_server_entries(method: str) -> List[str]:
-    filename = get_server_file(method)
+    filename = get_effective_server_file(method)
     servers = []
     if os.path.exists(filename):
         with open(filename, 'r', encoding='utf-8') as f:
@@ -755,14 +759,7 @@ def get_servers(method):
     try:
         if not is_valid_server_method(method):
             return jsonify({'success': False, 'message': '不支持的方法'})
-        filename_map = {
-            'memcached': 'servers/memcached.txt',
-            'dns': 'servers/dns.txt',
-            'ntp': 'servers/ntp.txt'
-        }
-        if method not in filename_map:
-            return jsonify({'success': False, 'message': '不支持的方法'})
-        filename = filename_map[method]
+        filename = get_effective_server_file(method)
         servers = []
         if os.path.exists(filename):
             with open(filename, 'r', encoding='utf-8') as f:
@@ -785,7 +782,7 @@ def get_servers(method):
 def get_server_list(method):
     if not is_valid_server_method(method):
         return jsonify({'success': False, 'message': '不支持的方法'})
-    filename = get_server_file(method)
+    filename = get_effective_server_file(method)
     servers = []
     if os.path.exists(filename):
         with open(filename, 'r', encoding='utf-8') as f:
@@ -799,7 +796,7 @@ def get_server_list(method):
 def get_server_file_content(method):
     if not is_valid_server_method(method):
         return jsonify({'success': False, 'message': 'Unsupported method'})
-    filename = get_server_file(method)
+    filename = get_effective_server_file(method)
     content = get_default_server_file_content(method)
     if os.path.exists(filename):
         with open(filename, 'r', encoding='utf-8') as f:
@@ -876,7 +873,7 @@ def get_server_count():
         default_counts = {'memcached': 1, 'dns': 3, 'ntp': 2}
         for protocol in protocols:
             if protocol in ['memcached', 'dns', 'ntp']:
-                filename = f'servers/{protocol}.txt'
+                filename = get_effective_server_file(protocol)
                 count = 0
                 if os.path.exists(filename):
                     with open(filename, 'r', encoding='utf-8') as f:
@@ -991,7 +988,28 @@ def check_root_privileges():
     return True
 
 def create_required_directories():
-    dirs = ['servers', 'static', 'templates', 'logs']
+    dirs = [
+        ATTACK_RESOURCES_ROOT,
+        os.path.join(ATTACK_RESOURCES_ROOT, 'tcp', 'code'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'tcp', 'resources'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'tcp', 'config'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'tcp', 'runs'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'memcached', 'code'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'memcached', 'resources'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'memcached', 'config'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'memcached', 'runs'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'dns', 'code'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'dns', 'resources'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'dns', 'config'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'dns', 'runs'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'ntp', 'code'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'ntp', 'resources'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'ntp', 'config'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'ntp', 'runs'),
+        'static',
+        'templates',
+        'logs',
+    ]
     for d in dirs:
         os.makedirs(d, exist_ok=True)
         print(f"📁 确保目录存在: {d}")
@@ -1003,7 +1021,8 @@ def create_default_server_files():
         'ntp.txt': ["# NTP服务器列表", "pool.ntp.org", "time.google.com", "time.windows.com", "time.apple.com"]
     }
     for filename, lines in defaults.items():
-        path = f'servers/{filename}'
+        protocol = filename.replace('.txt', '')
+        path = get_server_file(protocol)
         if not os.path.exists(path):
             with open(path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(lines))
