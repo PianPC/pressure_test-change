@@ -30,6 +30,18 @@ let currentTcpRunId = null;
 let currentTcpRuns = [];
 let currentTcpFile = null;
 let currentAttackResourceProto = "tcp";
+let currentView = "dashboard";
+let lastVisitedWorkflowStep = "resource";
+let latestStatusSnapshot = null;
+let currentTcpSummary = null;
+
+const WORKFLOW_STEP_ORDER = ["resource", "pool", "console", "latency"];
+const VIEW_TO_WORKFLOW_STEP = {
+    "attack-resources": "resource",
+    servers: "pool",
+    console: "console",
+    latency: "latency"
+};
 
 const MAX_PPS_POINTS = 40;
 const MAX_LATENCY_POINTS = 60;
@@ -185,6 +197,8 @@ document.addEventListener("DOMContentLoaded", () => {
     loadServerGeoMap();
     initTcpScan();
     pollStatus();
+    bindWorkflowActions();
+    updateWorkflowIndicators();
     updateSystemInfo();
     updateDetailedSystemInfo();
     setInterval(updateSystemInfo, 3000);
@@ -218,6 +232,7 @@ function switchAttackResourceProto(proto = "tcp") {
     if (proto === "tcp") {
         refreshTcpScan();
     }
+    updateWorkflowIndicators();
 }
 
 function bindControls() {
@@ -239,6 +254,16 @@ function bindControls() {
     document.getElementById("tcpStopBtn")?.addEventListener("click", stopTcpScan);
     document.getElementById("tcpRefreshBtn")?.addEventListener("click", refreshTcpScan);
     document.getElementById("tcpClearRunsBtn")?.addEventListener("click", clearTcpRunRecords);
+    document.getElementById("target_ip")?.addEventListener("input", updateWorkflowIndicators);
+    document.getElementById("target_port")?.addEventListener("input", updateWorkflowIndicators);
+    document.getElementById("duration")?.addEventListener("input", updateWorkflowIndicators);
+    document.getElementById("threads")?.addEventListener("input", updateWorkflowIndicators);
+    document.getElementById("target_pps")?.addEventListener("input", updateWorkflowIndicators);
+    document.getElementById("latencyTargetIp")?.addEventListener("input", updateWorkflowIndicators);
+    document.getElementById("latencyPort")?.addEventListener("input", updateWorkflowIndicators);
+    document.getElementById("tcpIpFile")?.addEventListener("change", updateWorkflowIndicators);
+    document.getElementById("tcpTargetHost")?.addEventListener("input", updateWorkflowIndicators);
+    document.getElementById("tcpPktMethod")?.addEventListener("change", updateWorkflowIndicators);
 
     document.querySelectorAll(".tab-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -247,6 +272,7 @@ function bindControls() {
             currentProto = btn.dataset.proto || "memcached";
             resetServerSelectionState();
             loadServerGeoMap();
+            updateWorkflowIndicators();
         });
     });
 }
@@ -257,20 +283,263 @@ function setupNavigation() {
             event.preventDefault();
             const view = item.dataset.view;
             if (!view) return;
-            document.querySelectorAll(".nav-item").forEach((nav) => nav.classList.remove("active"));
-            document.querySelectorAll(".view-pane").forEach((pane) => pane.classList.remove("active"));
-            item.classList.add("active");
-            document.getElementById(`view-${view}`)?.classList.add("active");
-            if (view === "servers") {
-                loadServerGeoMap();
-                resizeServerGlobe();
-            }
-            if (view === "attack-resources") {
-                switchAttackResourceProto("tcp");
-            }
-            resizeCharts();
+            navigateToView(view);
         });
     });
+}
+
+function bindWorkflowActions() {
+    document.querySelectorAll("[data-nav-target]").forEach((button) => {
+        button.addEventListener("click", () => navigateToView(button.dataset.navTarget || "dashboard"));
+    });
+    document.getElementById("quickStartConsole")?.addEventListener("click", () => navigateToView("console"));
+    document.getElementById("quickResumeFlow")?.addEventListener("click", () => {
+        const workflow = getWorkflowState();
+        navigateToView(stepToView(workflow.recommendedStep));
+    });
+}
+
+function navigateToView(view = "dashboard") {
+    currentView = view;
+    const step = VIEW_TO_WORKFLOW_STEP[view];
+    if (step) lastVisitedWorkflowStep = step;
+    document.querySelectorAll(".nav-item").forEach((nav) => nav.classList.toggle("active", nav.dataset.view === view));
+    document.querySelectorAll(".view-pane").forEach((pane) => pane.classList.remove("active"));
+    document.getElementById(`view-${view}`)?.classList.add("active");
+    if (view === "servers") {
+        loadServerGeoMap();
+        resizeServerGlobe();
+    }
+    if (view === "attack-resources") {
+        switchAttackResourceProto(currentAttackResourceProto || "tcp");
+    }
+    resizeCharts();
+    updateWorkflowIndicators();
+}
+
+function stepToView(step) {
+    return {
+        resource: "attack-resources",
+        pool: "servers",
+        console: "console",
+        latency: "latency"
+    }[step] || "dashboard";
+}
+
+function updateWorkflowIndicators() {
+    renderAttackResourceSummary();
+    renderServerSummary();
+    renderConsoleSummary();
+    renderLatencySummary();
+    renderWorkflowOverview();
+}
+
+function renderWorkflowOverview() {
+    const workflow = getWorkflowState();
+    const recommendedLabel = getWorkflowStepLabel(workflow.recommendedStep);
+    setText("workflowCurrentChip", `当前建议：${recommendedLabel}`);
+    setText("workflowCurrentStepTitle", `${recommendedLabel} · ${getWorkflowUiStateLabel(workflow.steps[workflow.recommendedStep]?.uiState)}`);
+    setText("workflowCurrentStepText", getWorkflowStepMessage(workflow, workflow.recommendedStep));
+    setText("workflowFlowStatus", `推荐下一步：${recommendedLabel}`);
+
+    WORKFLOW_STEP_ORDER.forEach((step) => {
+        const state = workflow.steps[step];
+        const badge = document.getElementById(`workflowBadge-${step}`);
+        if (badge) {
+            badge.textContent = getWorkflowUiStateLabel(state.uiState);
+            badge.dataset.state = state.uiState;
+        }
+        const card = document.querySelector(`[data-workflow-card="${step}"]`);
+        if (card) {
+            card.classList.toggle("is-current", workflow.currentStep === step);
+            card.classList.toggle("is-complete", state.uiState === "completed");
+            card.classList.toggle("is-optional", state.uiState === "optional");
+            card.classList.toggle("is-active", state.uiState === "in_progress");
+        }
+        document.querySelectorAll(`.workflow-nav-item[data-workflow-step="${step}"]`).forEach((item) => {
+            item.classList.toggle("is-current", workflow.currentStep === step);
+            item.classList.toggle("is-complete", state.uiState === "completed");
+            item.classList.toggle("is-optional", state.uiState === "optional");
+            item.classList.toggle("is-active", state.uiState === "in_progress");
+        });
+    });
+}
+
+function getWorkflowState() {
+    const hasTcpRecord = currentTcpRuns.length > 0;
+    const resourceTotal = getCurrentResourceTotal();
+    const configReady = isConsoleConfigReady();
+    const hasRunningConfig = Boolean(latestStatusSnapshot?.config?.target_ip);
+    const hasLatencySample = latencyDataPoints.some((point) => point.value !== undefined);
+    const filterTitle = document.getElementById("serverFilterTitle")?.innerText || "全部资源";
+
+    let resourceState = "not_started";
+    if (currentView === "attack-resources" && !hasTcpRecord) {
+        resourceState = "in_progress";
+    } else if (hasTcpRecord) {
+        resourceState = "completed";
+    } else if ((configReady || hasRunningConfig || currentView === "console" || currentView === "latency") && resourceTotal > 0) {
+        resourceState = "optional";
+    }
+
+    let poolState = "not_started";
+    if (currentView === "servers" || serverListFilterMode !== "all" || filterTitle !== "全部资源") {
+        poolState = "in_progress";
+    } else if (resourceTotal > 0) {
+        poolState = (configReady || hasRunningConfig) ? "optional" : "completed";
+    }
+
+    let consoleState = "not_started";
+    if (latestStatusSnapshot?.status === "running") {
+        consoleState = "completed";
+    } else if (currentView === "console" || configReady) {
+        consoleState = "in_progress";
+    } else if (hasRunningConfig) {
+        consoleState = "completed";
+    }
+
+    let latencyState = "not_started";
+    if (isMonitoringLatency) {
+        latencyState = "in_progress";
+    } else if (hasLatencySample) {
+        latencyState = "completed";
+    } else if ((configReady || hasRunningConfig) && currentView === "console") {
+        latencyState = "optional";
+    }
+
+    const steps = {
+        resource: { uiState: resourceState },
+        pool: { uiState: poolState },
+        console: { uiState: consoleState },
+        latency: { uiState: latencyState }
+    };
+
+    const currentStep = VIEW_TO_WORKFLOW_STEP[currentView]
+        || WORKFLOW_STEP_ORDER.find((step) => steps[step].uiState === "in_progress")
+        || lastVisitedWorkflowStep;
+    const recommendedStep = WORKFLOW_STEP_ORDER.find((step) => steps[step].uiState === "in_progress")
+        || WORKFLOW_STEP_ORDER.find((step) => steps[step].uiState === "not_started")
+        || WORKFLOW_STEP_ORDER.find((step) => steps[step].uiState === "optional")
+        || currentStep
+        || "resource";
+
+    return { steps, currentStep, recommendedStep };
+}
+
+function getWorkflowStepLabel(step) {
+    return {
+        resource: "攻击资源获取",
+        pool: "资源池确认",
+        console: "控制台配置与启动",
+        latency: "延迟监控与效果观察"
+    }[step] || "流程总览";
+}
+
+function getWorkflowUiStateLabel(state) {
+    return {
+        not_started: "未开始",
+        in_progress: "进行中",
+        completed: "已完成",
+        optional: "可跳过"
+    }[state] || "未开始";
+}
+
+function getWorkflowStepMessage(workflow, step) {
+    if (step === "resource") {
+        return currentTcpRuns.length
+            ? `当前已存在 ${currentTcpRuns.length} 个 TCP 资源任务记录，可以继续查看结果或直接进入资源池 / 控制台。`
+            : "先准备资源最适合新手快速上手；如果当前资源池已经可用，也可以直接跳过这一阶段。";
+    }
+    if (step === "pool") {
+        return `当前资源池已识别 ${getCurrentResourceTotal()} 条资源，筛选视图为“${document.getElementById("serverFilterTitle")?.innerText || "全部资源"}”。`;
+    }
+    if (step === "console") {
+        return isConsoleConfigReady()
+            ? "控制台参数已具备启动条件，可以直接发起测试。"
+            : "这里负责配置目标、时长、线程和协议组合，熟练用户可直接跳入本页快速启动。";
+    }
+    return isMonitoringLatency
+        ? "延迟监控正在采样中，可继续观察基准延迟、最新延迟和变化趋势。"
+        : "延迟监控不是必选步骤，但对观察链路扰动和效果变化很有帮助。";
+}
+
+function renderAttackResourceSummary() {
+    setText("attackResourcesActiveProto", getMethodText(currentAttackResourceProto).toUpperCase());
+    setText("attackResourcesTcpStatus", "已接入");
+    const latestRun = currentTcpRuns[0];
+    const taskText = latestRun ? `${latestRun.run_id} · ${getTcpStatusText(latestRun.status)}` : "暂无任务";
+    setText("attackResourcesLastTask", taskText);
+    const fileCount = Array.isArray(currentTcpSummary?.files) ? currentTcpSummary.files.length : 0;
+    setText("attackResourcesArtifactSummary", fileCount ? `${fileCount} 个输出文件` : "暂无输出");
+    setText("workflowSummaryResourceProto", getMethodText(currentAttackResourceProto).toUpperCase());
+    setText("workflowSummaryResourceTask", taskText);
+}
+
+function renderServerSummary() {
+    const total = String(getCurrentResourceTotal());
+    const areaCount = document.getElementById("geoAreaCount")?.innerText || "0";
+    const filterTitle = document.getElementById("serverFilterTitle")?.innerText || "全部资源";
+    setText("serverSummaryProto", getMethodText(currentProto));
+    setText("serverSummaryTotal", total);
+    setText("serverSummaryGeo", `${areaCount} 个区域`);
+    setText("serverSummaryFilter", filterTitle);
+    setText("workflowSummaryPoolTotal", total);
+    setText("workflowSummaryPoolView", filterTitle);
+}
+
+function renderConsoleSummary() {
+    const targetIp = document.getElementById("target_ip")?.value.trim() || "";
+    const targetPort = document.getElementById("target_port")?.value || "80";
+    const targetPps = document.getElementById("target_pps")?.value || "5000";
+    const methods = getConsoleMethodSummary();
+    setText("consoleSummaryMode", isMultiProtocol ? "多协议" : "单协议");
+    setText("consoleSummaryTarget", targetIp ? `${targetIp}:${targetPort}` : "未指定");
+    setText("consoleSummaryPps", targetPps);
+    setText("consoleSummaryMethods", methods);
+    setText("workflowSummaryConsoleTarget", targetIp ? `${targetIp}:${targetPort}` : "未指定");
+    setText("workflowSummaryConsoleMode", isMultiProtocol ? "多协议" : "单协议");
+}
+
+function renderLatencySummary() {
+    const latencyTarget = document.getElementById("latencyTargetIp")?.value.trim()
+        || document.getElementById("target_ip")?.value.trim()
+        || "未指定";
+    const port = document.getElementById("latencyPort")?.value || document.getElementById("target_port")?.value || "80";
+    const latest = document.getElementById("latestLatency")?.innerText || "-- ms";
+    const baseline = document.getElementById("autoPingBefore")?.innerText || "-- ms";
+    const status = isMonitoringLatency ? "监控中" : (latencyDataPoints.length ? "已采样" : "未启动");
+    setText("latencySummaryTarget", latencyTarget === "未指定" ? "未指定" : `${latencyTarget}:${port}`);
+    setText("latencySummaryStatus", status);
+    setText("latencySummaryBaseline", baseline);
+    setText("latencySummaryLatest", latest);
+    setText("workflowSummaryLatencyState", status);
+    setText("workflowSummaryLatencyLatest", latest);
+}
+
+function isConsoleConfigReady() {
+    const targetIp = document.getElementById("target_ip")?.value.trim() || "";
+    const targetPort = Number(document.getElementById("target_port")?.value || 0);
+    const duration = Number(document.getElementById("duration")?.value || 0);
+    const threads = Number(document.getElementById("threads")?.value || 0);
+    const targetPps = Number(document.getElementById("target_pps")?.value || 0);
+    const hasMethod = isMultiProtocol
+        ? Array.from(document.querySelectorAll("#multiProtocolSection input[type='checkbox']:checked")).length > 0
+        : Boolean(document.getElementById("method")?.value);
+    return Boolean(targetIp) && targetPort > 0 && duration > 0 && threads > 0 && targetPps > 0 && hasMethod;
+}
+
+function getConsoleMethodSummary() {
+    if (isMultiProtocol) {
+        const methods = Array.from(document.querySelectorAll("#multiProtocolSection input[type='checkbox']:checked"))
+            .map((input) => getMethodText(input.value));
+        return methods.length ? methods.join(" + ") : "未选择";
+    }
+    const method = document.getElementById("method")?.value || "";
+    return method ? getMethodText(method) : "未选择";
+}
+
+function getCurrentResourceTotal() {
+    return Number.parseInt(document.getElementById("geoTotalCount")?.innerText || "0", 10) || 0;
 }
 
 async function initTcpScan() {
@@ -306,6 +575,7 @@ async function loadTcpResources() {
             if (resource.filename === "test.txt") option.selected = true;
             select.appendChild(option);
         });
+        updateWorkflowIndicators();
     } catch (error) {
         showNotification(`TCP 资源加载失败：${error.message}`, "error");
     }
@@ -460,6 +730,7 @@ async function refreshTcpScan() {
             || currentTcpRuns[0];
         if (!preferred) {
             renderTcpEmptyState();
+            updateWorkflowIndicators();
             return;
         }
         currentTcpRunId = preferred.run_id;
@@ -468,6 +739,7 @@ async function refreshTcpScan() {
             clearInterval(tcpScanPollInterval);
             tcpScanPollInterval = null;
         }
+        updateWorkflowIndicators();
     } catch (error) {
         console.warn("TCP 扫描刷新失败", error);
     }
@@ -525,6 +797,7 @@ async function loadTcpRunLog(runId) {
 }
 
 function renderTcpSummary(summary) {
+    currentTcpSummary = summary;
     const status = summary.status || "unknown";
     const config = summary.config || {};
     setText("tcpStatus", getTcpStatusText(status));
@@ -536,6 +809,7 @@ function renderTcpSummary(summary) {
     renderTcpStages(summary.stages || {}, summary.current_stage || null);
     renderTcpRuntimeError(summary);
     setTcpControls(summary.is_running || status === "running" || status === "stopping", Boolean(summary.is_running));
+    updateWorkflowIndicators();
 }
 
 function renderTcpMeta(summary) {
@@ -594,6 +868,7 @@ function renderTcpRuntimeError(summary) {
 
 function renderTcpEmptyState() {
     currentTcpRunId = null;
+    currentTcpSummary = null;
     setText("tcpStatus", "空闲");
     setText("tcpRunId", "-");
     setText("tcpRunMethod", "-");
@@ -612,6 +887,7 @@ function renderTcpEmptyState() {
     const errorBox = document.getElementById("tcpRuntimeError");
     if (errorBox) errorBox.textContent = "";
     setTcpControls(false, false);
+    updateWorkflowIndicators();
 }
 
 function setTcpControls(hasRunningTask, canStopCurrent) {
@@ -963,6 +1239,7 @@ function getVisibleServerResourceItems() {
 function clearServerSelection() {
     resetServerSelectionState();
     renderServerWorkspace();
+    updateWorkflowIndicators();
 }
 
 function selectServerArea(areaCode) {
@@ -973,6 +1250,7 @@ function selectServerArea(areaCode) {
     serverListFilterMode = "area";
     focusServerArea(area);
     renderServerWorkspace();
+    updateWorkflowIndicators();
 }
 
 function selectServerIp(ip) {
@@ -984,6 +1262,7 @@ function selectServerIp(ip) {
     serverListFilterMode = "ip";
     if (area) focusServerArea(area, item);
     renderServerWorkspace();
+    updateWorkflowIndicators();
 }
 
 function focusServerArea(area, item = null) {
@@ -1007,6 +1286,7 @@ function renderServerWorkspace() {
     renderServerResourceList();
     renderServerUnresolvedItems();
     renderServerMap();
+    updateWorkflowIndicators();
 }
 
 function renderServerFilterSummary() {
@@ -1264,6 +1544,7 @@ async function loadServerGeoMap() {
     } finally {
         isGeoMapLoading = false;
         renderServerMap();
+        updateWorkflowIndicators();
     }
 }
 
@@ -1555,11 +1836,13 @@ function toggleMultiProtocol() {
     if (singleGroup) singleGroup.style.display = isMultiProtocol ? "none" : "block";
     if (multiSection) multiSection.style.display = isMultiProtocol ? "block" : "none";
     updateProtocolSelection();
+    updateWorkflowIndicators();
 }
 
 function updateMethodSettings() {
     const method = document.getElementById("method")?.value;
     if (method) loadReflectorCount([method]);
+    updateWorkflowIndicators();
 }
 
 function updateProtocolSelection() {
@@ -1571,6 +1854,7 @@ function updateProtocolSelection() {
         const method = document.getElementById("method")?.value;
         loadReflectorCount(method ? [method] : ["memcached", "dns", "ntp"]);
     }
+    updateWorkflowIndicators();
 }
 
 async function loadReflectorCount(protocols) {
@@ -1586,6 +1870,8 @@ async function loadReflectorCount(protocols) {
         }
     } catch (error) {
         countEl.innerText = "0";
+    } finally {
+        updateWorkflowIndicators();
     }
 }
 
@@ -1596,6 +1882,7 @@ function loadAllServerCounts() {
 function refreshServerResources() {
     resetServerSelectionState();
     loadServerGeoMap();
+    updateWorkflowIndicators();
 }
 
 async function startTest() {
@@ -1650,9 +1937,11 @@ async function startTest() {
         if (!result.success) throw new Error(result.message || "启动失败");
         showNotification("测试已启动", "success");
         setStatusTag("running", "运行中");
+        updateWorkflowIndicators();
     } catch (error) {
         showNotification(`启动失败：${error.message}`, "error");
         setRunningControls(false);
+        updateWorkflowIndicators();
     }
 }
 
@@ -1665,6 +1954,7 @@ async function stopTest() {
     } finally {
         setRunningControls(false);
         setStatusTag("stopping", "停止中");
+        updateWorkflowIndicators();
     }
 }
 
@@ -1698,6 +1988,8 @@ async function resetTest() {
     if (progressBar) progressBar.style.width = "0%";
     const protocolStats = document.getElementById("protocolStatsSection");
     if (protocolStats) protocolStats.style.display = "none";
+    latestStatusSnapshot = null;
+    updateWorkflowIndicators();
 }
 
 function pollStatus() {
@@ -1715,6 +2007,7 @@ function pollStatus() {
 
 function updateStatusDisplay(status) {
     if (!status) return;
+    latestStatusSnapshot = status;
     if (status.status === "running") {
         setStatusTag("running", "运行中");
         setRunningControls(true);
@@ -1760,6 +2053,7 @@ function updateStatusDisplay(status) {
 
     if (pps > 0) addChartData(pps);
     renderProtocolStats(status);
+    updateWorkflowIndicators();
 }
 
 function renderProtocolStats(status) {
@@ -1853,6 +2147,7 @@ async function startLatencyMonitoring() {
 
     sampleLatencyOnce();
     latencyMonitorInterval = setInterval(sampleLatencyOnce, 1000);
+    updateWorkflowIndicators();
 }
 
 function stopLatencyMonitoring(showMessage = true) {
@@ -1863,6 +2158,7 @@ function stopLatencyMonitoring(showMessage = true) {
     }
     isLatencySamplePending = false;
     if (showMessage) showNotification("延迟监控已停止", "info");
+    updateWorkflowIndicators();
 }
 
 function resetLatencyBaseline() {
@@ -1871,6 +2167,7 @@ function resetLatencyBaseline() {
     setText("autoPingBefore", "-- ms");
     setText("latestLatency", "-- ms");
     setText("latencyTrend", "--");
+    updateWorkflowIndicators();
 }
 
 function syncLatencyTarget(ip, port) {
@@ -1890,6 +2187,7 @@ function updateLatencyDisplay(latency, isTimeout = false) {
         latest.style.color = "#ff4f6d";
         trend.innerText = "连接超时";
         trend.style.color = "#ff4f6d";
+        updateWorkflowIndicators();
         return;
     }
 
@@ -1903,6 +2201,7 @@ function updateLatencyDisplay(latency, isTimeout = false) {
     const diff = latency - baselineLatency;
     trend.innerText = `${diff >= 0 ? "+" : "-"}${Math.abs(diff).toFixed(2)} ms`;
     trend.style.color = diff > 0 ? "#ffbd5c" : "#5cffb1";
+    updateWorkflowIndicators();
 }
 
 async function sampleLatencyOnce() {
@@ -1922,6 +2221,7 @@ async function sampleLatencyOnce() {
             if (baselineSamples.length === 3) {
                 baselineLatency = baselineSamples.reduce((sum, item) => sum + item, 0) / 3;
                 setText("autoPingBefore", `${baselineLatency.toFixed(2)} ms`);
+                updateWorkflowIndicators();
             }
         }
     } finally {
