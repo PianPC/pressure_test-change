@@ -20,6 +20,7 @@ import re
 import ipaddress
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
 from flask_session import Session
@@ -94,7 +95,7 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 Session(app)
 app.register_blueprint(tcp_censor_bp)
 
-VALID_SERVER_PROTOCOLS = {'memcached', 'dns', 'ntp'}
+VALID_SERVER_PROTOCOLS = {'tcp', 'memcached', 'dns', 'ntp'}
 GEOIP_CACHE_FILE = os.path.join('config', 'geoip_cache.json')
 GEOIP_LOCAL_DB_FILE = os.path.join('attack_resources', 'tcp', 'resources', 'geoip', 'GeoLite2-City.mmdb')
 GEOIP_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
@@ -367,18 +368,91 @@ def get_server_file(method: str) -> str:
 def get_default_server_file_content(method: str) -> str:
     return '# 每行一个反射器IP或域名\n'
 
-def get_effective_server_file(method: str) -> str:
+def list_server_source_paths(method: str) -> List[Path]:
+    if method == 'tcp':
+        root = Path(ATTACK_RESOURCES_ROOT) / 'tcp' / 'resources' / 'ip_lists'
+        if not root.exists():
+            return []
+        return sorted(path for path in root.glob('*.txt') if path.is_file())
+    return [Path(get_server_file(method))]
+
+def count_server_entries_in_file(path: Path) -> int:
+    if not path.exists():
+        return 0
+    count = 0
+    with path.open('r', encoding='utf-8', errors='ignore') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                count += 1
+    return count
+
+def list_server_sources(method: str) -> List[Dict[str, Any]]:
+    return [
+        {
+            'name': path.name,
+            'path': str(path),
+            'entry_count': count_server_entries_in_file(path),
+            'editable': True,
+        }
+        for path in list_server_source_paths(method)
+    ]
+
+def resolve_server_source(method: str, source: Optional[str] = None) -> Optional[Path]:
+    source_paths = list_server_source_paths(method)
+    if source:
+        source_name = Path(str(source)).name
+        for path in source_paths:
+            if path.name == source_name:
+                return path
+        return None
+    if source_paths:
+        return source_paths[0]
+    if method == 'tcp':
+        return None
+    return Path(get_server_file(method))
+
+def resolve_server_sources(method: str, sources: Optional[List[str]] = None) -> List[Path]:
+    if method != 'tcp':
+        resolved = resolve_server_source(method, sources[0] if sources else None)
+        return [resolved] if resolved else []
+
+    source_paths = list_server_source_paths(method)
+    if not source_paths:
+        return []
+    if not sources:
+        return source_paths
+
+    selected_names = {Path(str(source)).name for source in sources if str(source).strip()}
+    resolved = [path for path in source_paths if path.name in selected_names]
+    return resolved or source_paths
+
+def get_effective_server_file(method: str, source: Optional[str] = None) -> str:
+    resolved = resolve_server_source(method, source)
+    if resolved is not None:
+        return str(resolved)
     return get_server_file(method)
 
-def read_server_entries(method: str) -> List[str]:
-    filename = get_effective_server_file(method)
+def read_server_entries_from_file(path: Path) -> List[str]:
+    if not path.exists():
+        return []
     servers = []
-    if os.path.exists(filename):
-        with open(filename, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    servers.append(line)
+    with path.open('r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                servers.append(line)
+    return servers
+
+def read_server_entries(method: str, source_files: Optional[List[Path]] = None) -> List[str]:
+    source_paths = source_files if source_files is not None else resolve_server_sources(method)
+    servers = []
+    seen = set()
+    for path in source_paths:
+        for server in read_server_entries_from_file(path):
+            if server not in seen:
+                seen.add(server)
+                servers.append(server)
     return servers
 
 def load_geoip_cache() -> Dict[str, Any]:
@@ -535,7 +609,6 @@ def build_geo_areas(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         region_code = geo.get('region_code') or ''
         region = geo.get('region') or ''
         entries = geo.get('entries') if isinstance(geo.get('entries'), list) else []
-        entry_count = max(1, len(entries))
 
         if country_code in SUBDIVISION_COUNTRY_CODES and (region_code or region):
             level = 'region'
@@ -559,7 +632,7 @@ def build_geo_areas(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             'ips': [],
             'entries': []
         })
-        area['resource_count'] += entry_count
+        area['resource_count'] += 1
         if geo.get('ip') and geo.get('ip') not in area['ips']:
             area['ips'].append(geo.get('ip'))
         for entry in entries:
@@ -571,8 +644,8 @@ def build_geo_areas(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         key=lambda item: (-int(item.get('resource_count') or 0), item.get('country') or '', item.get('region') or '')
     )
 
-def build_geo_points(method: str) -> Dict[str, Any]:
-    entries = read_server_entries(method)
+def build_geo_points(method: str, source_files: Optional[List[Path]] = None) -> Dict[str, Any]:
+    entries = read_server_entries(method, source_files=source_files)
     cache = load_geoip_cache()
     now = time.time()
     unresolved = []
@@ -759,19 +832,14 @@ def get_servers(method):
     try:
         if not is_valid_server_method(method):
             return jsonify({'success': False, 'message': '不支持的方法'})
-        filename = get_effective_server_file(method)
-        servers = []
-        if os.path.exists(filename):
-            with open(filename, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#'):
-                        servers.append(line)
+        source_files = resolve_server_sources(method, request.args.getlist('files'))
+        servers = read_server_entries(method, source_files=source_files)
         if not servers:
             defaults = {
                 'memcached': ['127.0.0.1'],
                 'dns': ['8.8.8.8', '1.1.1.1', '9.9.9.9'],
-                'ntp': ['pool.ntp.org', 'time.google.com']
+                'ntp': ['pool.ntp.org', 'time.google.com'],
+                'tcp': []
             }
             servers = defaults.get(method, [])
         return jsonify({'success': True, 'servers': servers, 'count': len(servers)})
@@ -782,21 +850,27 @@ def get_servers(method):
 def get_server_list(method):
     if not is_valid_server_method(method):
         return jsonify({'success': False, 'message': '不支持的方法'})
-    filename = get_effective_server_file(method)
-    servers = []
-    if os.path.exists(filename):
-        with open(filename, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    servers.append(line)
+    source_files = resolve_server_sources(method, request.args.getlist('files'))
+    servers = read_server_entries(method, source_files=source_files)
     return jsonify({'success': True, 'servers': servers})
+
+@app.route('/api/servers/<method>/files', methods=['GET'])
+def get_server_sources(method):
+    if not is_valid_server_method(method):
+        return jsonify({'success': False, 'message': 'Unsupported method'})
+    return jsonify({'success': True, 'files': list_server_sources(method)})
 
 @app.route('/api/servers/<method>/file', methods=['GET'])
 def get_server_file_content(method):
     if not is_valid_server_method(method):
         return jsonify({'success': False, 'message': 'Unsupported method'})
-    filename = get_effective_server_file(method)
+    source = request.args.get('source', '').strip()
+    source_path = resolve_server_source(method, source or None)
+    if source and source_path is None:
+        return jsonify({'success': False, 'message': 'Source file not found'}), 404
+    if method == 'tcp' and source_path is None:
+        return jsonify({'success': False, 'message': 'Source file not found'}), 404
+    filename = get_effective_server_file(method, source or None)
     content = get_default_server_file_content(method)
     if os.path.exists(filename):
         with open(filename, 'r', encoding='utf-8') as f:
@@ -806,6 +880,7 @@ def get_server_file_content(method):
         'file': {
             'name': os.path.basename(filename),
             'path': filename,
+            'source': os.path.basename(filename),
             'type': 'text',
             'editable': True,
             'content': content
@@ -817,7 +892,8 @@ def get_server_geo(method):
     if not is_valid_server_method(method):
         return jsonify({'success': False, 'message': '不支持的方法'})
     try:
-        return jsonify(build_geo_points(method))
+        source_files = resolve_server_sources(method, request.args.getlist('files'))
+        return jsonify(build_geo_points(method, source_files=source_files))
     except Exception as e:
         logger.error("GeoIP endpoint failed: %s", e, exc_info=True)
         return jsonify({'success': False, 'message': str(e)})
@@ -830,7 +906,13 @@ def update_server_file_content(method):
     content = data.get('content', '')
     if not isinstance(content, str):
         return jsonify({'success': False, 'message': 'File content must be a string'})
-    filename = get_server_file(method)
+    source = request.args.get('source', '').strip()
+    source_path = resolve_server_source(method, source or None)
+    if source and source_path is None:
+        return jsonify({'success': False, 'message': 'Source file not found'}), 404
+    if method == 'tcp' and source_path is None:
+        return jsonify({'success': False, 'message': 'Source file not found'}), 404
+    filename = get_effective_server_file(method, source or None)
     normalized = content.replace('\r\n', '\n')
     try:
         os.makedirs(os.path.dirname(filename), exist_ok=True)
@@ -853,7 +935,8 @@ def update_server_list(method):
     if not isinstance(servers, list):
         return jsonify({'success': False, 'message': '服务器列表必须是数组'})
     valid = [s.strip() for s in servers if s.strip() and not s.strip().startswith('#')]
-    filename = get_server_file(method)
+    source = request.args.get('source', '').strip()
+    filename = get_effective_server_file(method, source or None)
     try:
         with open(filename, 'w', encoding='utf-8') as f:
             f.write('# 每行一个反射器IP或域名\n')

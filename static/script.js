@@ -25,6 +25,9 @@ let selectedAreaCode = "";
 let selectedIp = "";
 let serverListFilterMode = "all";
 let currentServerFile = null;
+let currentServerSource = "";
+let availableServerSourcesByProto = {};
+let selectedServerSourcesByProto = {};
 let tcpScanPollInterval = null;
 let currentTcpRunId = null;
 let currentTcpRuns = [];
@@ -542,6 +545,55 @@ function getCurrentResourceTotal() {
     return Number.parseInt(document.getElementById("geoTotalCount")?.innerText || "0", 10) || 0;
 }
 
+function getAvailableServerSources(proto = currentProto) {
+    return availableServerSourcesByProto[proto] || [];
+}
+
+function getSelectedServerSources(proto = currentProto) {
+    return selectedServerSourcesByProto[proto] || [];
+}
+
+function getDefaultServerSources(proto, sources) {
+    if (!sources.length) return [];
+    return proto === "tcp"
+        ? sources.map((item) => item.name)
+        : [sources[0].name];
+}
+
+async function fetchServerSourceFiles(proto = currentProto, force = false) {
+    if (!force && availableServerSourcesByProto[proto]) return getAvailableServerSources(proto);
+    const response = await fetch(`/api/servers/${proto}/files`);
+    const data = await response.json();
+    if (!data.success) throw new Error(data.message || "资源源文件加载失败");
+    const files = Array.isArray(data.files) ? data.files : [];
+    availableServerSourcesByProto[proto] = files;
+    return files;
+}
+
+async function ensureServerSourceSelection(proto = currentProto, forceRefresh = false) {
+    const sources = await fetchServerSourceFiles(proto, forceRefresh);
+    const selected = getSelectedServerSources(proto);
+    const validNames = new Set(sources.map((item) => item.name));
+    const filtered = selected.filter((name) => validNames.has(name));
+    const nextSelection = filtered.length ? filtered : getDefaultServerSources(proto, sources);
+    selectedServerSourcesByProto[proto] = nextSelection;
+    return nextSelection;
+}
+
+function buildServerGeoQuery(proto = currentProto) {
+    const params = new URLSearchParams();
+    getSelectedServerSources(proto).forEach((source) => params.append("files", source));
+    const query = params.toString();
+    return query ? `?${query}` : "";
+}
+
+function getSelectedServerSourceSummary(proto = currentProto) {
+    const selected = getSelectedServerSources(proto);
+    if (!selected.length) return "未选择源文件";
+    if (selected.length === 1) return selected[0];
+    return `${selected.length} 个源文件`;
+}
+
 async function initTcpScan() {
     bindTcpModalControls();
     await loadTcpResources();
@@ -554,6 +606,9 @@ function bindTcpModalControls() {
     document.querySelector('[data-dismiss="tcp-file-modal"]')?.addEventListener("click", closeTcpFileModal);
     document.getElementById("tcpFileSaveBtn")?.addEventListener("click", saveTcpFileContent);
     document.getElementById("tcpFileReloadBtn")?.addEventListener("click", reloadTcpFileContent);
+    document.getElementById("serverSourceModalClose")?.addEventListener("click", closeServerSourceModal);
+    document.querySelector('[data-dismiss="server-source-modal"]')?.addEventListener("click", closeServerSourceModal);
+    document.getElementById("serverSourceApplyBtn")?.addEventListener("click", applyServerSourceSelection);
     document.getElementById("serverFileModalClose")?.addEventListener("click", closeServerFileModal);
     document.querySelector('[data-dismiss="server-file-modal"]')?.addEventListener("click", closeServerFileModal);
     document.getElementById("serverFileSaveBtn")?.addEventListener("click", saveServerFileContent);
@@ -1180,12 +1235,14 @@ function resetServerSelectionState() {
 }
 
 function buildServerResourceItems(points) {
-    return points.flatMap((point) => {
+    return points.map((point) => {
         const entries = Array.isArray(point.entries) && point.entries.length ? point.entries : [point.ip];
-        return entries.map((entry, index) => ({
-            id: `${point.ip || "unknown"}:${entry}:${index}`,
-            entry,
-            ip: point.ip || entry,
+        return {
+            id: `${point.ip || "unknown"}:${entries[0] || point.ip || "entry"}`,
+            entry: entries[0] || point.ip || "-",
+            entries,
+            entryCount: entries.length,
+            ip: point.ip || entries[0] || "-",
             country: point.country || "",
             country_code: point.country_code || "",
             region: point.region || "",
@@ -1195,7 +1252,7 @@ function buildServerResourceItems(points) {
             lat: Number(point.lat),
             lon: Number(point.lon),
             stale: Boolean(point.stale)
-        }));
+        };
     });
 }
 
@@ -1310,6 +1367,17 @@ function renderServerSelectionDetail() {
     const container = document.getElementById("serverSelectionDetail");
     if (!container) return;
     if (serverListFilterMode === "all") {
+        container.innerHTML = `
+            <div class="server-detail-grid">
+                <div><span>当前协议</span><strong>${escapeHtml(getMethodText(currentProto))}</strong></div>
+                <div><span>已选源文件</span><strong>${escapeHtml(getSelectedServerSourceSummary())}</strong></div>
+                <div><span>已选数量</span><strong>${escapeHtml(String(getSelectedServerSources().length))}</strong></div>
+                <div><span>交互提示</span><strong>点击地图区域或 IP 反向定位</strong></div>
+            </div>
+        `;
+        return;
+    }
+    if (serverListFilterMode === "all") {
         container.innerHTML = `<div class="info-text">点击地图区域可筛选资源，点击 IP 列表可反向定位所在区域。</div>`;
         return;
     }
@@ -1362,6 +1430,7 @@ function renderServerResourceList() {
                 <span class="server-resource-main">
                     <strong>${escapeHtml(item.entry)}</strong>
                     <span>${escapeHtml(item.ip)}</span>
+                    ${item.entryCount > 1 ? `<span>并集来源 ${escapeHtml(String(item.entryCount))} 条</span>` : ""}
                 </span>
                 <span class="server-resource-meta">
                     <span>${escapeHtml(area ? getAreaDisplayName(area) : "未定位")}</span>
@@ -1456,6 +1525,153 @@ async function reloadServerFileContent() {
     await openServerFileModal();
 }
 
+function renderServerSourceModal() {
+    const title = document.getElementById("serverSourceModalTitle");
+    const body = document.getElementById("serverSourceModalBody");
+    const sources = getAvailableServerSources();
+    const selected = new Set(getSelectedServerSources());
+    if (title) title.textContent = `${getMethodText(currentProto)} 源文件选择`;
+    if (!body) return;
+    if (!sources.length) {
+        body.innerHTML = `<div class="server-source-summary">当前协议没有可用源文件。</div>`;
+        return;
+    }
+    body.innerHTML = `
+        <div class="server-source-summary">
+            当前协议：${escapeHtml(getMethodText(currentProto))}。选中的文件会按并集合并展示到地图、统计和 IP 列表中。
+        </div>
+        <div class="server-source-list">
+            ${sources.map((file) => `
+                <label class="server-source-item">
+                    <input type="checkbox" value="${escapeHtml(file.name)}" ${selected.has(file.name) ? "checked" : ""}>
+                    <span>
+                        <strong>${escapeHtml(file.name)}</strong>
+                        <span>${escapeHtml(file.path || "")}</span>
+                    </span>
+                    <em>${escapeHtml(String(file.entry_count || 0))} 条</em>
+                </label>
+            `).join("")}
+        </div>
+    `;
+}
+
+async function openServerFileModal() {
+    try {
+        await ensureServerSourceSelection(currentProto, true);
+        renderServerSourceModal();
+        const modal = document.getElementById("serverSourceModal");
+        if (modal) modal.hidden = false;
+    } catch (error) {
+        showNotification(`资源源文件加载失败：${error.message}`, "error");
+    }
+}
+
+function closeServerSourceModal() {
+    const modal = document.getElementById("serverSourceModal");
+    if (modal) modal.hidden = true;
+}
+
+async function applyServerSourceSelection() {
+    const body = document.getElementById("serverSourceModalBody");
+    const selected = Array.from(body?.querySelectorAll("input[type='checkbox']:checked") || [])
+        .map((input) => input.value)
+        .filter(Boolean);
+    if (!selected.length) {
+        showNotification("请至少选择一个源文件", "error");
+        return;
+    }
+    selectedServerSourcesByProto[currentProto] = selected;
+    closeServerSourceModal();
+    resetServerSelectionState();
+    await loadServerGeoMap();
+    await openServerEditorModal(selected[0]);
+}
+
+function renderServerFileModal(file) {
+    const title = document.getElementById("serverFileModalTitle");
+    const body = document.getElementById("serverFileModalBody");
+    const saveBtn = document.getElementById("serverFileSaveBtn");
+    const reloadBtn = document.getElementById("serverFileReloadBtn");
+    const selected = getSelectedServerSources();
+    if (title) title.textContent = file.name || "编辑源文件";
+    if (saveBtn) saveBtn.disabled = !file.editable;
+    if (reloadBtn) reloadBtn.disabled = false;
+    if (!body) return;
+
+    const switcher = selected.length > 1 ? `
+        <div class="server-file-switcher">
+            <label for="serverFileSourceSelect">当前编辑文件</label>
+            <select id="serverFileSourceSelect">
+                ${selected.map((source) => `<option value="${escapeHtml(source)}" ${source === currentServerSource ? "selected" : ""}>${escapeHtml(source)}</option>`).join("")}
+            </select>
+            <small>地图和资源列表展示的是当前已选文件的并集，编辑一次只作用于一个文件。</small>
+        </div>
+    ` : "";
+
+    body.innerHTML = `${switcher}${file.editable
+        ? `<textarea id="serverFileEditor">${escapeHtml(file.content || "")}</textarea>`
+        : `<pre>${escapeHtml(file.content || "")}</pre>`}`;
+    if (file.editable) {
+        const textarea = document.getElementById("serverFileEditor");
+        if (textarea) textarea.value = file.content || "";
+    }
+    document.getElementById("serverFileSourceSelect")?.addEventListener("change", async (event) => {
+        await openServerEditorModal(event.target.value);
+    });
+}
+
+async function openServerEditorModal(sourceName = "") {
+    try {
+        const selected = getSelectedServerSources();
+        const nextSource = sourceName || currentServerSource || selected[0] || "";
+        if (!nextSource) throw new Error("未找到可编辑的源文件");
+        const response = await fetch(`/api/servers/${currentProto}/file?source=${encodeURIComponent(nextSource)}`);
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || "资源文件加载失败");
+        currentServerSource = nextSource;
+        currentServerFile = data.file;
+        renderServerFileModal(data.file);
+        const modal = document.getElementById("serverFileModal");
+        if (modal) modal.hidden = false;
+    } catch (error) {
+        showNotification(`资源文件加载失败：${error.message}`, "error");
+    }
+}
+
+function closeServerFileModal() {
+    const modal = document.getElementById("serverFileModal");
+    if (modal) modal.hidden = true;
+    currentServerFile = null;
+    currentServerSource = "";
+}
+
+async function saveServerFileContent() {
+    if (!currentServerFile?.editable || !currentServerSource) return;
+    const textarea = document.getElementById("serverFileEditor");
+    const content = textarea?.value ?? "";
+    try {
+        const response = await fetch(`/api/servers/${currentProto}/file?source=${encodeURIComponent(currentServerSource)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content })
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || "资源文件保存失败");
+        showNotification(data.message || "资源文件已保存", "success");
+        await ensureServerSourceSelection(currentProto, true);
+        await loadServerGeoMap();
+        await reloadServerFileContent();
+        loadAllServerCounts();
+    } catch (error) {
+        showNotification(`资源文件保存失败：${error.message}`, "error");
+    }
+}
+
+async function reloadServerFileContent() {
+    if (!currentServerSource) return;
+    await openServerEditorModal(currentServerSource);
+}
+
 function setMapStatus(message, loading = false, hide = false) {
     const status = document.getElementById("serverGlobeStatus");
     if (!status) return;
@@ -1507,7 +1723,8 @@ async function loadServerGeoMap() {
     isGeoMapLoading = true;
     setMapStatus("正在定位资源池 IP...", true);
     try {
-        const response = await fetch(`/api/servers/${currentProto}/geo`);
+        await ensureServerSourceSelection(currentProto);
+        const response = await fetch(`/api/servers/${currentProto}/geo${buildServerGeoQuery(currentProto)}`);
         const data = await response.json();
         if (!data.success) throw new Error(data.message || "定位失败");
         updateGeoStats(data);
@@ -1761,6 +1978,7 @@ function getAreaFillColor(area) {
     const max = Math.max(1, ...lastGeoAreas.map((item) => Number(item.resource_count || 0)));
     const ratio = Math.log1p(count) / Math.log1p(max);
     const base = {
+        tcp: [92, 200, 255],
         memcached: [157, 92, 255],
         dns: [64, 231, 255],
         ntp: [92, 255, 177]
@@ -1881,6 +2099,7 @@ function loadAllServerCounts() {
 
 function refreshServerResources() {
     resetServerSelectionState();
+    delete availableServerSourcesByProto[currentProto];
     loadServerGeoMap();
     updateWorkflowIndicators();
 }
@@ -2309,6 +2528,7 @@ function setStatusTag(state, text) {
 
 function getMethodText(method) {
     return {
+        tcp: "TCP",
         memcached: "Memcached",
         dns: "DNS",
         ntp: "NTP"
@@ -2317,6 +2537,7 @@ function getMethodText(method) {
 
 function getProtocolColor(protocol) {
     return {
+        tcp: "linear-gradient(135deg, #5cc8ff 0%, #267dff 100%)",
         memcached: "linear-gradient(135deg, #7c8cff 0%, #9d5cff 100%)",
         dns: "linear-gradient(135deg, #40e7ff 0%, #2d8cff 100%)",
         ntp: "linear-gradient(135deg, #5cffb1 0%, #1fbf75 100%)"
