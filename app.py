@@ -289,7 +289,8 @@ class GlobalState:
                 def update_callback(stats):
                     with self.lock:
                         self._update_single_stats(stats, config.single_method.value)
-                tester.run_test(
+                source_files = (config.protocol_sources or {}).get(config.single_method.value, None)
+                test_kwargs = dict(
                     target_ip=config.target_ip,
                     target_port=config.target_port,
                     duration_minutes=config.duration_minutes,
@@ -299,8 +300,12 @@ class GlobalState:
                     spoof_source_ip=config.target_ip,
                     spoof_source_port=config.target_port,
                     stats_callback=update_callback,
-                    tcp_pkt_methods=config.tcp_pkt_methods
                 )
+                if config.single_method.value in ("memcached", "dns", "ntp"):
+                    test_kwargs["source_files"] = source_files
+                elif config.single_method.value == "tcp":
+                    test_kwargs["tcp_pkt_methods"] = config.tcp_pkt_methods
+                tester.run_test(**test_kwargs)
             with self.lock:
                 if self.stats.status == TestStatus.STOPPING:
                     self.stats.status = TestStatus.COMPLETED
@@ -814,7 +819,8 @@ def start_test():
                 threads=int(data.get('threads', 8)),
                 data_size_kb=int(data.get('data_size_kb', 300)),
                 target_pps=int(data.get('target_pps', 5000)),
-                tcp_pkt_methods=data.get('tcp_pkt_methods', [])
+                tcp_pkt_methods=data.get('tcp_pkt_methods', []),
+                protocol_sources=data.get('protocol_sources', {})
             )
         success, message = state.start_test(config)
         return jsonify({'success': success, 'message': message})

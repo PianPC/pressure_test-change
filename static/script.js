@@ -29,6 +29,7 @@ let currentServerSource = "";
 let availableServerSourcesByProto = {};
 let selectedServerSourcesByProto = {};
 let multiProtoSelectedSources = {};  // 多协议模式下每个协议的源文件选择
+let singleSelectedSources = [];       // 单协议模式下选择的源文件列表
 let tcpScanPollInterval = null;
 let currentTcpRunId = null;
 let currentTcpRuns = [];
@@ -256,6 +257,8 @@ function bindControls() {
     document.getElementById("refreshGeoMapBtn")?.addEventListener("click", loadServerGeoMap);
     document.getElementById("reloadServerWorkspaceBtn")?.addEventListener("click", refreshServerResources);
     document.getElementById("openServerFileBtn")?.addEventListener("click", openServerFileModal);
+    document.getElementById("singleProtoSourceBtn")?.addEventListener("click", openSingleProtoSourceModal);
+    document.getElementById("singleProtoViewEditBtn")?.addEventListener("click", openSingleProtoViewEditModal);
     document.getElementById("clearServerSelectionBtn")?.addEventListener("click", clearServerSelection);
     document.querySelectorAll(".map-view-btn").forEach((btn) => {
         btn.addEventListener("click", () => switchServerMapMode(btn.dataset.mapView || "3d"));
@@ -710,6 +713,126 @@ async function initProtoSourceButtons() {
         } catch (e) {
             // 连接失败时静默
         }
+    }
+}
+
+// ======= 单协议源文件选择 =======
+
+function updateSingleSourceLabel() {
+    const label = document.getElementById("singleProtoSourceLabel");
+    if (!label) return;
+    if (!singleSelectedSources.length) {
+        label.textContent = "全部文件";
+    } else if (singleSelectedSources.length === 1) {
+        label.textContent = singleSelectedSources[0];
+    } else {
+        label.textContent = `${singleSelectedSources.length} 个源文件`;
+    }
+}
+
+async function openSingleProtoSourceModal() {
+    const method = document.getElementById("method")?.value;
+    if (!method) {
+        showNotification("请先选择测试协议", "error");
+        return;
+    }
+    try {
+        await ensureServerSourceSelection(method, true);
+        renderSingleProtoSourceModal(method);
+        const modal = document.getElementById("serverSourceModal");
+        if (modal) modal.hidden = false;
+        document.getElementById("serverSourceApplyBtn").onclick = () => applySingleProtoSourceSelection(method);
+    } catch (error) {
+        showNotification(`源文件加载失败：${error.message}`, "error");
+    }
+}
+
+function renderSingleProtoSourceModal(proto) {
+    const title = document.getElementById("serverSourceModalTitle");
+    const body = document.getElementById("serverSourceModalBody");
+    const sources = getAvailableServerSources(proto);
+    const selected = new Set(singleSelectedSources.length ? singleSelectedSources : getAllSourceNames(sources));
+    if (title) title.textContent = `${getMethodText(proto)} 源文件选择`;
+    if (!body) return;
+    if (!sources.length) {
+        body.innerHTML = `<div class="server-source-summary">当前协议没有可用源文件。</div>`;
+        return;
+    }
+    body.innerHTML = `
+        <div class="server-source-summary">
+            当前协议：${escapeHtml(getMethodText(proto))}。选中的文件会用于单协议测试。
+        </div>
+        <div class="server-source-list">
+            ${sources.map((file) => `
+                <label class="server-source-item">
+                    <input type="checkbox" value="${escapeHtml(file.name)}" ${selected.has(file.name) ? "checked" : ""}>
+                    <span>
+                        <strong>${escapeHtml(file.name)}</strong>
+                        <span>${escapeHtml(file.path || "")}</span>
+                    </span>
+                    <em>${escapeHtml(String(file.entry_count || 0))} 条</em>
+                </label>
+            `).join("")}
+        </div>
+    `;
+}
+
+function getAllSourceNames(sources) {
+    return sources.map((s) => s.name);
+}
+
+function applySingleProtoSourceSelection(proto) {
+    const body = document.getElementById("serverSourceModalBody");
+    const selected = Array.from(body?.querySelectorAll("input[type='checkbox']:checked") || [])
+        .map((input) => input.value)
+        .filter(Boolean);
+    if (!selected.length) {
+        showNotification("请至少选择一个源文件", "error");
+        return;
+    }
+    singleSelectedSources = selected;
+    closeServerSourceModal();
+    updateSingleSourceLabel();
+    showNotification(`已选择 ${selected.length} 个源文件`, "success");
+}
+
+async function openSingleProtoViewEditModal() {
+    const method = document.getElementById("method")?.value;
+    if (!method) {
+        showNotification("请先选择测试协议", "error");
+        return;
+    }
+    // 如果没有选择源文件，先用协议的默认文件
+    if (!singleSelectedSources.length) {
+        try {
+            await ensureServerSourceSelection(method, true);
+            const sources = getAvailableServerSources(method);
+            if (sources.length) {
+                singleSelectedSources = [sources[0].name];
+                updateSingleSourceLabel();
+            }
+        } catch (error) {
+            showNotification(`源文件加载失败：${error.message}`, "error");
+            return;
+        }
+    }
+    // 使用选中的第一个文件或者协议的默认源文件打开编辑器
+    const fileToEdit = singleSelectedSources[0];
+    const savedProto = currentProto;
+    currentProto = method;
+    try {
+        const query = fileToEdit ? `?source=${encodeURIComponent(fileToEdit)}` : "";
+        const response = await fetch(`/api/servers/${method}/file${query}`);
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || "资源文件加载失败");
+        currentServerFile = data.file;
+        renderServerFileModal(data.file);
+        const modal = document.getElementById("serverFileModal");
+        if (modal) modal.hidden = false;
+    } catch (error) {
+        showNotification(`资源文件加载失败：${error.message}`, "error");
+    } finally {
+        currentProto = savedProto;
     }
 }
 
@@ -2203,7 +2326,15 @@ function toggleMultiProtocol() {
 function updateMethodSettings() {
     const method = document.getElementById("method")?.value;
     const tcpSection = document.getElementById("tcpPktMethodSection");
+    const sourceRow = document.getElementById("singleProtoSourceRow");
     if (tcpSection) tcpSection.style.display = (method === "tcp") ? "block" : "none";
+    if (sourceRow) {
+        sourceRow.style.display = method ? "flex" : "none";
+    }
+    if (!method) {
+        singleSelectedSources = [];
+        updateSingleSourceLabel();
+    }
     if (method) loadReflectorCount([method]);
     updateWorkflowIndicators();
 }
@@ -2297,6 +2428,8 @@ async function startTest() {
         }
         data.method = method;
         data.selected_protocols = [method];
+        data.protocol_sources = {};
+        data.protocol_sources[method] = singleSelectedSources.length ? singleSelectedSources : null;
         if (method === "tcp") {
             const checked = document.querySelectorAll("#tcpPktMethodSection input[type='checkbox']:checked");
             data.tcp_pkt_methods = Array.from(checked).map(cb => cb.value);
