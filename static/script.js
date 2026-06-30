@@ -32,6 +32,7 @@ let tcpScanPollInterval = null;
 let currentTcpRunId = null;
 let currentTcpRuns = [];
 let currentTcpFile = null;
+let currentDnsFile = null;
 let currentAttackResourceProto = "tcp";
 let currentView = "dashboard";
 let lastVisitedWorkflowStep = "resource";
@@ -971,6 +972,25 @@ async function openTcpFileModal(filename) {
     }
 }
 
+async function openDnsFileModal(filename) {
+    if (!currentDnsRunId || !filename) return;
+    try {
+        const response = await fetch(`/api/dns-scan/runs/${currentDnsRunId}/files/${encodeURIComponent(filename)}`);
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || "文件加载失败");
+        currentDnsFile = {
+            name: data.filename || filename,
+            content: data.content || "",
+            editable: false
+        };
+        renderTcpFileModal(currentDnsFile);
+        const modal = document.getElementById("tcpFileModal");
+        if (modal) modal.hidden = false;
+    } catch (error) {
+        showNotification(`文件加载失败：${error.message}`, "error");
+    }
+}
+
 function renderTcpFileModal(file) {
     const title = document.getElementById("tcpFileModalTitle");
     const body = document.getElementById("tcpFileModalBody");
@@ -1023,6 +1043,7 @@ function closeTcpFileModal() {
     const modal = document.getElementById("tcpFileModal");
     if (modal) modal.hidden = true;
     currentTcpFile = null;
+    currentDnsFile = null;
 }
 
 async function saveTcpFileContent() {
@@ -1046,6 +1067,10 @@ async function saveTcpFileContent() {
 }
 
 async function reloadTcpFileContent() {
+    if (currentDnsFile?.name) {
+        await openDnsFileModal(currentDnsFile.name);
+        return;
+    }
     if (!currentTcpFile?.name) return;
     await openTcpFileModal(currentTcpFile.name);
 }
@@ -2855,8 +2880,11 @@ async function loadDnsRunDetail(runId) {
         // 产物
         const artifacts = data.artifacts || [];
         document.getElementById("dnsArtifacts").innerHTML = artifacts.length
-            ? artifacts.map((a) => `<div class="tcp-artifact-item"><span>${escapeHtml(a.name)}</span><strong>${formatBytes(a.size)}</strong></div>`).join("")
+            ? artifacts.map((a) => `<button type="button" class="tcp-artifact-item tcp-file-button" data-dns-file-name="${escapeHtml(a.name)}"><span>${escapeHtml(a.name)}</span><strong>${formatBytes(a.size)}</strong></button>`).join("")
             : `<div class="info-text">暂无输出文件</div>`;
+        document.querySelectorAll("[data-dns-file-name]").forEach((item) => {
+            item.addEventListener("click", () => openDnsFileModal(item.getAttribute("data-dns-file-name")));
+        });
 
         document.getElementById("dnsRuntimeError").textContent = data.runtime_error || "";
     } catch (e) {

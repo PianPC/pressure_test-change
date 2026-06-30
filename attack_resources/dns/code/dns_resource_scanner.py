@@ -353,10 +353,12 @@ class DNSResourceScanner:
                     self.stats["qualified"] = len(self._qualified_ips)
                     self.stats["stage"] = "saving"
 
+                avg_amp = float(summary.get("avg_amplification", summary.get("avg_amp", 0.0)) or 0.0)
+                max_amp = float(summary.get("max_amplification", summary.get("max_amp", 0.0)) or 0.0)
                 self._log(f"📊 筛选结果: {summary['responded_ips']} 个可应答 → "
                           f"{summary['qualified_count']} 个优质资源")
-                self._log(f"   平均放大率: {summary['avg_amp']:.2f}x, "
-                          f"最大放大率: {summary['max_amp']:.2f}x")
+                self._log(f"   平均放大率: {avg_amp:.2f}x, "
+                          f"最大放大率: {max_amp:.2f}x")
 
             # Stage 4: 保存
             if not self._stop_event.is_set() and self._qualified_ips:
