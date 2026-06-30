@@ -238,9 +238,9 @@
                                     <span class="attack-resource-card-icon dns"><i class="fas fa-globe"></i></span>
                                     <span class="attack-resource-card-body">
                                         <strong>DNS 资源获取</strong>
-                                        <span>预留完整参数、状态与日志区域，便于后续联调。</span>
+                                        <span>放大率测量筛选优质反射器</span>
                                     </span>
-                                    <span class="attack-resource-card-state pending">待接入</span>
+                                    <span class="attack-resource-card-state live">已接入</span>
                                 </button>
                                 <button type="button" class="attack-resource-card" data-proto="ntp">
                                     <span class="attack-resource-card-icon ntp"><i class="fas fa-clock"></i></span>
@@ -480,60 +480,145 @@
                             </div>
 
                             <div class="attack-resource-panel" data-proto-panel="dns">
-                                <div class="dashboard-grid tcp-scan-grid attack-placeholder-grid">
+                                <div class="dashboard-grid tcp-scan-grid">
                                     <div class="tcp-column tcp-left-column">
                                         <section class="panel config-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Placeholder Workflow</p><h2><i class="fas fa-globe"></i> DNS 资源获取</h2></div><span class="panel-chip">后端待接入</span></div>
-                                            <div class="attack-placeholder-banner"><i class="fas fa-screwdriver-wrench"></i><span>已预留参数编排、状态展示和日志区域，等待接入 DNS 资源获取链路。</span></div>
-                                            <div class="form-grid">
-                                                <div class="form-group wide"><label>资源文件</label><input type="text" value="dns.txt" disabled></div>
-                                                <div class="form-group wide"><label>查询记录类型</label><input type="text" value="ANY / TXT / DNSSEC" disabled></div>
-                                                <div class="form-group"><label>域名池</label><select disabled><option>高回包候选</option></select></div>
-                                                <div class="form-group"><label>协议模式</label><select disabled><option>递归资源筛选</option></select></div>
-                                                <div class="form-group"><label>批量速率</label><input type="number" value="12000" disabled></div>
-                                                <div class="form-group"><label>输出限制</label><input type="number" value="100" disabled></div>
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <p class="eyebrow">DNS Resource Workflow</p>
+                                                    <h2><i class="fas fa-globe"></i> DNS 资源获取</h2>
+                                                </div>
+                                                <span class="panel-chip">放大率测量</span>
                                             </div>
-                                            <div class="action-buttons">
-                                                <button type="button" class="btn btn-primary" disabled><i class="fas fa-play"></i>开始获取</button>
-                                                <button type="button" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
-                                                <button type="button" class="btn btn-secondary" disabled><i class="fas fa-rotate"></i>刷新</button>
-                                                <button type="button" class="btn btn-outline" disabled><i class="fas fa-floppy-disk"></i>保存模板</button>
-                                            </div>
-                                            <div class="info-text">建议后续补充域名模板库、应答长度统计和递归可用性筛选接口。</div>
+
+                                            <form id="dnsScanForm">
+                                                <div class="form-grid">
+                                                    <div class="form-group wide">
+                                                        <label for="dnsIpFile">候选 IP 文件</label>
+                                                        <select id="dnsIpFile"></select>
+                                                    </div>
+                                                    <div class="form-group wide">
+                                                        <label for="dnsTestDomains">测试域名 (每行一个)</label>
+                                                        <textarea id="dnsTestDomains" rows="2" style="resize:vertical;width:100%;padding:6px 8px;background:#0b1520;border:1px solid #1e3a5f;color:#cbd5e0;font-size:12px;border-radius:4px;">ripe.net
+isc.org
+dns-oarc.net
+iana.org</textarea>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="dnsQueryType">查询类型</label>
+                                                        <select id="dnsQueryType">
+                                                            <option value="TXT">TXT</option>
+                                                            <option value="ANY">ANY</option>
+                                                            <option value="DNSKEY">DNSKEY</option>
+                                                            <option value="RRSIG">RRSIG</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="dnsUseDnssec">DNSSEC</label>
+                                                        <select id="dnsUseDnssec">
+                                                            <option value="1">开启 (推荐)</option>
+                                                            <option value="0">关闭</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="dnsConcurrency">并发数</label>
+                                                        <input type="number" id="dnsConcurrency" value="80" min="1" max="500">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="dnsTimeout">超时 (秒)</label>
+                                                        <input type="number" id="dnsTimeout" value="3.0" min="0.5" max="30" step="0.5">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="dnsMinAmplification">最小放大率</label>
+                                                        <input type="number" id="dnsMinAmplification" value="3.0" min="0" max="100" step="0.1">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="dnsMinReliability">最小可靠性 (%)</label>
+                                                        <input type="number" id="dnsMinReliability" value="50" min="0" max="100" step="1">
+                                                    </div>
+                                                </div>
+
+                                                <div class="action-buttons">
+                                                    <button type="button" id="dnsStartBtn" class="btn btn-primary"><i class="fas fa-play"></i>开始获取</button>
+                                                    <button type="button" id="dnsStopBtn" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
+                                                    <button type="button" id="dnsRefreshBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>刷新</button>
+                                                </div>
+                                                <div id="dnsScanStatus" class="info-text">点击"开始获取"测量候选 IP 的 DNS 放大率，筛选优质反射器。</div>
+                                            </form>
                                         </section>
+
                                         <section class="panel tcp-runs-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Task Queue</p><h2><i class="fas fa-list-check"></i> 任务记录</h2></div></div>
-                                            <div class="attack-placeholder-list"><div class="tcp-run-item"><span class="tcp-run-item-main"><span>尚无 DNS 资源获取记录</span><span>接入后可在此查看批次、域名模板与任务状态。</span></span><span class="tcp-run-item-meta"><span>占位</span><strong>待接入</strong></span></div></div>
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <p class="eyebrow">Existing Tasks</p>
+                                                    <h2><i class="fas fa-list-check"></i> 任务记录</h2>
+                                                </div>
+                                                <button type="button" id="dnsClearRunsBtn" class="btn btn-secondary tcp-panel-action">
+                                                    <i class="fas fa-trash-can"></i>清除记录
+                                                </button>
+                                            </div>
+                                            <div id="dnsRunList" class="tcp-run-list"></div>
                                         </section>
+
                                         <section class="panel resources-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Artifacts</p><h2><i class="fas fa-folder-open"></i> 输出文件</h2></div></div>
-                                            <div class="attack-placeholder-list"><div class="tcp-artifact-item"><span>预期输出域名清单、探测日志、放大统计摘要</span><strong>待接入</strong></div></div>
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <p class="eyebrow">Artifacts</p>
+                                                    <h2><i class="fas fa-folder-open"></i> 输出文件</h2>
+                                                </div>
+                                            </div>
+                                            <div id="dnsArtifacts" class="tcp-artifact-list"></div>
                                         </section>
                                     </div>
+
                                     <div class="tcp-column tcp-right-column">
                                         <section class="panel metrics-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Task Detail</p><h2><i class="fas fa-chart-simple"></i> 任务详情</h2></div></div>
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <p class="eyebrow">Current Task</p>
+                                                    <h2><i class="fas fa-chart-simple"></i> 任务详情</h2>
+                                                </div>
+                                            </div>
                                             <div class="stats-grid tcp-status-grid">
-                                                <div class="stat-card"><div class="stat-title">状态</div><div class="stat-value tcp-small-value">待接入</div></div>
-                                                <div class="stat-card"><div class="stat-title">任务 ID</div><div class="stat-value tcp-small-value">DNS-PLACEHOLDER</div></div>
-                                                <div class="stat-card"><div class="stat-title">模式</div><div class="stat-value tcp-small-value">递归筛选</div></div>
-                                                <div class="stat-card"><div class="stat-title">结果</div><div class="stat-value tcp-small-value">前端占位</div></div>
+                                                <div class="stat-card">
+                                                    <div class="stat-title">状态</div>
+                                                    <div class="stat-value tcp-small-value" id="dnsStatus">空闲</div>
+                                                </div>
+                                                <div class="stat-card">
+                                                    <div class="stat-title">运行 ID</div>
+                                                    <div class="stat-value tcp-small-value" id="dnsRunId">-</div>
+                                                </div>
+                                                <div class="stat-card">
+                                                    <div class="stat-title">阶段</div>
+                                                    <div class="stat-value tcp-small-value" id="dnsStage">-</div>
+                                                </div>
+                                                <div class="stat-card">
+                                                    <div class="stat-title">已测 / 总数</div>
+                                                    <div class="stat-value tcp-small-value" id="dnsProgress">0/0</div>
+                                                </div>
                                             </div>
-                                            <div class="attack-placeholder-stage-list">
-                                                <div class="tcp-stage-item"><span>载入域名与服务器资源</span><strong>待接入</strong></div>
-                                                <div class="tcp-stage-item"><span>构造查询模板</span><strong>待接入</strong></div>
-                                                <div class="tcp-stage-item"><span>筛选高回包目标</span><strong>待接入</strong></div>
-                                                <div class="tcp-stage-item"><span>输出结构化结果</span><strong>待接入</strong></div>
+                                            <div id="dnsStageList" class="tcp-stage-list">
+                                                <div class="tcp-stage-item"><span>加载候选 IP 列表</span><strong>待开始</strong></div>
+                                                <div class="tcp-stage-item"><span>多域名放大率测量</span><strong>待开始</strong></div>
+                                                <div class="tcp-stage-item"><span>按放大率+可靠性筛选</span><strong>待开始</strong></div>
+                                                <div class="tcp-stage-item"><span>保存优质 IP 列表</span><strong>待开始</strong></div>
                                             </div>
+                                            <div id="dnsQualifiedPreview" class="info-text" style="margin-top:8px;"></div>
                                         </section>
+
                                         <section class="panel chart-panel tcp-log-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Pipeline Log</p><h2><i class="fas fa-terminal"></i> 流水线日志</h2></div></div>
-                                            <pre class="tcp-log-box">DNS 资源获取前端占位已准备完成。
-当前建议后端接入方向：
-- DNS 服务器资源加载
-- 查询模板与记录类型选择
-- 应答大小与可用性评估
-- 任务日志与结果持久化</pre>
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <p class="eyebrow">Pipeline Log</p>
+                                                    <h2><i class="fas fa-terminal"></i> 流水线日志</h2>
+                                                </div>
+                                            </div>
+                                            <pre id="dnsPipelineLog" class="tcp-log-box">尚未选择 DNS 资源获取任务。
+DNS 放大率测量原理：
+  1. 向候选 DNS 服务器发送 TXT+DNSSEC 查询 (ripe.net 等大应答域名)
+  2. 测量 响应大小 / 请求大小 = 放大率
+  3. 按阈值筛选高放大率 IP 作为优质攻击资源</pre>
+                                            <div id="dnsRuntimeError" class="info-text"></div>
                                         </section>
                                     </div>
                                 </div>

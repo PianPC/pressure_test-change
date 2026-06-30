@@ -1,0 +1,466 @@
+"""
+DNS 攻击资源获取 - Flask Blueprint
+
+路由前缀: /api/dns-scan/
+提供 DNS 放大率测量扫描的完整 API：
+  - IP 资源文件管理
+  - 扫描任务创建/停止/查询
+  - 日志与产物读取
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+import traceback
+from datetime import datetime
+from pathlib import Path
+from threading import Lock, Thread
+from typing import Any, Dict, List, Optional
+
+from flask import Blueprint, jsonify, request
+
+from attack_resources.dns.code.dns_resource_scanner import (
+    DNSResourceScanner,
+    ScanConfig,
+    DNS_TYPE_MAP,
+)
+
+dns_scan_bp = Blueprint("dns_scan", __name__, url_prefix="/api/dns-scan")
+
+# 路径常量
+REPO_ROOT = Path(__file__).resolve().parents[4]  # pressure_test-change/
+DNS_OUTPUT_ROOT = REPO_ROOT / "attack_resources" / "dns" / "runs" / "dns_scan"
+DNS_RESOURCES_ROOT = REPO_ROOT / "attack_resources" / "dns" / "resources"
+SHARED_IP_LISTS = REPO_ROOT / "attack_resources" / "shared" / "ip_lists"
+
+# 默认候选 IP 文件查找路径
+DEFAULT_IP_SEARCH_DIRS = [
+    SHARED_IP_LISTS,
+    DNS_RESOURCES_ROOT,
+]
+
+
+# ── 运行注册表 ──────────────────────────────────────────
+
+class DnsScanRegistry:
+    def __init__(self):
+        self.lock = Lock()
+        self.scanners: Dict[str, DNSResourceScanner] = {}
+        self.threads: Dict[str, Thread] = {}
+        self.errors: Dict[str, str] = {}
+        self.configs: Dict[str, ScanConfig] = {}
+
+    def register(self, run_id: str, scanner: DNSResourceScanner, thread: Thread, config: ScanConfig):
+        with self.lock:
+            self.scanners[run_id] = scanner
+            self.threads[run_id] = thread
+            self.configs[run_id] = config
+            self.errors.pop(run_id, None)
+
+    def set_error(self, run_id: str, error: str):
+        with self.lock:
+            self.errors[run_id] = error
+
+    def get_error(self, run_id: str) -> str:
+        with self.lock:
+            return self.errors.get(run_id, "")
+
+    def is_running(self, run_id: str) -> bool:
+        with self.lock:
+            thread = self.threads.get(run_id)
+            return bool(thread and thread.is_alive())
+
+    def active_run_ids(self) -> List[str]:
+        with self.lock:
+            return [rid for rid, t in self.threads.items() if t.is_alive()]
+
+    def get_scanner(self, run_id: str) -> Optional[DNSResourceScanner]:
+        with self.lock:
+            return self.scanners.get(run_id)
+
+    def get_config(self, run_id: str) -> Optional[ScanConfig]:
+        with self.lock:
+            return self.configs.get(run_id)
+
+    def forget(self, run_ids: List[str]):
+        with self.lock:
+            for rid in run_ids:
+                self.scanners.pop(rid, None)
+                self.threads.pop(rid, None)
+                self.errors.pop(rid, None)
+                self.configs.pop(rid, None)
+
+
+dns_registry = DnsScanRegistry()
+
+
+# ── 辅助函数 ────────────────────────────────────────────
+
+def _list_ip_files(search_dirs: Optional[List[Path]] = None) -> List[Dict[str, Any]]:
+    """列出可用的 IP 候选文件"""
+    files: List[Dict[str, Any]] = []
+    seen = set()
+    dirs = search_dirs or DEFAULT_IP_SEARCH_DIRS
+    for d in dirs:
+        if not d.exists():
+            continue
+        for p in sorted(d.glob("*.txt")):
+            if p.name in seen:
+                continue
+            seen.add(p.name)
+            try:
+                count = 0
+                with p.open("r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            count += 1
+            except Exception:
+                count = 0
+            files.append({
+                "name": p.name,
+                "path": str(p),
+                "entry_count": count,
+            })
+    return files
+
+
+def _generate_run_id() -> str:
+    return datetime.now().strftime("dns_%Y%m%d_%H%M%S")
+
+
+def _list_run_dirs() -> List[Dict[str, Any]]:
+    """列出历史扫描运行"""
+    if not DNS_OUTPUT_ROOT.exists():
+        return []
+    runs: List[Dict[str, Any]] = []
+    for d in sorted(DNS_OUTPUT_ROOT.iterdir(), reverse=True):
+        if not d.is_dir():
+            continue
+        run_id = d.name
+        summary_path = d / "scan_summary.json"
+        summary = {}
+        if summary_path.exists():
+            try:
+                with summary_path.open("r", encoding="utf-8") as f:
+                    summary = json.load(f)
+            except Exception:
+                pass
+        runs.append({
+            "run_id": run_id,
+            "is_running": dns_registry.is_running(run_id),
+            "summary": summary,
+            "qualified_count": summary.get("qualified_count", 0),
+        })
+    return runs
+
+
+def _read_run_file(run_id: str, filename: str) -> str:
+    path = DNS_OUTPUT_ROOT / run_id / filename
+    if not path.exists():
+        raise FileNotFoundError(f"文件不存在: {filename}")
+    return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _read_run_log(run_id: str, tail: int = 200) -> str:
+    """从扫描器内存读取日志（运行中），否则从文件读"""
+    scanner = dns_registry.get_scanner(run_id)
+    if scanner:
+        return scanner.get_logs(tail)
+    # 历史运行尝试读日志文件
+    log_path = DNS_OUTPUT_ROOT / run_id / "pipeline.log"
+    if log_path.exists():
+        lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        return "\n".join(lines[-tail:])
+    return ""
+
+
+def _bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _float_or(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _int_or(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+# ── API 路由 ────────────────────────────────────────────
+
+@dns_scan_bp.route("/resources", methods=["GET"])
+def list_ip_resources():
+    """列出可用的候选 IP 文件"""
+    return jsonify({"success": True, "resources": _list_ip_files()})
+
+
+@dns_scan_bp.route("/runs", methods=["GET"])
+def list_runs():
+    """列出所有扫描运行"""
+    runs = _list_run_dirs()
+    active = dns_registry.active_run_ids()
+    return jsonify({
+        "success": True,
+        "runs": runs,
+        "active_run_ids": active,
+        "running_count": len(active),
+    })
+
+
+@dns_scan_bp.route("/runs", methods=["POST"])
+def start_scan():
+    """启动一次 DNS 资源扫描"""
+    payload = request.get_json(silent=True) or {}
+
+    ip_file = str(payload.get("ip_file") or "")
+    if not ip_file:
+        # 尝试从共享目录查找
+        available = _list_ip_files()
+        if not available:
+            return jsonify({"success": False, "message": "没有可用的 IP 候选文件"}), 400
+        ip_file = available[0]["path"]
+
+    if not Path(ip_file).exists():
+        return jsonify({"success": False, "message": f"IP 文件不存在: {ip_file}"}), 400
+
+    run_id = _generate_run_id()
+    output_dir = str(DNS_OUTPUT_ROOT / run_id)
+
+    # 解析域名
+    domains_str = str(payload.get("test_domains", "")).strip()
+    if domains_str:
+        test_domains = [d.strip() for d in domains_str.replace(",", "\n").splitlines() if d.strip()]
+    else:
+        from attack_resources.dns.code.dns_resource_scanner import DEFAULT_TEST_DOMAINS
+        test_domains = DEFAULT_TEST_DOMAINS.copy()
+
+    config = ScanConfig(
+        ip_file=ip_file,
+        output_dir=output_dir,
+        test_domains=test_domains,
+        query_type=str(payload.get("query_type", "TXT")).upper(),
+        use_dnssec=_bool(payload.get("use_dnssec", True)),
+        timeout_sec=_float_or(payload.get("timeout_sec"), 3.0),
+        concurrency=_int_or(payload.get("concurrency"), 80),
+        min_amplification=_float_or(payload.get("min_amplification"), 3.0),
+        min_reliability=_float_or(payload.get("min_reliability"), 50.0),
+        max_ips=_int_or(payload.get("max_ips"), 0),
+    )
+
+    # 校验
+    if config.query_type not in DNS_TYPE_MAP:
+        return jsonify({"success": False, "message": f"不支持的查询类型: {config.query_type}"}), 400
+
+    scanner = DNSResourceScanner()
+
+    # 日志持久化
+    os.makedirs(output_dir, exist_ok=True)
+    log_path = os.path.join(output_dir, "pipeline.log")
+
+    def log_persister(msg: str):
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+
+    def scan_worker():
+        try:
+            scanner.run_scan(config, log_callback=log_persister)
+        except Exception as exc:
+            dns_registry.set_error(run_id, f"{exc}\n{traceback.format_exc()}")
+        finally:
+            # 保存最终统计
+            stats_file = os.path.join(output_dir, "final_stats.json")
+            try:
+                with open(stats_file, "w", encoding="utf-8") as f:
+                    json.dump(scanner.get_stats(), f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
+    thread = Thread(target=scan_worker, daemon=True)
+    dns_registry.register(run_id, scanner, thread, config)
+    thread.start()
+
+    return jsonify({
+        "success": True,
+        "message": "DNS 资源扫描已启动",
+        "run_id": run_id,
+        "ip_file": os.path.basename(ip_file),
+        "total_ips": len(scanner.stats.get("total_ips_list", [])),
+    })
+
+
+@dns_scan_bp.route("/runs/<run_id>", methods=["GET"])
+def get_run_detail(run_id: str):
+    """获取运行详情"""
+    scanner = dns_registry.get_scanner(run_id)
+    if scanner:
+        stats = scanner.get_stats()
+        is_running = dns_registry.is_running(run_id)
+    else:
+        # 尝试从文件读取历史运行
+        stats_path = DNS_OUTPUT_ROOT / run_id / "final_stats.json"
+        summary_path = DNS_OUTPUT_ROOT / run_id / "scan_summary.json"
+        stats = {}
+        if stats_path.exists():
+            try:
+                stats = json.loads(stats_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        if summary_path.exists():
+            try:
+                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                stats.update(summary)
+            except Exception:
+                pass
+        is_running = False
+
+    # 产物文件
+    artifacts = []
+    run_dir = DNS_OUTPUT_ROOT / run_id
+    if run_dir.exists():
+        for f in sorted(run_dir.iterdir()):
+            if f.is_file():
+                artifacts.append({"name": f.name, "size": f.stat().st_size})
+
+    config = dns_registry.get_config(run_id)
+    config_dict = None
+    if config:
+        config_dict = {
+            "ip_file": os.path.basename(config.ip_file),
+            "query_type": config.query_type,
+            "use_dnssec": config.use_dnssec,
+            "min_amplification": config.min_amplification,
+            "min_reliability": config.min_reliability,
+            "concurrency": config.concurrency,
+        }
+
+    return jsonify({
+        "success": True,
+        "run_id": run_id,
+        "is_running": is_running,
+        "stats": stats,
+        "config": config_dict,
+        "artifacts": artifacts,
+        "runtime_error": dns_registry.get_error(run_id),
+    })
+
+
+@dns_scan_bp.route("/runs/<run_id>/logs", methods=["GET"])
+def get_run_logs(run_id: str):
+    """获取运行日志"""
+    tail = _int_or(request.args.get("tail", "200"), 200)
+    try:
+        return jsonify({"success": True, "log": _read_run_log(run_id, tail)})
+    except FileNotFoundError:
+        return jsonify({"success": False, "message": "Run not found"}), 404
+
+
+@dns_scan_bp.route("/runs/<run_id>/stop", methods=["POST"])
+def stop_scan(run_id: str):
+    """停止扫描"""
+    scanner = dns_registry.get_scanner(run_id)
+    if scanner and scanner.is_running:
+        scanner.stop()
+        return jsonify({"success": True, "message": "正在停止 DNS 资源扫描 …"})
+    return jsonify({"success": False, "message": "没有正在运行的扫描"})
+
+
+@dns_scan_bp.route("/runs/<run_id>/results", methods=["GET"])
+def get_run_results(run_id: str):
+    """获取扫描结果（优质 IP 列表及各 IP 详情）"""
+    scanner = dns_registry.get_scanner(run_id)
+    if scanner:
+        qualified = scanner.get_qualified_ips()
+        all_results = scanner.get_results(limit=500)
+    else:
+        # 从文件读
+        ip_file = DNS_OUTPUT_ROOT / run_id / "qualified_ips.txt"
+        qualified = []
+        if ip_file.exists():
+            qualified = [line.strip() for line in ip_file.read_text(encoding="utf-8").splitlines()
+                         if line.strip() and not line.startswith("#")]
+        all_results = []
+        csv_file = DNS_OUTPUT_ROOT / run_id / "scan_results.csv"
+        if csv_file.exists():
+            import csv
+            with csv_file.open("r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                all_results = [row for row in reader]
+
+    return jsonify({
+        "success": True,
+        "qualified_ips": qualified,
+        "qualified_count": len(qualified),
+        "results": all_results,
+    })
+
+
+@dns_scan_bp.route("/runs", methods=["DELETE"])
+def clear_runs():
+    """清理非活跃的历史运行"""
+    import shutil
+    active = set(dns_registry.active_run_ids())
+    deleted: List[str] = []
+    skipped: List[str] = []
+
+    if DNS_OUTPUT_ROOT.exists():
+        for d in sorted(DNS_OUTPUT_ROOT.iterdir()):
+            if not d.is_dir():
+                continue
+            run_id = d.name
+            if run_id in active:
+                skipped.append(run_id)
+                continue
+            try:
+                shutil.rmtree(str(d))
+                deleted.append(run_id)
+            except Exception:
+                pass
+
+    dns_registry.forget(deleted)
+    return jsonify({
+        "success": True,
+        "message": f"已清除 {len(deleted)} 条历史记录",
+        "deleted": deleted,
+        "skipped": skipped,
+    })
+
+
+@dns_scan_bp.route("/runs/<run_id>/files/<path:filename>", methods=["GET"])
+def get_run_file(run_id: str, filename: str):
+    """读取运行产物文件"""
+    try:
+        content = _read_run_file(run_id, filename)
+        return jsonify({"success": True, "content": content, "filename": filename})
+    except FileNotFoundError:
+        return jsonify({"success": False, "message": "文件不存在"}), 404
+
+
+@dns_scan_bp.route("/state", methods=["GET"])
+def scan_state():
+    """当前活跃扫描状态"""
+    return jsonify({
+        "success": True,
+        "active_run_ids": dns_registry.active_run_ids(),
+    })
+
+
+@dns_scan_bp.route("/query-types", methods=["GET"])
+def query_types():
+    """返回支持的 DNS 查询类型"""
+    return jsonify({
+        "success": True,
+        "types": {name: val for name, val in DNS_TYPE_MAP.items()},
+    })
