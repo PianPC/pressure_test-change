@@ -9,19 +9,33 @@ from .config import repo_root
 
 
 def list_ip_resources(ip_root: str | Path | None = None) -> list[dict[str, Any]]:
-    root = Path(ip_root) if ip_root else repo_root() / "attack_resources" / "tcp" / "resources" / "ip_lists"
-    if not root.exists():
-        return []
-    resources = []
-    for path in sorted(root.glob("*.txt")):
-        line_count = _count_non_empty_lines(path)
-        resources.append({
-            "name": path.stem,
-            "filename": path.name,
-            "path": str(path),
-            "bytes": path.stat().st_size,
-            "non_empty_lines": line_count,
-        })
+    roots: list[Path] = []
+    if ip_root:
+        roots.append(Path(ip_root))
+    else:
+        # 同时扫描 TCP 专用目录和共享目录
+        roots.append(repo_root() / "attack_resources" / "tcp" / "resources" / "ip_lists")
+        shared = repo_root() / "attack_resources" / "shared" / "ip_lists"
+        if shared.exists():
+            roots.append(shared)
+
+    seen: set[str] = set()
+    resources: list[dict[str, Any]] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.glob("*.txt")):
+            if path.name in seen:
+                continue
+            seen.add(path.name)
+            line_count = _count_non_empty_lines(path)
+            resources.append({
+                "name": path.stem,
+                "filename": path.name,
+                "path": str(path),
+                "bytes": path.stat().st_size,
+                "non_empty_lines": line_count,
+            })
     return resources
 
 

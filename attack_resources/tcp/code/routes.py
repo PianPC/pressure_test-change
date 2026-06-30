@@ -270,8 +270,14 @@ def _resolve_ip_file(value: str) -> Path:
     path = Path(value)
     if path.is_absolute() and path.exists():
         return path
+    # 先在 TCP 专用目录找
     ip_root = repo_root() / "attack_resources" / "tcp" / "resources" / "ip_lists"
     candidate = ip_root / path.name
+    if candidate.exists():
+        return candidate
+    # 再在共享目录找
+    shared = repo_root() / "attack_resources" / "shared" / "ip_lists"
+    candidate = shared / path.name
     if candidate.exists():
         return candidate
     return repo_root() / value

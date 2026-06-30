@@ -32,6 +32,7 @@ let tcpScanPollInterval = null;
 let currentTcpRunId = null;
 let currentTcpRuns = [];
 let currentTcpFile = null;
+let currentDnsFile = null;
 let currentAttackResourceProto = "tcp";
 let currentView = "dashboard";
 let lastVisitedWorkflowStep = "resource";
@@ -195,6 +196,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initProtocolCheckboxes();
     bindControls();
     initAttackResourceView();
+    initDnsScanView();
     toggleMultiProtocol();
     loadAllServerCounts();
     loadServerGeoMap();
@@ -234,6 +236,9 @@ function switchAttackResourceProto(proto = "tcp") {
     });
     if (proto === "tcp") {
         refreshTcpScan();
+    }
+    if (proto === "dns") {
+        refreshDnsScan();
     }
     updateWorkflowIndicators();
 }
@@ -967,6 +972,25 @@ async function openTcpFileModal(filename) {
     }
 }
 
+async function openDnsFileModal(filename) {
+    if (!currentDnsRunId || !filename) return;
+    try {
+        const response = await fetch(`/api/dns-scan/runs/${currentDnsRunId}/files/${encodeURIComponent(filename)}`);
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || "文件加载失败");
+        currentDnsFile = {
+            name: data.filename || filename,
+            content: data.content || "",
+            editable: false
+        };
+        renderTcpFileModal(currentDnsFile);
+        const modal = document.getElementById("tcpFileModal");
+        if (modal) modal.hidden = false;
+    } catch (error) {
+        showNotification(`文件加载失败：${error.message}`, "error");
+    }
+}
+
 function renderTcpFileModal(file) {
     const title = document.getElementById("tcpFileModalTitle");
     const body = document.getElementById("tcpFileModalBody");
@@ -1019,6 +1043,7 @@ function closeTcpFileModal() {
     const modal = document.getElementById("tcpFileModal");
     if (modal) modal.hidden = true;
     currentTcpFile = null;
+    currentDnsFile = null;
 }
 
 async function saveTcpFileContent() {
@@ -1042,6 +1067,10 @@ async function saveTcpFileContent() {
 }
 
 async function reloadTcpFileContent() {
+    if (currentDnsFile?.name) {
+        await openDnsFileModal(currentDnsFile.name);
+        return;
+    }
     if (!currentTcpFile?.name) return;
     await openTcpFileModal(currentTcpFile.name);
 }
@@ -2611,4 +2640,357 @@ function initParticles() {
     window.addEventListener("resize", resize);
     resize();
     draw();
+}
+
+// ══════════════ DNS 资源扫描 ══════════════
+
+let dnsScanPollInterval = null;
+let currentDnsRunId = null;
+let currentDnsRuns = [];
+let currentDnsSummary = null;
+const DNS_DOMAIN_PRESET = [
+    "ripe.net",
+    "isc.org",
+    "dns-oarc.net",
+    "iana.org"
+];
+
+function bindDnsScanControls() {
+    document.getElementById("dnsStartBtn")?.addEventListener("click", startDnsScan);
+    document.getElementById("dnsStopBtn")?.addEventListener("click", stopDnsScan);
+    document.getElementById("dnsRefreshBtn")?.addEventListener("click", refreshDnsScan);
+    document.getElementById("dnsClearRunsBtn")?.addEventListener("click", clearDnsRunRecords);
+    document.getElementById("dnsDomainPresetBtn")?.addEventListener("click", fillDnsDomainPreset);
+}
+
+function fillDnsDomainPreset() {
+    const textarea = document.getElementById("dnsTestDomains");
+    if (!textarea) return;
+    textarea.value = DNS_DOMAIN_PRESET.join("\n");
+}
+
+function updateDnsIpFileSummary(resources = []) {
+    const summary = document.getElementById("dnsIpFileSummary");
+    if (!summary) return;
+    if (!Array.isArray(resources) || !resources.length) {
+        summary.textContent = "未发现可用 IP 资源，请检查 attack_resources/shared/ip_lists 目录。";
+        return;
+    }
+    const first = resources[0];
+    summary.textContent = `已加载 ${resources.length} 个 IP 资源文件，默认优先展示共享目录中的 txt 文件；当前首项为 ${first.name}，共 ${first.entry_count || 0} 条。`;
+}
+
+async function loadDnsIpFiles() {
+    try {
+        const resp = await fetch("/api/dns-scan/resources");
+        const data = await resp.json();
+        if (!data.success) {
+            updateDnsIpFileSummary([]);
+            return;
+        }
+        const select = document.getElementById("dnsIpFile");
+        if (!select) return;
+        const resources = Array.isArray(data.resources) ? data.resources : [];
+        if (!resources.length) {
+            select.innerHTML = `<option value="">暂无可用 IP 资源</option>`;
+            updateDnsIpFileSummary([]);
+            return;
+        }
+        select.innerHTML = resources.map((f) => {
+            const location = (f.path || "").includes("attack_resources\\shared\\ip_lists")
+                ? "共享目录"
+                : "DNS 目录";
+            return `<option value="${escapeHtml(f.path)}">${escapeHtml(f.name)} · ${f.entry_count} 条 · ${location}</option>`;
+        }).join("");
+        updateDnsIpFileSummary(resources);
+    } catch (e) { /* ignore */ }
+}
+
+async function startDnsScan() {
+    const startBtn = document.getElementById("dnsStartBtn");
+    if (startBtn) startBtn.disabled = true;
+    try {
+        const domains = document.getElementById("dnsTestDomains")?.value || "";
+        const body = {
+            ip_file: document.getElementById("dnsIpFile")?.value || "",
+            test_domains: domains,
+            query_type: document.getElementById("dnsQueryType")?.value || "TXT",
+            use_dnssec: document.getElementById("dnsUseDnssec")?.value === "1",
+            concurrency: Number(document.getElementById("dnsConcurrency")?.value) || 80,
+            timeout_sec: parseFloat(document.getElementById("dnsTimeout")?.value) || 3.0,
+            min_amplification: parseFloat(document.getElementById("dnsMinAmplification")?.value) || 3.0,
+            min_reliability: parseFloat(document.getElementById("dnsMinReliability")?.value) || 50,
+        };
+        const resp = await fetch("/api/dns-scan/runs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.message || "启动失败");
+        currentDnsRunId = data.run_id;
+        showNotification(`DNS 扫描已启动: ${data.run_id}`, "success");
+        startDnsPolling();
+        await refreshDnsScan();
+    } catch (e) {
+        showNotification(`DNS 扫描启动失败: ${e.message}`, "error");
+    } finally {
+        if (startBtn) startBtn.disabled = false;
+    }
+}
+
+async function stopDnsScan() {
+    if (!currentDnsRunId) return;
+    try {
+        const resp = await fetch(`/api/dns-scan/runs/${currentDnsRunId}/stop`, { method: "POST" });
+        const data = await resp.json();
+        if (data.success) showNotification("正在停止 DNS 扫描 …", "info");
+    } catch (e) {
+        showNotification(`停止失败: ${e.message}`, "error");
+    }
+}
+
+async function clearDnsRunRecords() {
+    try {
+        const resp = await fetch("/api/dns-scan/runs", { method: "DELETE" });
+        const data = await resp.json();
+        showNotification(data.message || "记录已清除", "success");
+        await refreshDnsScan();
+    } catch (e) {
+        showNotification(`清除失败: ${e.message}`, "error");
+    }
+}
+
+function startDnsPolling() {
+    if (dnsScanPollInterval) clearInterval(dnsScanPollInterval);
+    dnsScanPollInterval = setInterval(refreshDnsScan, 1500);
+}
+
+async function refreshDnsScan() {
+    if (currentAttackResourceProto !== "dns") return;
+    try {
+        const resp = await fetch("/api/dns-scan/runs");
+        const data = await resp.json();
+        if (!data.success) return;
+        currentDnsRuns = data.runs || [];
+        renderDnsRunList(currentDnsRuns, data.active_run_ids || []);
+        const activeIds = data.active_run_ids || [];
+        let preferred = currentDnsRunId ? currentDnsRuns.find(r => r.run_id === currentDnsRunId) : null;
+        if (!preferred) preferred = activeIds.length ? currentDnsRuns.find(r => r.run_id === activeIds[0]) : null;
+        if (!preferred) preferred = currentDnsRuns[0];
+        if (!preferred) {
+            renderDnsEmptyState();
+            updateWorkflowIndicators();
+            return;
+        }
+        currentDnsRunId = preferred.run_id;
+        await loadDnsRunDetail(preferred.run_id);
+        if (!activeIds.length && dnsScanPollInterval) {
+            clearInterval(dnsScanPollInterval);
+            dnsScanPollInterval = null;
+        }
+        updateWorkflowIndicators();
+    } catch (e) { /* ignore */ }
+}
+
+function renderDnsRunList(runs, activeIds) {
+    const container = document.getElementById("dnsRunList");
+    if (!container) return;
+    if (!runs.length) {
+        container.innerHTML = `<div class="info-text">暂无 DNS 扫描任务。</div>`;
+        return;
+    }
+    container.innerHTML = runs.map((r) => {
+        const active = r.run_id === currentDnsRunId;
+        const running = activeIds.includes(r.run_id);
+        const metaText = running
+            ? "执行中"
+            : (r.status === "error" ? "失败" : (r.status === "stopped" ? "已停止" : (r.summary?.timestamp ? "已完成" : "-")));
+        return `<button type="button" class="tcp-run-item ${active ? "active" : ""}" data-run-id="${escapeHtml(r.run_id)}">
+            <span class="tcp-run-item-main">
+                <span>${escapeHtml(r.run_id)}</span>
+                <span>优质: ${r.qualified_count || 0} IPs</span>
+            </span>
+            <span class="tcp-run-item-meta">
+                <span>${metaText}</span>
+            </span>
+        </button>`;
+    }).join("");
+    container.querySelectorAll("[data-run-id]").forEach((el) => {
+        el.addEventListener("click", async () => {
+            currentDnsRunId = el.getAttribute("data-run-id");
+            renderDnsRunList(currentDnsRuns, activeIds);
+            await loadDnsRunDetail(currentDnsRunId);
+        });
+    });
+}
+
+function renderDnsEmptyState() {
+    setText("dnsStatus", "空闲");
+    setText("dnsRunId", "-");
+    setText("dnsStage", "-");
+    setText("dnsProgress", "0/0");
+    document.getElementById("dnsStageList").innerHTML = [
+        "加载候选 IP 列表", "多域名放大率测量", "按放大率+可靠性筛选", "保存优质 IP 列表"
+    ].map((s) => `<div class="tcp-stage-item"><span>${s}</span><strong>待开始</strong></div>`).join("");
+    setText("dnsPipelineLog", "尚未选择 DNS 资源获取任务。");
+    document.getElementById("dnsRuntimeError").textContent = "";
+    document.getElementById("dnsArtifacts").innerHTML = "";
+    document.getElementById("dnsQualifiedPreview").textContent = "";
+    const meta = document.getElementById("dnsRunMeta");
+    if (meta) meta.innerHTML = "";
+}
+
+function getDnsStageStatusText(stage, isRunning) {
+    if (stage === "done") return "已完成";
+    if (stage === "error") return "失败";
+    if (stage === "stopped") return "已停止";
+    if (stage === "saving") return isRunning ? "保存中" : "已保存";
+    if (stage === "filtering") return isRunning ? "筛选中" : "已筛选";
+    if (stage === "scanning") return isRunning ? "测量中" : "已测量";
+    if (stage === "loading") return isRunning ? "加载中" : "已加载";
+    return isRunning ? "运行中" : "空闲";
+}
+
+function renderDnsStages(stats = {}, isRunning = false) {
+    const stageList = document.getElementById("dnsStageList");
+    if (!stageList) return;
+    const stages = ["loading", "scanning", "filtering", "saving"];
+    const stageLabels = ["加载候选 IP", "放大率测量", "按阈值筛选", "保存结果"];
+    const stageStates = stats.stages || {};
+    const currentStage = stats.current_stage || "";
+    const finalStage = stats.stage || "";
+
+    stageList.innerHTML = stages.map((stageName, index) => {
+        const persistedStatus = stageStates[stageName]?.status;
+        let state = "待开始";
+
+        if (persistedStatus === "completed") {
+            state = "已完成";
+        } else if (persistedStatus === "failed") {
+            state = "失败";
+        } else if (persistedStatus === "stopped") {
+            state = "已停止";
+        } else if (persistedStatus === "running" || (isRunning && currentStage === stageName)) {
+            state = "进行中";
+        } else if (finalStage === "done") {
+            state = "已完成";
+        } else if (finalStage === "error") {
+            const failedIndex = stages.indexOf(currentStage);
+            if (failedIndex > index) state = "已完成";
+            else if (failedIndex === index) state = "失败";
+        } else if (finalStage === "stopped") {
+            const stoppedIndex = stages.indexOf(currentStage);
+            if (stoppedIndex > index) state = "已完成";
+            else if (stoppedIndex === index) state = "已停止";
+        }
+
+        return `<div class="tcp-stage-item"><span>${stageLabels[index]}</span><strong>${state}</strong></div>`;
+    }).join("");
+}
+
+function renderDnsQualifiedPreview(qualifiedIps = []) {
+    const container = document.getElementById("dnsQualifiedPreview");
+    if (!container) return;
+    if (!qualifiedIps.length) {
+        container.textContent = "暂无优质 IP。完整结果可通过输出文件查看。";
+        return;
+    }
+    const preview = qualifiedIps.slice(0, 5).map((ip) => escapeHtml(ip)).join("、");
+    container.innerHTML = `<strong>已筛出 ${qualifiedIps.length} 个优质 IP</strong><br>预览：${preview}${qualifiedIps.length > 5 ? " 等" : ""}<br>完整列表请直接打开 <code>qualified_ips.txt</code>。`;
+}
+
+function renderDnsMeta(detail) {
+    const container = document.getElementById("dnsRunMeta");
+    if (!container) return;
+    const stats = detail?.stats || {};
+    const config = detail?.config || {};
+    const items = [
+        ["当前阶段", getDnsStageStatusText(stats.stage || "", Boolean(detail?.is_running))],
+        ["查询类型", config.query_type || "-"],
+        ["DNSSEC", config.use_dnssec === true ? "开启" : (config.use_dnssec === false ? "关闭" : "-")],
+        ["并发数", config.concurrency ?? "-"],
+        ["最小放大率", config.min_amplification ?? "-"],
+        ["最小可靠性", config.min_reliability ?? "-"],
+        ["优质 IP", stats.qualified ?? detail?.qualified_count ?? "-"],
+        ["失败原因", detail?.runtime_error || "-"]
+    ];
+    container.innerHTML = items.map(([label, value]) => `
+        <div class="tcp-run-meta-item">
+            <span>${escapeHtml(String(label))}</span>
+            <strong>${escapeHtml(String(value ?? "-"))}</strong>
+        </div>
+    `).join("");
+}
+
+async function loadDnsRunDetail(runId) {
+    const dnsStopBtn = document.getElementById("dnsStopBtn");
+    const dnsStartBtn = document.getElementById("dnsStartBtn");
+    try {
+        const resp = await fetch(`/api/dns-scan/runs/${runId}`);
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.message || "Failed");
+
+        const s = data.stats || {};
+        const running = data.is_running;
+        currentDnsSummary = data;
+
+        setText("dnsStatus", getDnsStageStatusText(s.stage || "", running));
+        setText("dnsRunId", runId);
+        setText("dnsStage", (s.stage || "-").toUpperCase());
+        setText("dnsProgress", `${s.tested || 0}/${s.total_tasks || s.total_ips || 0}`);
+        renderDnsMeta(data);
+        renderDnsStages(s, running);
+        if (dnsStopBtn) dnsStopBtn.disabled = !running;
+        if (dnsStartBtn) dnsStartBtn.disabled = running;
+
+        // 日志
+        if (running) {
+            try {
+                const logResp = await fetch(`/api/dns-scan/runs/${runId}/logs?tail=200`);
+                const logData = await logResp.json();
+                if (logData.success) {
+                    setText("dnsPipelineLog", logData.log || s.log_tail || "");
+                } else {
+                    setText("dnsPipelineLog", s.log_tail || "");
+                }
+            } catch (e) {
+                setText("dnsPipelineLog", s.log_tail || "");
+            }
+        } else {
+            setText("dnsPipelineLog", s.log_tail || "");
+        }
+
+        // 优质预览
+        try {
+            const resResp = await fetch(`/api/dns-scan/runs/${runId}/results`);
+            const resData = await resResp.json();
+            if (resData.success) {
+                renderDnsQualifiedPreview(resData.qualified_ips || []);
+            } else {
+                renderDnsQualifiedPreview([]);
+            }
+        } catch (e) {
+            renderDnsQualifiedPreview([]);
+        }
+
+        // 产物
+        const artifacts = data.artifacts || [];
+        document.getElementById("dnsArtifacts").innerHTML = artifacts.length
+            ? artifacts.map((a) => `<button type="button" class="tcp-artifact-item tcp-file-button" data-dns-file-name="${escapeHtml(a.name)}"><span>${escapeHtml(a.name)}</span><strong>${formatBytes(a.size)}</strong></button>`).join("")
+            : `<div class="info-text">暂无输出文件</div>`;
+        document.querySelectorAll("[data-dns-file-name]").forEach((item) => {
+            item.addEventListener("click", () => openDnsFileModal(item.getAttribute("data-dns-file-name")));
+        });
+
+        document.getElementById("dnsRuntimeError").textContent = data.runtime_error ? `失败原因：${data.runtime_error}` : "";
+    } catch (e) {
+        console.warn("DNS run detail load failed", e);
+    }
+}
+
+// 加载 IP 文件列表 & 绑定按钮 (在 DOMContentLoaded 中调用)
+function initDnsScanView() {
+    bindDnsScanControls();
+    loadDnsIpFiles();
 }
