@@ -2059,6 +2059,8 @@ function toggleMultiProtocol() {
 
 function updateMethodSettings() {
     const method = document.getElementById("method")?.value;
+    const tcpSection = document.getElementById("tcpPktMethodSection");
+    if (tcpSection) tcpSection.style.display = (method === "tcp") ? "block" : "none";
     if (method) loadReflectorCount([method]);
     updateWorkflowIndicators();
 }
@@ -2068,6 +2070,8 @@ function updateProtocolSelection() {
         .map((input) => input.value);
     if (isMultiProtocol) {
         loadReflectorCount(selectedProtocols);
+        const tcpSection = document.getElementById("tcpPktMethodSection");
+        if (tcpSection) tcpSection.style.display = selectedProtocols.includes("tcp") ? "block" : "none";
     } else {
         const method = document.getElementById("method")?.value;
         loadReflectorCount(method ? [method] : ["memcached", "dns", "ntp"]);
@@ -2094,7 +2098,7 @@ async function loadReflectorCount(protocols) {
 }
 
 function loadAllServerCounts() {
-    loadReflectorCount(["memcached", "dns", "ntp"]);
+    loadReflectorCount(["memcached", "dns", "ntp", "tcp"]);
 }
 
 function refreshServerResources() {
@@ -2133,6 +2137,10 @@ async function startTest() {
         }
         data.selected_protocols = selectedProtocols;
         data.method = selectedProtocols[0];
+        if (selectedProtocols.includes("tcp")) {
+            const checked = document.querySelectorAll("#tcpPktMethodSection input[type='checkbox']:checked");
+            data.tcp_pkt_methods = Array.from(checked).map(cb => cb.value);
+        }
     } else {
         const method = document.getElementById("method")?.value;
         if (!method) {
@@ -2141,6 +2149,10 @@ async function startTest() {
         }
         data.method = method;
         data.selected_protocols = [method];
+        if (method === "tcp") {
+            const checked = document.querySelectorAll("#tcpPktMethodSection input[type='checkbox']:checked");
+            data.tcp_pkt_methods = Array.from(checked).map(cb => cb.value);
+        }
     }
 
     syncLatencyTarget(data.target_ip, data.target_port);

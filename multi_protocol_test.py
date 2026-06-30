@@ -9,6 +9,7 @@ import logging
 from typing import Dict, List, Optional, Callable, Any
 from threading import Lock
 
+from attack_resources.tcp.code.tester import TcpTester
 from attack_resources.memcached.code.tester import MemcachedTester
 from attack_resources.dns.code.tester import DNSTester
 from attack_resources.ntp.code.tester import NTPTester
@@ -69,7 +70,7 @@ class MultiProtocolTester:
 
         # 确定使用的协议
         if protocols is None:
-            self.selected_protocols = ['memcached', 'dns', 'ntp']
+            self.selected_protocols = ['memcached', 'dns', 'ntp', 'tcp']
         else:
             self.selected_protocols = protocols
 
@@ -123,6 +124,8 @@ class MultiProtocolTester:
                 tester = DNSTester()
             elif protocol == 'ntp':
                 tester = NTPTester()
+            elif protocol == 'tcp':
+                tester = TcpTester()
             elif protocol == 'memcached':
                 tester = MemcachedTester()
             else:

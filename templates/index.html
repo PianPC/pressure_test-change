@@ -794,7 +794,19 @@
                                         <option value="memcached">Memcached (10-50x)</option>
                                         <option value="dns">DNS (28-54x)</option>
                                         <option value="ntp">NTP (556x)</option>
+                                        <option value="tcp">TCP 中间盒攻击</option>
                                     </select>
+                                </div>
+
+                                <div id="tcpPktMethodSection" class="form-group" style="display:none;">
+                                    <label>TCP 发包方式</label>
+                                    <div class="proto-check-group">
+                                        <label><input type="checkbox" value="PSH" checked> PSH</label>
+                                        <label><input type="checkbox" value="PSH_ACK" checked> PSH_ACK</label>
+                                        <label><input type="checkbox" value="SYN"> SYN</label>
+                                        <label><input type="checkbox" value="SYN_PSH_ACK"> SYN_PSH_ACK</label>
+                                        <label><input type="checkbox" value="SYN_PSH"> SYN_PSH</label>
+                                    </div>
                                 </div>
 
                                 <div id="multiProtocolSection" class="multi-section" style="display:none;">
@@ -803,6 +815,7 @@
                                         <label><input type="checkbox" value="memcached" checked> Memcached</label>
                                         <label><input type="checkbox" value="dns" checked> DNS</label>
                                         <label><input type="checkbox" value="ntp" checked> NTP</label>
+                                        <label><input type="checkbox" value="tcp"> TCP</label>
                                     </div>
                                     <div class="info-text">当前可用资源：<span id="reflectors_count">0</span> 个</div>
                                 </div>

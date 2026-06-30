@@ -35,6 +35,7 @@ except ImportError:
 from attack_resources.memcached.code.tester import MemcachedTester
 from attack_resources.dns.code.tester import DNSTester
 from attack_resources.ntp.code.tester import NTPTester
+from attack_resources.tcp.code.tester import TcpTester
 from multi_protocol_test import MultiProtocolTester
 from attack_resources.tcp.code.routes import tcp_censor_bp
 
@@ -43,6 +44,7 @@ class TestMethod(Enum):
     MEMCACHED = "memcached"
     DNS = "dns"
     NTP = "ntp"
+    TCP = "tcp"
     MULTI = "multi"
 
 class TestStatus(Enum):
@@ -64,6 +66,7 @@ class TestConfig:
     threads: int = 8
     data_size_kb: int = 300
     target_pps: int = 5000
+    tcp_pkt_methods: List[str] = field(default_factory=list)
 
 @dataclass
 class TestStats:
@@ -177,7 +180,8 @@ class GlobalState:
         self.testers = {
             "memcached": MemcachedTester(),
             "dns": DNSTester(),
-            "ntp": NTPTester()
+            "ntp": NTPTester(),
+            "tcp": TcpTester()
         }
         self.multi_tester = MultiProtocolTester()
         self.active_tester = None
@@ -290,7 +294,8 @@ class GlobalState:
                     target_pps=config.target_pps,
                     spoof_source_ip=config.target_ip,
                     spoof_source_port=config.target_port,
-                    stats_callback=update_callback
+                    stats_callback=update_callback,
+                    tcp_pkt_methods=config.tcp_pkt_methods
                 )
             with self.lock:
                 if self.stats.status == TestStatus.STOPPING:
@@ -760,7 +765,7 @@ def get_config():
                 status['expected_amplification'] = 556
             elif state.config.single_method:
                 method = state.config.single_method.value
-                amp_map = {'memcached': 50, 'dns': 54, 'ntp': 556}
+                amp_map = {'memcached': 50, 'dns': 54, 'ntp': 556, 'tcp': 'Dynamic'}
                 status['expected_amplification'] = amp_map.get(method, 10)
         else:
             status['expected_amplification'] = 10
@@ -779,7 +784,7 @@ def start_test():
         if multi_protocol:
             if not selected_protocols:
                 return jsonify({'success': False, 'message': '请至少选择一个协议'})
-            valid_protocols = ["memcached", "dns", "ntp"]
+            valid_protocols = ["memcached", "dns", "ntp", "tcp"]
             for protocol in selected_protocols:
                 if protocol not in valid_protocols:
                     return jsonify({'success': False, 'message': f'无效的协议: {protocol}'})
@@ -791,7 +796,8 @@ def start_test():
                 duration_minutes=int(data.get('duration', 5)),
                 threads=int(data.get('threads', 8)),
                 data_size_kb=int(data.get('data_size_kb', 300)),
-                target_pps=int(data.get('target_pps', 5000))
+                target_pps=int(data.get('target_pps', 5000)),
+                tcp_pkt_methods=data.get('tcp_pkt_methods', [])
             )
         else:
             if not data.get('method'):
@@ -809,7 +815,8 @@ def start_test():
                 duration_minutes=int(data.get('duration', 5)),
                 threads=int(data.get('threads', 8)),
                 data_size_kb=int(data.get('data_size_kb', 300)),
-                target_pps=int(data.get('target_pps', 5000))
+                target_pps=int(data.get('target_pps', 5000)),
+                tcp_pkt_methods=data.get('tcp_pkt_methods', [])
             )
         success, message = state.start_test(config)
         return jsonify({'success': success, 'message': message})
@@ -953,7 +960,7 @@ def get_server_count():
         protocols = data.get('protocols', [])
         total_count = 0
         protocol_counts = {}
-        default_counts = {'memcached': 1, 'dns': 3, 'ntp': 2}
+        default_counts = {'memcached': 1, 'dns': 3, 'ntp': 2, 'tcp': 0}
         for protocol in protocols:
             if protocol in ['memcached', 'dns', 'ntp']:
                 filename = get_effective_server_file(protocol)
