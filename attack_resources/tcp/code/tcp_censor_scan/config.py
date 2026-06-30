@@ -4,7 +4,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 import configparser
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
 
 
 VALID_PKT_METHODS = {"PSH", "PSH_ACK", "SYN", "SYN_PSH_ACK", "SYN_PSH"}

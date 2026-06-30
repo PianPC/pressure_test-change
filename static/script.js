@@ -819,21 +819,18 @@ async function openSingleProtoViewEditModal() {
             return;
         }
     }
-    // 使用选中的第一个文件或者协议的默认源文件打开编辑器
+    // 使用 openServerEditorModal 打开编辑，它会自动设置 currentProto/currentServerSource
     const fileToEdit = singleSelectedSources[0];
+    if (!fileToEdit) {
+        showNotification("未找到可编辑的源文件", "error");
+        return;
+    }
+    // 临时同步 selectedServerSourcesByProto 以复用在资源池中的编辑器
     const savedProto = currentProto;
     currentProto = method;
+    selectedServerSourcesByProto[method] = singleSelectedSources;
     try {
-        const query = fileToEdit ? `?source=${encodeURIComponent(fileToEdit)}` : "";
-        const response = await fetch(`/api/servers/${method}/file${query}`);
-        const data = await response.json();
-        if (!data.success) throw new Error(data.message || "资源文件加载失败");
-        currentServerFile = data.file;
-        renderServerFileModal(data.file);
-        const modal = document.getElementById("serverFileModal");
-        if (modal) modal.hidden = false;
-    } catch (error) {
-        showNotification(`资源文件加载失败：${error.message}`, "error");
+        await openServerEditorModal(fileToEdit);
     } finally {
         currentProto = savedProto;
     }
@@ -1728,71 +1725,6 @@ function renderServerUnresolvedItems() {
             <span>${escapeHtml(formatGeoReason(item.reason))}</span>
         </div>
     `).join("");
-}
-
-function renderServerFileModal(file) {
-    const title = document.getElementById("serverFileModalTitle");
-    const body = document.getElementById("serverFileModalBody");
-    const saveBtn = document.getElementById("serverFileSaveBtn");
-    const reloadBtn = document.getElementById("serverFileReloadBtn");
-    if (title) title.textContent = file.name || "资源文件";
-    if (saveBtn) saveBtn.disabled = !file.editable;
-    if (reloadBtn) reloadBtn.disabled = false;
-    if (body) {
-        body.innerHTML = file.editable
-            ? `<textarea id="serverFileEditor">${escapeHtml(file.content || "")}</textarea>`
-            : `<pre>${escapeHtml(file.content || "")}</pre>`;
-        if (file.editable) {
-            const textarea = document.getElementById("serverFileEditor");
-            if (textarea) textarea.value = file.content || "";
-        }
-    }
-}
-
-async function openServerFileModal() {
-    try {
-        const response = await fetch(`/api/servers/${currentProto}/file`);
-        const data = await response.json();
-        if (!data.success) throw new Error(data.message || "资源文件加载失败");
-        currentServerFile = data.file;
-        renderServerFileModal(data.file);
-        const modal = document.getElementById("serverFileModal");
-        if (modal) modal.hidden = false;
-    } catch (error) {
-        showNotification(`资源文件加载失败：${error.message}`, "error");
-    }
-}
-
-function closeServerFileModal() {
-    const modal = document.getElementById("serverFileModal");
-    if (modal) modal.hidden = true;
-    currentServerFile = null;
-}
-
-async function saveServerFileContent() {
-    if (!currentServerFile?.editable) return;
-    const textarea = document.getElementById("serverFileEditor");
-    const content = textarea?.value ?? "";
-    try {
-        const response = await fetch(`/api/servers/${currentProto}/file`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ content })
-        });
-        const data = await response.json();
-        if (!data.success) throw new Error(data.message || "资源文件保存失败");
-        showNotification(data.message || "资源文件已保存", "success");
-        await loadServerGeoMap();
-        await reloadServerFileContent();
-        loadAllServerCounts();
-    } catch (error) {
-        showNotification(`资源文件保存失败：${error.message}`, "error");
-    }
-}
-
-async function reloadServerFileContent() {
-    if (!currentServerFile?.name) return;
-    await openServerFileModal();
 }
 
 function renderServerSourceModal() {
