@@ -2822,6 +2822,8 @@ function renderDnsEmptyState() {
     document.getElementById("dnsRuntimeError").textContent = "";
     document.getElementById("dnsArtifacts").innerHTML = "";
     document.getElementById("dnsQualifiedPreview").textContent = "";
+    const meta = document.getElementById("dnsRunMeta");
+    if (meta) meta.innerHTML = "";
 }
 
 function getDnsStageStatusText(stage, isRunning) {
@@ -2845,6 +2847,29 @@ function renderDnsQualifiedPreview(qualifiedIps = []) {
     container.innerHTML = `<strong>已筛出 ${qualifiedIps.length} 个优质 IP</strong><br>预览：${preview}${qualifiedIps.length > 5 ? " 等" : ""}<br>完整列表请直接打开 <code>qualified_ips.txt</code>。`;
 }
 
+function renderDnsMeta(detail) {
+    const container = document.getElementById("dnsRunMeta");
+    if (!container) return;
+    const stats = detail?.stats || {};
+    const config = detail?.config || {};
+    const items = [
+        ["当前阶段", getDnsStageStatusText(stats.stage || "", Boolean(detail?.is_running))],
+        ["查询类型", config.query_type || "-"],
+        ["DNSSEC", config.use_dnssec === true ? "开启" : (config.use_dnssec === false ? "关闭" : "-")],
+        ["并发数", config.concurrency ?? "-"],
+        ["最小放大率", config.min_amplification ?? "-"],
+        ["最小可靠性", config.min_reliability ?? "-"],
+        ["优质 IP", stats.qualified ?? detail?.qualified_count ?? "-"],
+        ["失败原因", detail?.runtime_error || "-"]
+    ];
+    container.innerHTML = items.map(([label, value]) => `
+        <div class="tcp-run-meta-item">
+            <span>${escapeHtml(String(label))}</span>
+            <strong>${escapeHtml(String(value ?? "-"))}</strong>
+        </div>
+    `).join("");
+}
+
 async function loadDnsRunDetail(runId) {
     const dnsStopBtn = document.getElementById("dnsStopBtn");
     const dnsStartBtn = document.getElementById("dnsStartBtn");
@@ -2861,6 +2886,7 @@ async function loadDnsRunDetail(runId) {
         setText("dnsRunId", runId);
         setText("dnsStage", (s.stage || "-").toUpperCase());
         setText("dnsProgress", `${s.tested || 0}/${s.total_tasks || s.total_ips || 0}`);
+        renderDnsMeta(data);
         if (dnsStopBtn) dnsStopBtn.disabled = !running;
         if (dnsStartBtn) dnsStartBtn.disabled = running;
 
