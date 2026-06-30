@@ -30,7 +30,7 @@ from attack_resources.dns.code.dns_resource_scanner import (
 dns_scan_bp = Blueprint("dns_scan", __name__, url_prefix="/api/dns-scan")
 
 # 路径常量
-REPO_ROOT = Path(__file__).resolve().parents[4]  # pressure_test-change/
+REPO_ROOT = Path(__file__).resolve().parents[3]  # pressure_test-change/
 DNS_OUTPUT_ROOT = REPO_ROOT / "attack_resources" / "dns" / "runs" / "dns_scan"
 DNS_RESOURCES_ROOT = REPO_ROOT / "attack_resources" / "dns" / "resources"
 SHARED_IP_LISTS = REPO_ROOT / "attack_resources" / "shared" / "ip_lists"
