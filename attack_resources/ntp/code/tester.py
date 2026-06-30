@@ -8,6 +8,7 @@ import logging
 import traceback
 from threading import Lock
 from typing import List, Dict, Optional, Callable, Any
+from pathlib import Path
 
 # 创建日志记录器
 logger = logging.getLogger(__name__)
@@ -112,7 +113,7 @@ class NTPTester:
         }
         
         # NTP服务器配置
-        self.servers_file = 'attack_resources/ntp/resources/servers.txt'
+        self.servers_dir = Path('attack_resources/ntp/resources/ip_lists')
         self.ntp_servers = []
         
         # 远程监控信息
@@ -136,7 +137,8 @@ class NTPTester:
                  duration_minutes: int = 5, threads: int = 8,
                  spoof_source_ip: Optional[str] = None, spoof_source_port: int = 0,
                  data_size_kb: int = 300, target_pps: int = 5000,
-                 stats_callback: Optional[Callable[[Dict], None]] = None) -> None:
+                 stats_callback: Optional[Callable[[Dict], None]] = None,
+                 source_files: Optional[List[str]] = None) -> None:
         
         # 如果没有设置伪造源IP，使用目标IP
         if not spoof_source_ip:
@@ -155,7 +157,7 @@ class NTPTester:
         
         try:
             # 加载NTP反射服务器列表
-            ntp_servers = self._load_servers()
+            ntp_servers = self._load_servers(source_files=source_files)
             if not ntp_servers:
                 logger.error("没有可用的NTP服务器")
                 return
@@ -254,34 +256,54 @@ class NTPTester:
         self.is_running = False
         logger.info("正在停止NTP测试...")
 
-    def _load_servers(self) -> List[str]:
-        """加载NTP服务器列表"""
+    def _load_servers(self, source_files: Optional[List[str]] = None) -> List[str]:
+        """加载NTP服务器列表（从 ip_lists/ 目录多文件加载）"""
         servers = []
-        
-        if os.path.exists(self.servers_file):
-            try:
-                with open(self.servers_file, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#'):
-                            # 如果是域名，解析为IP
-                            if not self._is_ip_address(line):
-                                try:
-                                    ip = socket.gethostbyname(line)
-                                    servers.append(ip)
-                                    logger.debug(f"解析域名 {line} -> {ip}")
-                                except socket.gaierror:
-                                    logger.warning(f"无法解析域名: {line}")
-                            else:
-                                servers.append(line)
-            except Exception as e:
-                logger.error(f"加载NTP服务器列表失败: {str(e)}")
-        else:
-            logger.warning(f"NTP服务器文件不存在: {self.servers_file}")
-            # 添加默认NTP服务器
+        dir_path = self.servers_dir
+
+        def _resolve_line(line: str) -> Optional[str]:
+            if not self._is_ip_address(line):
+                try:
+                    ip = socket.gethostbyname(line)
+                    logger.debug(f"解析域名 {line} -> {ip}")
+                    return ip
+                except socket.gaierror:
+                    logger.warning(f"无法解析域名: {line}")
+                    return None
+            return line
+
+        if source_files:
+            for filename in source_files:
+                file_path = dir_path / filename
+                if file_path.exists():
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith('#'):
+                                    resolved = _resolve_line(line)
+                                    if resolved:
+                                        servers.append(resolved)
+                    except Exception as e:
+                        logger.warning(f"加载NTP服务器文件 {filename} 失败: {e}")
+        elif dir_path.exists():
+            for txt_file in sorted(dir_path.glob("*.txt")):
+                try:
+                    with open(txt_file, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                resolved = _resolve_line(line)
+                                if resolved:
+                                    servers.append(resolved)
+                except Exception as e:
+                    logger.warning(f"加载NTP服务器文件 {txt_file.name} 失败: {e}")
+
+        if not servers:
+            logger.warning(f"NTP服务器文件不存在或无有效IP: {dir_path}")
             servers = self._get_default_ntp_servers()
-            
-        return servers
+
+        return list(dict.fromkeys(servers))
 
     def _get_default_ntp_servers(self) -> List[str]:
         """获取默认NTP服务器列表"""

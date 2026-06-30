@@ -10,6 +10,7 @@ import select
 from threading import Lock
 from typing import List, Dict, Optional, Callable, Any
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # 创建日志记录器
 logger = logging.getLogger(__name__)
@@ -114,7 +115,7 @@ class DNSTester:
         }
         
         # DNS服务器配置
-        self.servers_file = 'attack_resources/dns/resources/servers.txt'
+        self.servers_dir = Path('attack_resources/dns/resources/ip_lists')
         self.dns_servers = []
         
         # 远程监控信息
@@ -146,7 +147,8 @@ class DNSTester:
                  duration_minutes: int = 5, threads: int = 8,
                  spoof_source_ip: Optional[str] = None, spoof_source_port: int = 0,
                  data_size_kb: int = 300, target_pps: int = 5000,
-                 stats_callback: Optional[Callable[[Dict], None]] = None) -> None:
+                 stats_callback: Optional[Callable[[Dict], None]] = None,
+                 source_files: Optional[List[str]] = None) -> None:
         
         # 如果没有设置伪造源IP，使用目标IP
         if not spoof_source_ip:
@@ -165,7 +167,7 @@ class DNSTester:
         
         try:
             # 加载DNS反射服务器列表
-            dns_servers = self._load_servers()
+            dns_servers = self._load_servers(source_files=source_files)
             if not dns_servers:
                 logger.error("没有可用的DNS服务器")
                 return
@@ -265,26 +267,40 @@ class DNSTester:
         self.is_running = False
         logger.info("正在停止DNS测试...")
 
-    def _load_servers(self) -> List[str]:
-        """加载DNS服务器列表"""
+    def _load_servers(self, source_files: Optional[List[str]] = None) -> List[str]:
+        """加载DNS服务器列表（从 ip_lists/ 目录多文件加载）"""
         servers = []
-        
-        if os.path.exists(self.servers_file):
-            try:
-                with open(self.servers_file, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#'):
-                            servers.append(line)
-            except Exception as e:
-                logger.error(f"加载DNS服务器列表失败: {str(e)}")
-        else:
-            logger.warning(f"DNS服务器文件不存在: {self.servers_file}")
-            # 添加默认DNS服务器
+        dir_path = self.servers_dir
+
+        if source_files:
+            for filename in source_files:
+                file_path = dir_path / filename
+                if file_path.exists():
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith('#'):
+                                    servers.append(line)
+                    except Exception as e:
+                        logger.warning(f"加载DNS服务器文件 {filename} 失败: {e}")
+        elif dir_path.exists():
+            for txt_file in sorted(dir_path.glob("*.txt")):
+                try:
+                    with open(txt_file, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                servers.append(line)
+                except Exception as e:
+                    logger.warning(f"加载DNS服务器文件 {txt_file.name} 失败: {e}")
+
+        if not servers:
+            logger.warning(f"DNS服务器文件不存在或无有效IP: {dir_path}")
             default_servers = ["8.8.8.8", "1.1.1.1", "9.9.9.9", "8.8.4.4"]
             servers.extend(default_servers)
-            
-        return servers
+
+        return list(dict.fromkeys(servers))
 
     def _optimize_system(self):
         """优化系统设置"""

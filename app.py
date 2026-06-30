@@ -68,6 +68,7 @@ class TestConfig:
     data_size_kb: int = 300
     target_pps: int = 5000
     tcp_pkt_methods: List[str] = field(default_factory=list)
+    protocol_sources: Dict[str, List[str]] = field(default_factory=dict)
 
 @dataclass
 class TestStats:
@@ -273,7 +274,8 @@ class GlobalState:
                     total_threads=config.threads,
                     total_target_pps=config.target_pps,
                     protocols=config.multi_protocols,
-                    stats_callback=update_callback
+                    stats_callback=update_callback,
+                    protocol_sources=config.protocol_sources
                 )
             else:
                 if not config.single_method:
@@ -370,18 +372,16 @@ def is_valid_server_method(method: str) -> bool:
     return method in VALID_SERVER_PROTOCOLS
 
 def get_server_file(method: str) -> str:
-    return os.path.join(ATTACK_RESOURCES_ROOT, method, 'resources', 'servers.txt')
+    return os.path.join(ATTACK_RESOURCES_ROOT, method, 'resources', 'ip_lists', 'default.txt')
 
 def get_default_server_file_content(method: str) -> str:
     return '# 每行一个反射器IP或域名\n'
 
 def list_server_source_paths(method: str) -> List[Path]:
-    if method == 'tcp':
-        root = Path(ATTACK_RESOURCES_ROOT) / 'tcp' / 'resources' / 'ip_lists'
-        if not root.exists():
-            return []
-        return sorted(path for path in root.glob('*.txt') if path.is_file())
-    return [Path(get_server_file(method))]
+    root = Path(ATTACK_RESOURCES_ROOT) / method / 'resources' / 'ip_lists'
+    if not root.exists():
+        return []
+    return sorted(path for path in root.glob('*.txt') if path.is_file())
 
 def count_server_entries_in_file(path: Path) -> int:
     if not path.exists():
@@ -415,15 +415,9 @@ def resolve_server_source(method: str, source: Optional[str] = None) -> Optional
         return None
     if source_paths:
         return source_paths[0]
-    if method == 'tcp':
-        return None
-    return Path(get_server_file(method))
+    return None
 
 def resolve_server_sources(method: str, sources: Optional[List[str]] = None) -> List[Path]:
-    if method != 'tcp':
-        resolved = resolve_server_source(method, sources[0] if sources else None)
-        return [resolved] if resolved else []
-
     source_paths = list_server_source_paths(method)
     if not source_paths:
         return []
@@ -783,6 +777,7 @@ def start_test():
             return jsonify({'success': False, 'message': '请输入目标IP'})
         multi_protocol = data.get('multi_protocol', False)
         selected_protocols = data.get('selected_protocols', [])
+        protocol_sources = data.get('protocol_sources', {})
         if multi_protocol:
             if not selected_protocols:
                 return jsonify({'success': False, 'message': '请至少选择一个协议'})
@@ -799,7 +794,8 @@ def start_test():
                 threads=int(data.get('threads', 8)),
                 data_size_kb=int(data.get('data_size_kb', 300)),
                 target_pps=int(data.get('target_pps', 5000)),
-                tcp_pkt_methods=data.get('tcp_pkt_methods', [])
+                tcp_pkt_methods=data.get('tcp_pkt_methods', []),
+                protocol_sources=protocol_sources
             )
         else:
             if not data.get('method'):
@@ -877,9 +873,9 @@ def get_server_file_content(method):
     source_path = resolve_server_source(method, source or None)
     if source and source_path is None:
         return jsonify({'success': False, 'message': 'Source file not found'}), 404
-    if method == 'tcp' and source_path is None:
+    if source_path is None:
         return jsonify({'success': False, 'message': 'Source file not found'}), 404
-    filename = get_effective_server_file(method, source or None)
+    filename = str(source_path)
     content = get_default_server_file_content(method)
     if os.path.exists(filename):
         with open(filename, 'r', encoding='utf-8') as f:
@@ -919,9 +915,9 @@ def update_server_file_content(method):
     source_path = resolve_server_source(method, source or None)
     if source and source_path is None:
         return jsonify({'success': False, 'message': 'Source file not found'}), 404
-    if method == 'tcp' and source_path is None:
+    if source_path is None:
         return jsonify({'success': False, 'message': 'Source file not found'}), 404
-    filename = get_effective_server_file(method, source or None)
+    filename = str(source_path)
     normalized = content.replace('\r\n', '\n')
     try:
         os.makedirs(os.path.dirname(filename), exist_ok=True)
@@ -962,19 +958,10 @@ def get_server_count():
         protocols = data.get('protocols', [])
         total_count = 0
         protocol_counts = {}
-        default_counts = {'memcached': 1, 'dns': 3, 'ntp': 2, 'tcp': 0}
         for protocol in protocols:
-            if protocol in ['memcached', 'dns', 'ntp']:
-                filename = get_effective_server_file(protocol)
-                count = 0
-                if os.path.exists(filename):
-                    with open(filename, 'r', encoding='utf-8') as f:
-                        for line in f:
-                            line = line.strip()
-                            if line and not line.startswith('#'):
-                                count += 1
-                if count == 0:
-                    count = default_counts.get(protocol, 0)
+            if protocol in VALID_SERVER_PROTOCOLS:
+                source_paths = list_server_source_paths(protocol)
+                count = sum(count_server_entries_in_file(p) for p in source_paths)
                 protocol_counts[protocol] = count
                 total_count += count
         return jsonify({'success': True, 'total_count': total_count, 'protocol_counts': protocol_counts})
@@ -1079,23 +1066,41 @@ def check_root_privileges():
         return False
     return True
 
+def migrate_server_files():
+    """将旧格式 servers.txt 迁移至 ip_lists/default.txt"""
+    for protocol in VALID_SERVER_PROTOCOLS:
+        ip_lists_dir = Path(ATTACK_RESOURCES_ROOT) / protocol / 'resources' / 'ip_lists'
+        ip_lists_dir.mkdir(parents=True, exist_ok=True)
+        old_file = Path(ATTACK_RESOURCES_ROOT) / protocol / 'resources' / 'servers.txt'
+        new_file = ip_lists_dir / 'default.txt'
+        if old_file.exists() and not new_file.exists():
+            content = old_file.read_text(encoding='utf-8')
+            new_file.write_text(content, encoding='utf-8')
+            logger.info(f"已迁移 {protocol} 服务器列表: {old_file} -> {new_file}")
+        elif not old_file.exists() and not new_file.exists():
+            new_file.write_text('# 每行一个反射器IP或域名\n', encoding='utf-8')
+
 def create_required_directories():
     dirs = [
         ATTACK_RESOURCES_ROOT,
         os.path.join(ATTACK_RESOURCES_ROOT, 'tcp', 'code'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'tcp', 'resources'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'tcp', 'resources', 'ip_lists'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'tcp', 'config'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'tcp', 'runs'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'memcached', 'code'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'memcached', 'resources'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'memcached', 'resources', 'ip_lists'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'memcached', 'config'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'memcached', 'runs'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'dns', 'code'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'dns', 'resources'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'dns', 'resources', 'ip_lists'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'dns', 'config'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'dns', 'runs'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'ntp', 'code'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'ntp', 'resources'),
+        os.path.join(ATTACK_RESOURCES_ROOT, 'ntp', 'resources', 'ip_lists'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'ntp', 'config'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'ntp', 'runs'),
         os.path.join(ATTACK_RESOURCES_ROOT, 'shared', 'ip_lists'),
@@ -1115,11 +1120,12 @@ def create_default_server_files():
     }
     for filename, lines in defaults.items():
         protocol = filename.replace('.txt', '')
-        path = get_server_file(protocol)
+        path = os.path.join(ATTACK_RESOURCES_ROOT, protocol, 'resources', 'ip_lists', 'default.txt')
         if not os.path.exists(path):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(lines))
-            print(f"📄 创建默认服务器文件: {filename}")
+            print(f"📄 创建默认服务器文件: {protocol}/ip_lists/default.txt")
 
 def setup_logging():
     log_dir = 'logs'
@@ -1162,6 +1168,7 @@ if __name__ == '__main__':
     check_root_privileges()
     create_required_directories()
     create_default_server_files()
+    migrate_server_files()
     setup_logging()
     print_help()
     print("\n🚀 启动压力测试Web界面...")

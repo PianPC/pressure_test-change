@@ -901,12 +901,32 @@ DNS 放大率测量原理：
                                 </div>
 
                                 <div id="multiProtocolSection" class="multi-section" style="display:none;">
-                                    <label>协议组合</label>
-                                    <div class="proto-check-group">
-                                        <label><input type="checkbox" value="memcached" checked> Memcached</label>
-                                        <label><input type="checkbox" value="dns" checked> DNS</label>
-                                        <label><input type="checkbox" value="ntp" checked> NTP</label>
-                                        <label><input type="checkbox" value="tcp"> TCP</label>
+                                    <label>协议组合与资源选择</label>
+                                    <div class="proto-check-group" id="multiProtoCheckGroup">
+                                        <div class="multi-proto-row">
+                                            <label><input type="checkbox" value="memcached" checked> Memcached</label>
+                                            <button type="button" class="btn btn-outline btn-sm proto-source-btn" data-proto="memcached" title="选择Memcached的IP文件">
+                                                <i class="fas fa-file-lines"></i> <span class="proto-source-label">全部文件</span>
+                                            </button>
+                                        </div>
+                                        <div class="multi-proto-row">
+                                            <label><input type="checkbox" value="dns" checked> DNS</label>
+                                            <button type="button" class="btn btn-outline btn-sm proto-source-btn" data-proto="dns" title="选择DNS的IP文件">
+                                                <i class="fas fa-file-lines"></i> <span class="proto-source-label">全部文件</span>
+                                            </button>
+                                        </div>
+                                        <div class="multi-proto-row">
+                                            <label><input type="checkbox" value="ntp" checked> NTP</label>
+                                            <button type="button" class="btn btn-outline btn-sm proto-source-btn" data-proto="ntp" title="选择NTP的IP文件">
+                                                <i class="fas fa-file-lines"></i> <span class="proto-source-label">全部文件</span>
+                                            </button>
+                                        </div>
+                                        <div class="multi-proto-row">
+                                            <label><input type="checkbox" value="tcp"> TCP</label>
+                                            <button type="button" class="btn btn-outline btn-sm proto-source-btn" data-proto="tcp" title="选择TCP的IP文件">
+                                                <i class="fas fa-file-lines"></i> <span class="proto-source-label">全部文件</span>
+                                            </button>
+                                        </div>
                                     </div>
                                     <div class="info-text">当前可用资源：<span id="reflectors_count">0</span> 个</div>
                                 </div>

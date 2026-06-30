@@ -55,7 +55,8 @@ class MultiProtocolTester:
                  total_threads: int = 8,
                  total_target_pps: int = 5000,
                  protocols: List[str] = None,
-                 stats_callback: Optional[Callable[[Dict], None]] = None) -> None:
+                 stats_callback: Optional[Callable[[Dict], None]] = None,
+                 protocol_sources: Optional[Dict[str, List[str]]] = None) -> None:
         """
         运行多协议联合测试（简化版：每个协议独立使用全部线程和PPS）
         """
@@ -94,9 +95,11 @@ class MultiProtocolTester:
                 break
 
             logger.info(f"正在启动 {protocol.upper()} 测试器...")
+            sf = (protocol_sources or {}).get(protocol, None)
             t = threading.Thread(
                 target=self._run_single_protocol,
-                args=(protocol, target_ip, target_port, duration_minutes, total_threads, total_target_pps)
+                args=(protocol, target_ip, target_port, duration_minutes, total_threads, total_target_pps),
+                kwargs={'source_files': sf}
             )
             t.daemon = True
             t.start()
@@ -116,7 +119,8 @@ class MultiProtocolTester:
         logger.info("多协议联合测试结束")
 
     def _run_single_protocol(self, protocol: str, target_ip: str, target_port: int,
-                             duration_minutes: int, threads: int, target_pps: int):
+                             duration_minutes: int, threads: int, target_pps: int,
+                             source_files: Optional[List[str]] = None):
         """运行单个协议测试，并捕获其统计"""
         try:
             # 创建对应协议的测试器
@@ -147,7 +151,8 @@ class MultiProtocolTester:
                 target_pps=target_pps,
                 spoof_source_ip=target_ip,
                 spoof_source_port=target_port,
-                stats_callback=protocol_callback
+                stats_callback=protocol_callback,
+                source_files=source_files
             )
             logger.info(f"{protocol.upper()} 测试器运行完成")
 

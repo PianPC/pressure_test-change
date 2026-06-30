@@ -28,6 +28,7 @@ let currentServerFile = null;
 let currentServerSource = "";
 let availableServerSourcesByProto = {};
 let selectedServerSourcesByProto = {};
+let multiProtoSelectedSources = {};  // 多协议模式下每个协议的源文件选择
 let tcpScanPollInterval = null;
 let currentTcpRunId = null;
 let currentTcpRuns = [];
@@ -194,6 +195,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initServerGlobe();
     setupNavigation();
     initProtocolCheckboxes();
+    initProtoSourceButtons();
     bindControls();
     initAttackResourceView();
     initDnsScanView();
@@ -560,9 +562,7 @@ function getSelectedServerSources(proto = currentProto) {
 
 function getDefaultServerSources(proto, sources) {
     if (!sources.length) return [];
-    return proto === "tcp"
-        ? sources.map((item) => item.name)
-        : [sources[0].name];
+    return sources.map((item) => item.name);
 }
 
 async function fetchServerSourceFiles(proto = currentProto, force = false) {
@@ -597,6 +597,120 @@ function getSelectedServerSourceSummary(proto = currentProto) {
     if (!selected.length) return "未选择源文件";
     if (selected.length === 1) return selected[0];
     return `${selected.length} 个源文件`;
+}
+
+function getMultiProtoSelectedSources(proto) {
+    return multiProtoSelectedSources[proto] || [];
+}
+
+async function ensureMultiProtoSourceSelection(proto) {
+    const sources = await fetchServerSourceFiles(proto, true);
+    const selected = getMultiProtoSelectedSources(proto);
+    const validNames = new Set(sources.map((item) => item.name));
+    const filtered = selected.filter((name) => validNames.has(name));
+    const nextSelection = filtered.length ? filtered : getDefaultServerSources(proto, sources);
+    multiProtoSelectedSources[proto] = nextSelection;
+    return nextSelection;
+}
+
+function updateProtoSourceButtonLabel(proto) {
+    const btn = document.querySelector(`.proto-source-btn[data-proto="${proto}"]`);
+    const label = btn?.querySelector(".proto-source-label");
+    if (!label) return;
+    const selected = getMultiProtoSelectedSources(proto);
+    if (!selected.length) {
+        label.textContent = "全部文件";
+    } else if (selected.length === 1) {
+        label.textContent = selected[0];
+    } else {
+        label.textContent = `${selected.length} 个文件`;
+    }
+}
+
+async function applyMultiProtoSourceSelection(proto) {
+    const body = document.getElementById("serverSourceModalBody");
+    const selected = Array.from(body?.querySelectorAll("input[type='checkbox']:checked") || [])
+        .map((input) => input.value)
+        .filter(Boolean);
+    if (!selected.length) {
+        showNotification("请至少选择一个源文件", "error");
+        return;
+    }
+    multiProtoSelectedSources[proto] = selected;
+    closeServerSourceModal();
+    updateProtoSourceButtonLabel(proto);
+    // 刷新资源计数
+    loadReflectorCount(selectedProtocols.length ? selectedProtocols : [proto]);
+}
+
+async function openMultiProtoSourcePicker(proto) {
+    try {
+        await ensureMultiProtoSourceSelection(proto);
+        // 临时设置 currentProto 以复用现有 Modal
+        const savedProto = currentProto;
+        currentProto = proto;
+        await ensureServerSourceSelection(proto, true);
+        // 渲染 Modal 时使用 multiProtoSelectedSources
+        renderMultiProtoSourceModal(proto);
+        const modal = document.getElementById("serverSourceModal");
+        if (modal) modal.hidden = false;
+        // 保存 proto 用于 apply 时使用
+        currentProto = savedProto;
+        document.getElementById("serverSourceApplyBtn").onclick = () => applyMultiProtoSourceSelection(proto);
+    } catch (error) {
+        showNotification(`加载源文件失败：${error.message}`, "error");
+    }
+}
+
+function renderMultiProtoSourceModal(proto) {
+    const title = document.getElementById("serverSourceModalTitle");
+    const body = document.getElementById("serverSourceModalBody");
+    const sources = getAvailableServerSources(proto);
+    const selected = new Set(getMultiProtoSelectedSources(proto));
+    if (title) title.textContent = `${getMethodText(proto)} 源文件选择`;
+    if (!body) return;
+    if (!sources.length) {
+        body.innerHTML = `<div class="server-source-summary">当前协议没有可用源文件。</div>`;
+        return;
+    }
+    body.innerHTML = `
+        <div class="server-source-summary">
+            当前协议：${escapeHtml(getMethodText(proto))}。选中的文件会按并集合并使用。
+        </div>
+        <div class="server-source-list">
+            ${sources.map((file) => `
+                <label class="server-source-item">
+                    <input type="checkbox" value="${escapeHtml(file.name)}" ${selected.has(file.name) ? "checked" : ""}>
+                    <span>
+                        <strong>${escapeHtml(file.name)}</strong>
+                        <span>${escapeHtml(file.path || "")}</span>
+                    </span>
+                    <em>${escapeHtml(String(file.entry_count || 0))} 条</em>
+                </label>
+            `).join("")}
+        </div>
+    `;
+}
+
+async function initProtoSourceButtons() {
+    document.querySelectorAll(".proto-source-btn").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const proto = btn.dataset.proto;
+            await openMultiProtoSourcePicker(proto);
+        });
+    });
+    // 初始化每个协议的默认选择
+    for (const btn of document.querySelectorAll(".proto-source-btn")) {
+        const proto = btn.dataset.proto;
+        try {
+            await ensureMultiProtoSourceSelection(proto);
+            updateProtoSourceButtonLabel(proto);
+        } catch (e) {
+            // 连接失败时静默
+        }
+    }
 }
 
 async function initTcpScan() {
@@ -2166,6 +2280,11 @@ async function startTest() {
         }
         data.selected_protocols = selectedProtocols;
         data.method = selectedProtocols[0];
+        // 收集每个协议的源文件选择
+        data.protocol_sources = {};
+        for (const proto of selectedProtocols) {
+            data.protocol_sources[proto] = getMultiProtoSelectedSources(proto);
+        }
         if (selectedProtocols.includes("tcp")) {
             const checked = document.querySelectorAll("#tcpPktMethodSection input[type='checkbox']:checked");
             data.tcp_pkt_methods = Array.from(checked).map(cb => cb.value);

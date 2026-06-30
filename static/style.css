@@ -1356,6 +1356,35 @@ input:checked + .toggle-slider::before {
     background: rgba(255, 255, 255, 0.04);
 }
 
+.multi-proto-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border: 1px solid rgba(143, 168, 199, 0.18);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.04);
+    grid-column: span 3;
+}
+
+.multi-proto-row label {
+    border: none;
+    background: none;
+    padding: 0;
+    min-height: unset;
+}
+
+.proto-source-btn {
+    font-size: 0.78rem;
+    padding: 4px 12px;
+    white-space: nowrap;
+}
+
+.proto-source-label {
+    font-weight: 600;
+    color: var(--accent-primary, #0a84ff);
+}
+
 .info-text {
     margin-top: 10px;
     color: var(--muted);
