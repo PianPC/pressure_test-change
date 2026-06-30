@@ -494,15 +494,20 @@
                                             <form id="dnsScanForm">
                                                 <div class="form-grid">
                                                     <div class="form-group wide">
-                                                        <label for="dnsIpFile">候选 IP 文件</label>
+                                                        <label for="dnsIpFile">IP 资源</label>
                                                         <select id="dnsIpFile"></select>
+                                                        <div id="dnsIpFileSummary" class="dns-field-hint">正在加载共享 IP 资源...</div>
                                                     </div>
-                                                    <div class="form-group wide">
-                                                        <label for="dnsTestDomains">测试域名 (每行一个)</label>
-                                                        <textarea id="dnsTestDomains" rows="2" style="resize:vertical;width:100%;padding:6px 8px;background:#0b1520;border:1px solid #1e3a5f;color:#cbd5e0;font-size:12px;border-radius:4px;">ripe.net
+                                                    <div class="form-group wide dns-domain-group">
+                                                        <div class="dns-domain-header">
+                                                            <label for="dnsTestDomains">测试域名</label>
+                                                            <button type="button" id="dnsDomainPresetBtn" class="btn btn-secondary dns-inline-btn">填入推荐示例</button>
+                                                        </div>
+                                                        <textarea id="dnsTestDomains" class="dns-domain-textarea" rows="5" placeholder="每行一个域名，也支持用逗号分隔输入">ripe.net
 isc.org
 dns-oarc.net
 iana.org</textarea>
+                                                        <div id="dnsDomainFormatHint" class="dns-field-hint">支持“每行一个”或“逗号分隔”两种输入方式，提交时会自动整理。</div>
                                                     </div>
                                                     <div class="form-group">
                                                         <label for="dnsQueryType">查询类型</label>

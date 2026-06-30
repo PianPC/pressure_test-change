@@ -2611,24 +2611,61 @@ let dnsScanPollInterval = null;
 let currentDnsRunId = null;
 let currentDnsRuns = [];
 let currentDnsSummary = null;
+const DNS_DOMAIN_PRESET = [
+    "ripe.net",
+    "isc.org",
+    "dns-oarc.net",
+    "iana.org"
+];
 
 function bindDnsScanControls() {
     document.getElementById("dnsStartBtn")?.addEventListener("click", startDnsScan);
     document.getElementById("dnsStopBtn")?.addEventListener("click", stopDnsScan);
     document.getElementById("dnsRefreshBtn")?.addEventListener("click", refreshDnsScan);
     document.getElementById("dnsClearRunsBtn")?.addEventListener("click", clearDnsRunRecords);
+    document.getElementById("dnsDomainPresetBtn")?.addEventListener("click", fillDnsDomainPreset);
+}
+
+function fillDnsDomainPreset() {
+    const textarea = document.getElementById("dnsTestDomains");
+    if (!textarea) return;
+    textarea.value = DNS_DOMAIN_PRESET.join("\n");
+}
+
+function updateDnsIpFileSummary(resources = []) {
+    const summary = document.getElementById("dnsIpFileSummary");
+    if (!summary) return;
+    if (!Array.isArray(resources) || !resources.length) {
+        summary.textContent = "未发现可用 IP 资源，请检查 attack_resources/shared/ip_lists 目录。";
+        return;
+    }
+    const first = resources[0];
+    summary.textContent = `已加载 ${resources.length} 个 IP 资源文件，默认优先展示共享目录中的 txt 文件；当前首项为 ${first.name}，共 ${first.entry_count || 0} 条。`;
 }
 
 async function loadDnsIpFiles() {
     try {
         const resp = await fetch("/api/dns-scan/resources");
         const data = await resp.json();
-        if (!data.success) return;
+        if (!data.success) {
+            updateDnsIpFileSummary([]);
+            return;
+        }
         const select = document.getElementById("dnsIpFile");
         if (!select) return;
-        select.innerHTML = (data.resources || []).map((f) =>
-            `<option value="${escapeHtml(f.path)}">${escapeHtml(f.name)} (${f.entry_count} entries)</option>`
-        ).join("");
+        const resources = Array.isArray(data.resources) ? data.resources : [];
+        if (!resources.length) {
+            select.innerHTML = `<option value="">暂无可用 IP 资源</option>`;
+            updateDnsIpFileSummary([]);
+            return;
+        }
+        select.innerHTML = resources.map((f) => {
+            const location = (f.path || "").includes("attack_resources\\shared\\ip_lists")
+                ? "共享目录"
+                : "DNS 目录";
+            return `<option value="${escapeHtml(f.path)}">${escapeHtml(f.name)} · ${f.entry_count} 条 · ${location}</option>`;
+        }).join("");
+        updateDnsIpFileSummary(resources);
     } catch (e) { /* ignore */ }
 }
 

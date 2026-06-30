@@ -46,6 +46,50 @@
     white-space: nowrap;
 }
 
+.dns-field-hint {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 0.76rem;
+    line-height: 1.5;
+}
+
+.dns-domain-group {
+    gap: 0;
+}
+
+.dns-domain-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.dns-inline-btn {
+    min-height: 30px;
+    padding: 0 10px;
+    font-size: 0.74rem;
+}
+
+.dns-domain-textarea {
+    width: 100%;
+    min-height: 118px;
+    padding: 10px 12px;
+    color: #cbd5e0;
+    font-size: 0.84rem;
+    line-height: 1.55;
+    resize: vertical;
+    border: 1px solid #1e3a5f;
+    border-radius: 8px;
+    background: #0b1520;
+}
+
+.dns-domain-textarea:focus {
+    outline: none;
+    border-color: var(--line-strong);
+    box-shadow: 0 0 0 3px rgba(64, 231, 255, 0.12);
+}
+
 .tcp-dry-run-row {
     margin: 14px 0 4px;
 }
