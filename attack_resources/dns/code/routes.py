@@ -305,6 +305,7 @@ def start_scan():
 def get_run_detail(run_id: str):
     """获取运行详情"""
     scanner = dns_registry.get_scanner(run_id)
+    run_dir = DNS_OUTPUT_ROOT / run_id
     if scanner:
         stats = scanner.get_stats()
         is_running = dns_registry.is_running(run_id)
@@ -326,9 +327,20 @@ def get_run_detail(run_id: str):
                 pass
         is_running = False
 
+    if run_dir.exists():
+        log_path = run_dir / "pipeline.log"
+        if log_path.exists():
+            try:
+                lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+                if lines:
+                    stats.setdefault("log_tail", "\n".join(lines[-200:]))
+            except Exception:
+                pass
+
+    runtime_error = dns_registry.get_error(run_id) or str(stats.get("error") or "")
+
     # 产物文件
     artifacts = []
-    run_dir = DNS_OUTPUT_ROOT / run_id
     if run_dir.exists():
         for f in sorted(run_dir.iterdir()):
             if f.is_file():
@@ -353,7 +365,7 @@ def get_run_detail(run_id: str):
         "stats": stats,
         "config": config_dict,
         "artifacts": artifacts,
-        "runtime_error": dns_registry.get_error(run_id),
+        "runtime_error": runtime_error,
     })
 
 

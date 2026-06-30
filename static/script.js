@@ -2824,6 +2824,27 @@ function renderDnsEmptyState() {
     document.getElementById("dnsQualifiedPreview").textContent = "";
 }
 
+function getDnsStageStatusText(stage, isRunning) {
+    if (stage === "done") return "已完成";
+    if (stage === "error") return "失败";
+    if (stage === "saving") return isRunning ? "保存中" : "已保存";
+    if (stage === "filtering") return isRunning ? "筛选中" : "已筛选";
+    if (stage === "scanning") return isRunning ? "测量中" : "已测量";
+    if (stage === "loading") return isRunning ? "加载中" : "已加载";
+    return isRunning ? "运行中" : "空闲";
+}
+
+function renderDnsQualifiedPreview(qualifiedIps = []) {
+    const container = document.getElementById("dnsQualifiedPreview");
+    if (!container) return;
+    if (!qualifiedIps.length) {
+        container.textContent = "暂无优质 IP。完整结果可通过输出文件查看。";
+        return;
+    }
+    const preview = qualifiedIps.slice(0, 5).map((ip) => escapeHtml(ip)).join("、");
+    container.innerHTML = `<strong>已筛出 ${qualifiedIps.length} 个优质 IP</strong><br>预览：${preview}${qualifiedIps.length > 5 ? " 等" : ""}<br>完整列表请直接打开 <code>qualified_ips.txt</code>。`;
+}
+
 async function loadDnsRunDetail(runId) {
     const dnsStopBtn = document.getElementById("dnsStopBtn");
     const dnsStartBtn = document.getElementById("dnsStartBtn");
@@ -2836,10 +2857,10 @@ async function loadDnsRunDetail(runId) {
         const running = data.is_running;
         currentDnsSummary = data;
 
-        setText("dnsStatus", running ? "执行中" : (s.stage === "done" ? "已完成" : (s.stage === "error" ? "失败" : "空闲")));
+        setText("dnsStatus", getDnsStageStatusText(s.stage || "", running));
         setText("dnsRunId", runId);
         setText("dnsStage", (s.stage || "-").toUpperCase());
-        setText("dnsProgress", `${s.tested || 0}/${s.total_ips || 0}`);
+        setText("dnsProgress", `${s.tested || 0}/${s.total_tasks || s.total_ips || 0}`);
         if (dnsStopBtn) dnsStopBtn.disabled = !running;
         if (dnsStartBtn) dnsStartBtn.disabled = running;
 
@@ -2852,7 +2873,7 @@ async function loadDnsRunDetail(runId) {
                 let state = "待开始";
                 const idx = stages.indexOf(s.stage || "");
                 if (idx > i) state = "已完成";
-                else if (idx === i) state = running ? "进行中" : (s.stage === "done" ? "已完成" : "待开始");
+                else if (idx === i) state = running ? "进行中" : (s.stage === "done" ? "已完成" : (s.stage === "error" ? "失败" : "待开始"));
                 return `<div class="tcp-stage-item"><span>${stageLabels[i]}</span><strong>${state}</strong></div>`;
             }).join("");
         }
@@ -2862,20 +2883,30 @@ async function loadDnsRunDetail(runId) {
             try {
                 const logResp = await fetch(`/api/dns-scan/runs/${runId}/logs?tail=200`);
                 const logData = await logResp.json();
-                if (logData.success) setText("dnsPipelineLog", logData.log || "");
-            } catch (e) { /* ignore */ }
+                if (logData.success) {
+                    setText("dnsPipelineLog", logData.log || s.log_tail || "");
+                } else {
+                    setText("dnsPipelineLog", s.log_tail || "");
+                }
+            } catch (e) {
+                setText("dnsPipelineLog", s.log_tail || "");
+            }
+        } else {
+            setText("dnsPipelineLog", s.log_tail || "");
         }
 
         // 优质预览
         try {
             const resResp = await fetch(`/api/dns-scan/runs/${runId}/results`);
             const resData = await resResp.json();
-            if (resData.success && resData.qualified_count > 0) {
-                document.getElementById("dnsQualifiedPreview").innerHTML =
-                    `<strong>筛选出 ${resData.qualified_count} 个优质 IP：</strong><br>` +
-                    (resData.qualified_ips || []).slice(0, 10).map(ip => escapeHtml(ip)).join("<br>");
+            if (resData.success) {
+                renderDnsQualifiedPreview(resData.qualified_ips || []);
+            } else {
+                renderDnsQualifiedPreview([]);
             }
-        } catch (e) { /* ignore */ }
+        } catch (e) {
+            renderDnsQualifiedPreview([]);
+        }
 
         // 产物
         const artifacts = data.artifacts || [];
@@ -2886,7 +2917,7 @@ async function loadDnsRunDetail(runId) {
             item.addEventListener("click", () => openDnsFileModal(item.getAttribute("data-dns-file-name")));
         });
 
-        document.getElementById("dnsRuntimeError").textContent = data.runtime_error || "";
+        document.getElementById("dnsRuntimeError").textContent = data.runtime_error ? `失败原因：${data.runtime_error}` : "";
     } catch (e) {
         console.warn("DNS run detail load failed", e);
     }

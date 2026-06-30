@@ -231,6 +231,7 @@ class DNSResourceScanner:
         # 实时统计
         self.stats: Dict[str, Any] = {
             "total_ips": 0,
+            "total_tasks": 0,
             "tested": 0,
             "responded": 0,
             "failed": 0,
@@ -264,7 +265,7 @@ class DNSResourceScanner:
         self._all_results = []
         self._qualified_ips = []
         self.stats = {
-            "total_ips": 0, "tested": 0, "responded": 0, "failed": 0,
+            "total_ips": 0, "total_tasks": 0, "tested": 0, "responded": 0, "failed": 0,
             "qualified": 0, "elapsed_sec": 0.0, "current_ip": "",
             "progress_percent": 0.0, "stage": "loading",
         }
@@ -281,8 +282,10 @@ class DNSResourceScanner:
             if not ips:
                 self._log("❌ IP 列表为空，退出。")
                 return
+            total_tasks = len(ips) * max(1, len(config.test_domains))
             with self._stats_lock:
                 self.stats["total_ips"] = len(ips)
+                self.stats["total_tasks"] = total_tasks
                 self.stats["stage"] = "scanning"
             self._log(f"✅ 加载 {len(ips)} 个候选 IP，开始放大率测量 …")
 
@@ -315,7 +318,7 @@ class DNSResourceScanner:
                             self._all_results.append(res)
                             cnt = len(self._all_results)
                             self.stats["tested"] = cnt
-                            self.stats["progress_percent"] = round(cnt / max(1, self.stats["total_ips"] * len(config.test_domains)) * 100, 1)
+                            self.stats["progress_percent"] = round(cnt / max(1, self.stats["total_tasks"]) * 100, 1)
                             if res.responded:
                                 self.stats["responded"] = self.stats.get("responded", 0) + 1
                             else:
