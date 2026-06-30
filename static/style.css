@@ -374,6 +374,12 @@
     margin-bottom: 12px;
 }
 
+.server-source-modal-footer {
+    padding: 12px 16px 16px;
+    border-top: 1px solid rgba(143, 168, 199, 0.16);
+    margin-top: 8px;
+}
+
 .server-file-switcher label {
     color: var(--muted);
     font-size: 0.76rem;

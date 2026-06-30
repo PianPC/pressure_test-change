@@ -30,6 +30,7 @@ let availableServerSourcesByProto = {};
 let selectedServerSourcesByProto = {};
 let multiProtoSelectedSources = {};  // 多协议模式下每个协议的源文件选择
 let singleSelectedSources = [];       // 单协议模式下选择的源文件列表
+let serverSourceModalProto = "";      // 当前 source modal 打开的协议
 let tcpScanPollInterval = null;
 let currentTcpRunId = null;
 let currentTcpRuns = [];
@@ -648,6 +649,7 @@ async function applyMultiProtoSourceSelection(proto) {
 
 async function openMultiProtoSourcePicker(proto) {
     try {
+        serverSourceModalProto = proto;
         await ensureMultiProtoSourceSelection(proto);
         // 临时设置 currentProto 以复用现有 Modal
         const savedProto = currentProto;
@@ -736,6 +738,7 @@ async function openSingleProtoSourceModal() {
         showNotification("请先选择测试协议", "error");
         return;
     }
+    serverSourceModalProto = method;
     try {
         await ensureServerSourceSelection(method, true);
         renderSingleProtoSourceModal(method);
@@ -851,6 +854,7 @@ function bindTcpModalControls() {
     document.getElementById("serverSourceModalClose")?.addEventListener("click", closeServerSourceModal);
     document.querySelector('[data-dismiss="server-source-modal"]')?.addEventListener("click", closeServerSourceModal);
     document.getElementById("serverSourceApplyBtn")?.addEventListener("click", applyServerSourceSelection);
+    document.getElementById("serverSourceNewFileBtn")?.addEventListener("click", openServerSourceNewFileDialog);
     document.getElementById("serverFileModalClose")?.addEventListener("click", closeServerFileModal);
     document.querySelector('[data-dismiss="server-file-modal"]')?.addEventListener("click", closeServerFileModal);
     document.getElementById("serverFileSaveBtn")?.addEventListener("click", saveServerFileContent);
@@ -1823,6 +1827,7 @@ function renderServerSourceModal() {
 
 async function openServerFileModal() {
     try {
+        serverSourceModalProto = currentProto;
         await ensureServerSourceSelection(currentProto, true);
         renderServerSourceModal();
         const modal = document.getElementById("serverSourceModal");
@@ -1835,6 +1840,62 @@ async function openServerFileModal() {
 function closeServerSourceModal() {
     const modal = document.getElementById("serverSourceModal");
     if (modal) modal.hidden = true;
+}
+
+async function openServerSourceNewFileDialog() {
+    const proto = serverSourceModalProto;
+    if (!proto) {
+        showNotification("未知协议", "error");
+        return;
+    }
+    const name = prompt("请输入新文件名（.txt 后缀可选）：", `${proto}_new.txt`);
+    if (!name || !name.trim()) return; // 用户取消
+    try {
+        const response = await fetch(`/api/servers/${proto}/file`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename: name.trim() })
+        });
+        const data = await response.json();
+        if (!data.success) {
+            showNotification(data.message || "创建文件失败", "error");
+            return;
+        }
+        showNotification(data.message || "文件已创建", "success");
+        // 刷新协议源文件列表缓存
+        await ensureServerSourceSelection(proto, true);
+        // 重新渲染当前 Modal，新文件默认选中
+        const body = document.getElementById("serverSourceModalBody");
+        const sources = getAvailableServerSources(proto);
+        const newFileName = data.file.name;
+        const existingChecked = Array.from(body?.querySelectorAll("input[type='checkbox']:checked") || [])
+            .map((cb) => cb.value);
+        const newSelection = new Set([...existingChecked, newFileName]);
+        if (!body) return;
+        if (!sources.length) {
+            body.innerHTML = `<div class="server-source-summary">当前协议没有可用源文件。</div>`;
+            return;
+        }
+        body.innerHTML = `
+            <div class="server-source-summary">
+                当前协议：${escapeHtml(getMethodText(proto))}。选中的文件会按并集合并使用。
+            </div>
+            <div class="server-source-list">
+                ${sources.map((file) => `
+                    <label class="server-source-item">
+                        <input type="checkbox" value="${escapeHtml(file.name)}" ${newSelection.has(file.name) ? "checked" : ""}>
+                        <span>
+                            <strong>${escapeHtml(file.name)}</strong>
+                            <span>${escapeHtml(file.path || "")}</span>
+                        </span>
+                        <em>${escapeHtml(String(file.entry_count || 0))} 条</em>
+                    </label>
+                `).join("")}
+            </div>
+        `;
+    } catch (error) {
+        showNotification(`创建文件失败：${error.message}`, "error");
+    }
 }
 
 async function applyServerSourceSelection() {

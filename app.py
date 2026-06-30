@@ -898,6 +898,41 @@ def get_server_file_content(method):
         }
     })
 
+@app.route('/api/servers/<method>/file', methods=['POST'])
+def create_server_file(method):
+    if not is_valid_server_method(method):
+        return jsonify({'success': False, 'message': 'Unsupported method'})
+    data = request.json or {}
+    filename = data.get('filename', '').strip()
+    if not filename:
+        return jsonify({'success': False, 'message': '请输入文件名'})
+    if not filename.endswith('.txt'):
+        filename = filename + '.txt'
+    # 校验文件名：只允许字母、数字、下划线、横线和 .txt
+    if not re.match(r'^[a-zA-Z0-9_\-]+\.txt$', filename):
+        return jsonify({'success': False, 'message': '文件名只允许英文字母、数字、下划线和横线'})
+    ip_lists_dir = Path(ATTACK_RESOURCES_ROOT) / method / 'resources' / 'ip_lists'
+    ip_lists_dir.mkdir(parents=True, exist_ok=True)
+    file_path = ip_lists_dir / filename
+    if file_path.exists():
+        return jsonify({'success': False, 'message': f'文件 {filename} 已存在'})
+    try:
+        file_path.write_text('# 每行一个反射器IP或域名\n', encoding='utf-8')
+        logger.info(f"已创建源文件: {file_path}")
+        return jsonify({
+            'success': True,
+            'message': f'文件 {filename} 已创建',
+            'file': {
+                'name': filename,
+                'path': str(file_path),
+                'entry_count': 0,
+                'editable': True,
+            }
+        })
+    except Exception as e:
+        logger.error(f"创建文件失败: {e}")
+        return jsonify({'success': False, 'message': f'创建文件失败: {str(e)}'})
+
 @app.route('/api/servers/<method>/geo', methods=['GET'])
 def get_server_geo(method):
     if not is_valid_server_method(method):
