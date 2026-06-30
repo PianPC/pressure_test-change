@@ -240,6 +240,12 @@ class DNSResourceScanner:
             "current_ip": "",
             "progress_percent": 0.0,
             "stage": "idle",
+            "current_stage": None,
+            "status": "idle",
+            "started_at": None,
+            "ended_at": None,
+            "stages": {},
+            "config": {},
         }
         self._all_results: List[ServerResult] = []
         self._qualified_ips: List[str] = []
@@ -264,11 +270,25 @@ class DNSResourceScanner:
         self._log_callback = log_callback
         self._all_results = []
         self._qualified_ips = []
+        started_at = datetime.now().astimezone().isoformat(timespec="seconds")
         self.stats = {
             "total_ips": 0, "total_tasks": 0, "tested": 0, "responded": 0, "failed": 0,
             "qualified": 0, "elapsed_sec": 0.0, "current_ip": "",
-            "progress_percent": 0.0, "stage": "loading",
+            "progress_percent": 0.0, "stage": "loading", "current_stage": "loading",
+            "status": "running", "started_at": started_at, "ended_at": None, "stages": {},
+            "config": {
+                "ip_file": os.path.basename(config.ip_file),
+                "query_type": config.query_type,
+                "use_dnssec": config.use_dnssec,
+                "timeout_sec": config.timeout_sec,
+                "concurrency": config.concurrency,
+                "min_amplification": config.min_amplification,
+                "min_reliability": config.min_reliability,
+                "max_ips": config.max_ips,
+                "test_domains": list(config.test_domains),
+            },
         }
+        self._update_stage("loading", "running")
 
         os.makedirs(config.output_dir, exist_ok=True)
         start_time = time.time()
@@ -281,12 +301,15 @@ class DNSResourceScanner:
                 ips = ips[:config.max_ips]
             if not ips:
                 self._log("❌ IP 列表为空，退出。")
+                self._update_stage("loading", "completed", total_ips=0)
+                self._finalize_run("completed", start_time)
                 return
             total_tasks = len(ips) * max(1, len(config.test_domains))
             with self._stats_lock:
                 self.stats["total_ips"] = len(ips)
                 self.stats["total_tasks"] = total_tasks
-                self.stats["stage"] = "scanning"
+            self._update_stage("loading", "completed", total_ips=len(ips))
+            self._update_stage("scanning", "running")
             self._log(f"✅ 加载 {len(ips)} 个候选 IP，开始放大率测量 …")
 
             # Stage 2: 扫描
@@ -341,11 +364,18 @@ class DNSResourceScanner:
                         t.join(timeout=0.5)
                 threads.clear()
 
+            if self._stop_event.is_set():
+                self._update_stage("scanning", "stopped")
+                self._finalize_run("stopped", start_time)
+                self._log("🛑 扫描已停止。")
+                return
+
+            self._update_stage("scanning", "completed")
+
             # Stage 3: 筛选
             if not self._stop_event.is_set():
                 self._log("🔍 筛选高放大率优质资源 …")
-                with self._stats_lock:
-                    self.stats["stage"] = "filtering"
+                self._update_stage("filtering", "running")
 
                 self._qualified_ips, summary = _filter_and_rank(
                     self._all_results,
@@ -354,7 +384,7 @@ class DNSResourceScanner:
                 )
                 with self._stats_lock:
                     self.stats["qualified"] = len(self._qualified_ips)
-                    self.stats["stage"] = "saving"
+                self._update_stage("filtering", "completed", qualified=len(self._qualified_ips))
 
                 avg_amp = float(summary.get("avg_amplification", summary.get("avg_amp", 0.0)) or 0.0)
                 max_amp = float(summary.get("max_amplification", summary.get("max_amp", 0.0)) or 0.0)
@@ -363,22 +393,29 @@ class DNSResourceScanner:
                 self._log(f"   平均放大率: {avg_amp:.2f}x, "
                           f"最大放大率: {max_amp:.2f}x")
 
+            if self._stop_event.is_set():
+                self._update_stage("filtering", "stopped")
+                self._finalize_run("stopped", start_time)
+                self._log("🛑 扫描已停止。")
+                return
+
             # Stage 4: 保存
+            self._update_stage("saving", "running")
             if not self._stop_event.is_set() and self._qualified_ips:
                 self._save_results(config, summary)
                 self._log(f"💾 优质 IP 列表已保存至 {config.output_dir}")
+            self._update_stage("saving", "completed", saved=bool(self._qualified_ips))
 
-            with self._stats_lock:
-                self.stats["stage"] = "done"
-                self.stats["elapsed_sec"] = round(time.time() - start_time, 1)
+            self._finalize_run("completed", start_time)
 
             self._log(f"✅ 扫描完成，耗时 {self.stats['elapsed_sec']} 秒。")
 
         except Exception as exc:
             self._log(f"❌ 扫描异常: {exc}\n{traceback.format_exc()}")
-            with self._stats_lock:
-                self.stats["stage"] = "error"
-                self.stats["error"] = str(exc)
+            current_stage = self.get_stats().get("current_stage")
+            if current_stage:
+                self._update_stage(current_stage, "failed", error=str(exc))
+            self._finalize_run("error", start_time, error=str(exc))
         finally:
             self._is_running = False
             if progress_callback:
@@ -410,6 +447,35 @@ class DNSResourceScanner:
         self._log_lines.append(line)
         if self._log_callback:
             self._log_callback(line)
+
+    def _update_stage(self, stage: str, status: str, **extra: Any) -> None:
+        timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+        with self._stats_lock:
+            stages = self.stats.setdefault("stages", {})
+            current = stages.setdefault(stage, {})
+            current.update({"status": status, **extra})
+            current.setdefault("started_at", timestamp)
+            if status == "running":
+                self.stats["stage"] = stage
+                self.stats["current_stage"] = stage
+            if status in {"completed", "failed", "skipped", "stopped"}:
+                current["ended_at"] = timestamp
+                if self.stats.get("current_stage") == stage and status in {"failed", "stopped"}:
+                    self.stats["current_stage"] = None
+
+    def _finalize_run(self, status: str, start_time: float, error: str = "") -> None:
+        ended_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        final_stage = {"completed": "done", "error": "error", "stopped": "stopped"}.get(
+            status, self.stats.get("stage", "idle")
+        )
+        with self._stats_lock:
+            self.stats["status"] = status
+            self.stats["stage"] = final_stage
+            self.stats["current_stage"] = None
+            self.stats["ended_at"] = ended_at
+            self.stats["elapsed_sec"] = round(time.time() - start_time, 1)
+            if error:
+                self.stats["error"] = error
 
     def _save_results(self, config: ScanConfig, summary: Dict[str, Any]):
         out = Path(config.output_dir)

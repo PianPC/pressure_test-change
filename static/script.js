@@ -2791,13 +2791,16 @@ function renderDnsRunList(runs, activeIds) {
     container.innerHTML = runs.map((r) => {
         const active = r.run_id === currentDnsRunId;
         const running = activeIds.includes(r.run_id);
+        const metaText = running
+            ? "执行中"
+            : (r.status === "error" ? "失败" : (r.status === "stopped" ? "已停止" : (r.summary?.timestamp ? "已完成" : "-")));
         return `<button type="button" class="tcp-run-item ${active ? "active" : ""}" data-run-id="${escapeHtml(r.run_id)}">
             <span class="tcp-run-item-main">
                 <span>${escapeHtml(r.run_id)}</span>
                 <span>优质: ${r.qualified_count || 0} IPs</span>
             </span>
             <span class="tcp-run-item-meta">
-                <span>${running ? "执行中" : (r.summary?.timestamp ? "已完成" : "-")}</span>
+                <span>${metaText}</span>
             </span>
         </button>`;
     }).join("");
@@ -2829,11 +2832,49 @@ function renderDnsEmptyState() {
 function getDnsStageStatusText(stage, isRunning) {
     if (stage === "done") return "已完成";
     if (stage === "error") return "失败";
+    if (stage === "stopped") return "已停止";
     if (stage === "saving") return isRunning ? "保存中" : "已保存";
     if (stage === "filtering") return isRunning ? "筛选中" : "已筛选";
     if (stage === "scanning") return isRunning ? "测量中" : "已测量";
     if (stage === "loading") return isRunning ? "加载中" : "已加载";
     return isRunning ? "运行中" : "空闲";
+}
+
+function renderDnsStages(stats = {}, isRunning = false) {
+    const stageList = document.getElementById("dnsStageList");
+    if (!stageList) return;
+    const stages = ["loading", "scanning", "filtering", "saving"];
+    const stageLabels = ["加载候选 IP", "放大率测量", "按阈值筛选", "保存结果"];
+    const stageStates = stats.stages || {};
+    const currentStage = stats.current_stage || "";
+    const finalStage = stats.stage || "";
+
+    stageList.innerHTML = stages.map((stageName, index) => {
+        const persistedStatus = stageStates[stageName]?.status;
+        let state = "待开始";
+
+        if (persistedStatus === "completed") {
+            state = "已完成";
+        } else if (persistedStatus === "failed") {
+            state = "失败";
+        } else if (persistedStatus === "stopped") {
+            state = "已停止";
+        } else if (persistedStatus === "running" || (isRunning && currentStage === stageName)) {
+            state = "进行中";
+        } else if (finalStage === "done") {
+            state = "已完成";
+        } else if (finalStage === "error") {
+            const failedIndex = stages.indexOf(currentStage);
+            if (failedIndex > index) state = "已完成";
+            else if (failedIndex === index) state = "失败";
+        } else if (finalStage === "stopped") {
+            const stoppedIndex = stages.indexOf(currentStage);
+            if (stoppedIndex > index) state = "已完成";
+            else if (stoppedIndex === index) state = "已停止";
+        }
+
+        return `<div class="tcp-stage-item"><span>${stageLabels[index]}</span><strong>${state}</strong></div>`;
+    }).join("");
 }
 
 function renderDnsQualifiedPreview(qualifiedIps = []) {
@@ -2887,22 +2928,9 @@ async function loadDnsRunDetail(runId) {
         setText("dnsStage", (s.stage || "-").toUpperCase());
         setText("dnsProgress", `${s.tested || 0}/${s.total_tasks || s.total_ips || 0}`);
         renderDnsMeta(data);
+        renderDnsStages(s, running);
         if (dnsStopBtn) dnsStopBtn.disabled = !running;
         if (dnsStartBtn) dnsStartBtn.disabled = running;
-
-        // 阶段列表
-        const stages = ["loading", "scanning", "filtering", "saving"];
-        const stageLabels = ["加载候选 IP", "放大率测量", "按阈值筛选", "保存结果"];
-        const stageList = document.getElementById("dnsStageList");
-        if (stageList) {
-            stageList.innerHTML = stages.map((stg, i) => {
-                let state = "待开始";
-                const idx = stages.indexOf(s.stage || "");
-                if (idx > i) state = "已完成";
-                else if (idx === i) state = running ? "进行中" : (s.stage === "done" ? "已完成" : (s.stage === "error" ? "失败" : "待开始"));
-                return `<div class="tcp-stage-item"><span>${stageLabels[i]}</span><strong>${state}</strong></div>`;
-            }).join("");
-        }
 
         // 日志
         if (running) {

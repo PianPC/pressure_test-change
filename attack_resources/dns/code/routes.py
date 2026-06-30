@@ -131,6 +131,20 @@ def _generate_run_id() -> str:
     return datetime.now().strftime("dns_%Y%m%d_%H%M%S")
 
 
+def _build_config_dict(config: ScanConfig) -> Dict[str, Any]:
+    return {
+        "ip_file": os.path.basename(config.ip_file),
+        "query_type": config.query_type,
+        "use_dnssec": config.use_dnssec,
+        "timeout_sec": config.timeout_sec,
+        "concurrency": config.concurrency,
+        "min_amplification": config.min_amplification,
+        "min_reliability": config.min_reliability,
+        "max_ips": config.max_ips,
+        "test_domains": list(config.test_domains),
+    }
+
+
 def _list_run_dirs() -> List[Dict[str, Any]]:
     """列出历史扫描运行"""
     if not DNS_OUTPUT_ROOT.exists():
@@ -148,10 +162,20 @@ def _list_run_dirs() -> List[Dict[str, Any]]:
                     summary = json.load(f)
             except Exception:
                 pass
+        stats_path = d / "final_stats.json"
+        stats = {}
+        if stats_path.exists():
+            try:
+                with stats_path.open("r", encoding="utf-8") as f:
+                    stats = json.load(f)
+            except Exception:
+                pass
         runs.append({
             "run_id": run_id,
             "is_running": dns_registry.is_running(run_id),
             "summary": summary,
+            "status": stats.get("status", "completed" if summary.get("timestamp") else "idle"),
+            "stage": stats.get("stage", ""),
             "qualified_count": summary.get("qualified_count", 0),
         })
     return runs
@@ -269,6 +293,7 @@ def start_scan():
     # 日志持久化
     os.makedirs(output_dir, exist_ok=True)
     log_path = os.path.join(output_dir, "pipeline.log")
+    config_dict = _build_config_dict(config)
 
     def log_persister(msg: str):
         with open(log_path, "a", encoding="utf-8") as f:
@@ -283,8 +308,10 @@ def start_scan():
             # 保存最终统计
             stats_file = os.path.join(output_dir, "final_stats.json")
             try:
+                final_stats = scanner.get_stats()
+                final_stats.setdefault("config", config_dict)
                 with open(stats_file, "w", encoding="utf-8") as f:
-                    json.dump(scanner.get_stats(), f, ensure_ascii=False, indent=2)
+                    json.dump(final_stats, f, ensure_ascii=False, indent=2)
             except Exception:
                 pass
 
@@ -297,7 +324,8 @@ def start_scan():
         "message": "DNS 资源扫描已启动",
         "run_id": run_id,
         "ip_file": os.path.basename(ip_file),
-        "total_ips": len(scanner.stats.get("total_ips_list", [])),
+        "config": config_dict,
+        "total_ips": 0,
     })
 
 
@@ -349,14 +377,9 @@ def get_run_detail(run_id: str):
     config = dns_registry.get_config(run_id)
     config_dict = None
     if config:
-        config_dict = {
-            "ip_file": os.path.basename(config.ip_file),
-            "query_type": config.query_type,
-            "use_dnssec": config.use_dnssec,
-            "min_amplification": config.min_amplification,
-            "min_reliability": config.min_reliability,
-            "concurrency": config.concurrency,
-        }
+        config_dict = _build_config_dict(config)
+    elif isinstance(stats.get("config"), dict):
+        config_dict = stats.get("config")
 
     return jsonify({
         "success": True,
