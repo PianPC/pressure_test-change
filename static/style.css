@@ -96,12 +96,22 @@
 
 .tcp-method-checks {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
 }
 
 .tcp-method-checks label,
 .tcp-dry-run-row label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     min-height: 34px;
     padding: 0 9px;
+    color: #d9eaff;
+    font-size: 0.8rem;
+    border: 1px solid rgba(143, 168, 199, 0.18);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.04);
+    line-height: 1.2;
 }
 
 .tcp-method-checks input,
@@ -111,6 +121,10 @@
     height: 16px;
     margin: 0;
     accent-color: var(--cyan);
+}
+
+.tcp-dry-run-row label {
+    width: fit-content;
 }
 
 .tcp-status-grid {
