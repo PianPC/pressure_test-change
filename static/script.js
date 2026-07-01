@@ -42,6 +42,9 @@ let currentView = "dashboard";
 let lastVisitedWorkflowStep = "resource";
 let latestStatusSnapshot = null;
 let currentTcpSummary = null;
+let attackResourceTaskFrameworkInitialized = false;
+let currentAttackResourceFile = null;
+const attackResourceControllers = {};
 
 const WORKFLOW_STEP_ORDER = ["resource", "pool", "console", "latency"];
 const VIEW_TO_WORKFLOW_STEP = {
@@ -201,11 +204,10 @@ document.addEventListener("DOMContentLoaded", () => {
     initProtoSourceButtons();
     bindControls();
     initAttackResourceView();
-    initDnsScanView();
+    initAttackResourceTaskFramework();
     toggleMultiProtocol();
     loadAllServerCounts();
     loadServerGeoMap();
-    initTcpScan();
     pollStatus();
     bindWorkflowActions();
     updateWorkflowIndicators();
@@ -265,10 +267,6 @@ function bindControls() {
     document.querySelectorAll(".map-view-btn").forEach((btn) => {
         btn.addEventListener("click", () => switchServerMapMode(btn.dataset.mapView || "3d"));
     });
-    document.getElementById("tcpStartBtn")?.addEventListener("click", startTcpScan);
-    document.getElementById("tcpStopBtn")?.addEventListener("click", stopTcpScan);
-    document.getElementById("tcpRefreshBtn")?.addEventListener("click", refreshTcpScan);
-    document.getElementById("tcpClearRunsBtn")?.addEventListener("click", clearTcpRunRecords);
     document.getElementById("target_ip")?.addEventListener("input", updateWorkflowIndicators);
     document.getElementById("target_port")?.addEventListener("input", updateWorkflowIndicators);
     document.getElementById("duration")?.addEventListener("input", updateWorkflowIndicators);
@@ -3250,4 +3248,749 @@ async function loadDnsRunDetail(runId) {
 function initDnsScanView() {
     bindDnsScanControls();
     loadDnsIpFiles();
+}
+
+const ATTACK_RESOURCE_PROTO_CONFIG = {
+    tcp: {
+        displayName: "TCP",
+        apiBase: "/api/attack-resource/tcp",
+        emptyLogText: "尚未选择 TCP 资源获取任务。",
+        summaryCardIds: {
+            status: "tcpStatus",
+            run_id: "tcpRunId",
+            method: "tcpRunMethod",
+            target_host: "tcpRunHost"
+        },
+        controls: {
+            start: "tcpStartBtn",
+            stop: "tcpStopBtn",
+            stopCleanup: "tcpStopCleanupBtn",
+            refresh: "tcpRefreshBtn",
+            clear: "tcpClearRunsBtn"
+        },
+        readForm: readUnifiedTcpForm,
+        renderResources: renderUnifiedTcpResources,
+        getSummaryValues(run) {
+            return {
+                status: getAttackResourceStatusText(run.status),
+                run_id: run.run_id || "-",
+                method: run.summary_stats?.method || run.config?.pkt_method || "-",
+                target_host: run.summary_stats?.target_host || run.config?.target_host || "-"
+            };
+        },
+        syncLegacyState(controller) {
+            currentTcpRunId = controller.currentRunId;
+            currentTcpRuns = controller.runs.map((run) => ({
+                run_id: run.run_id,
+                status: run.status,
+                pkt_method: run.badge_text,
+                target_host: run.secondary_text
+            }));
+            currentTcpSummary = controller.currentRun;
+        }
+    },
+    dns: {
+        displayName: "DNS",
+        apiBase: "/api/attack-resource/dns",
+        emptyLogText: "尚未选择 DNS 资源获取任务。",
+        summaryCardIds: {
+            status: "dnsStatus",
+            run_id: "dnsRunId",
+            stage: "dnsStage",
+            progress: "dnsProgress"
+        },
+        controls: {
+            start: "dnsStartBtn",
+            stop: "dnsStopBtn",
+            refresh: "dnsRefreshBtn",
+            clear: "dnsClearRunsBtn"
+        },
+        readForm: readUnifiedDnsForm,
+        renderResources: renderUnifiedDnsResources,
+        initExtraControls() {
+            document.getElementById("dnsDomainPresetBtn")?.addEventListener("click", fillDnsDomainPreset);
+        },
+        getSummaryValues(run) {
+            return {
+                status: getAttackResourceStatusText(run.status),
+                run_id: run.run_id || "-",
+                stage: (run.summary_stats?.stage || run.current_stage || "-").toUpperCase(),
+                progress: run.progress?.label || "0/0"
+            };
+        },
+        syncLegacyState(controller) {
+            currentDnsRunId = controller.currentRunId;
+            currentDnsRuns = controller.runs.map((run) => ({
+                run_id: run.run_id,
+                status: run.status,
+                qualified_count: run.secondary_text
+            }));
+            currentDnsSummary = controller.currentRun;
+        }
+    }
+};
+
+class AttackResourceTaskController {
+    constructor(proto, config) {
+        this.proto = proto;
+        this.config = config;
+        this.currentRunId = null;
+        this.currentRun = null;
+        this.runs = [];
+        this.activeRunIds = [];
+        this.pollTimer = null;
+    }
+
+    init() {
+        this.bindControls();
+        this.config.initExtraControls?.();
+        this.loadResources();
+        return this.refresh();
+    }
+
+    bindControls() {
+        this.bindButton(this.config.controls.start, () => this.start());
+        this.bindButton(this.config.controls.stop, () => this.stop(false));
+        this.bindButton(this.config.controls.refresh, () => this.refresh());
+        this.bindButton(this.config.controls.clear, () => this.clear());
+    }
+
+    bindButton(id, handler) {
+        const element = document.getElementById(id);
+        if (!element) return;
+        element.onclick = async (event) => {
+            event.preventDefault();
+            await handler();
+        };
+    }
+
+    getPanel() {
+        return document.querySelector(`.attack-resource-panel[data-proto-panel="${this.proto}"]`);
+    }
+
+    getRole(role) {
+        return this.getPanel()?.querySelector(`[data-role="${role}"]`);
+    }
+
+    async loadResources() {
+        try {
+            const response = await fetch(`${this.config.apiBase}/resources`);
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || `${this.config.displayName} 资源加载失败`);
+            this.config.renderResources?.(data.resources || []);
+            updateWorkflowIndicators();
+        } catch (error) {
+            showNotification(`${this.config.displayName} 资源加载失败：${error.message}`, "error");
+        }
+    }
+
+    async start() {
+        const payload = this.config.readForm();
+        if (!payload) return;
+        const startButton = document.getElementById(this.config.controls.start);
+        if (startButton) startButton.disabled = true;
+        try {
+            const response = await fetch(`${this.config.apiBase}/runs`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || `启动 ${this.config.displayName} 资源获取失败`);
+            }
+            const runIds = data.run_ids || [];
+            if (runIds.length) this.currentRunId = runIds[0];
+            showNotification(data.message || `${this.config.displayName} 资源获取任务已创建`, "success");
+            this.startPolling();
+            await this.refresh();
+        } catch (error) {
+            showNotification(`${this.config.displayName} 启动失败：${error.message}`, "error");
+        } finally {
+            if (startButton && !this.currentRun?.is_running) startButton.disabled = false;
+        }
+    }
+
+    async stop(cleanup = false) {
+        if (!this.currentRunId) {
+            showNotification(`尚未选择 ${this.config.displayName} 资源获取任务`, "error");
+            return;
+        }
+        try {
+            const response = await fetch(`${this.config.apiBase}/runs/${encodeURIComponent(this.currentRunId)}/stop`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ cleanup })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || "停止失败");
+            showNotification(data.message || `已请求停止 ${this.config.displayName} 资源获取`, "info");
+            await this.refresh();
+        } catch (error) {
+            showNotification(`${this.config.displayName} 停止失败：${error.message}`, "error");
+        }
+    }
+
+    async clear() {
+        if (!confirm(`清除所有已结束 ${this.config.displayName} 资源获取记录及产物？运行中的任务会保留。`)) {
+            return;
+        }
+        try {
+            const response = await fetch(`${this.config.apiBase}/runs`, { method: "DELETE" });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || "清除失败");
+            if ((data.deleted || []).includes(this.currentRunId)) this.currentRunId = null;
+            showNotification(data.message || "记录已清除", "success");
+            await this.refresh();
+        } catch (error) {
+            showNotification(`${this.config.displayName} 清除记录失败：${error.message}`, "error");
+        }
+    }
+
+    startPolling() {
+        this.stopPolling();
+        this.pollTimer = setInterval(() => {
+            this.refresh();
+        }, 1200);
+    }
+
+    stopPolling() {
+        if (this.pollTimer) {
+            clearInterval(this.pollTimer);
+            this.pollTimer = null;
+        }
+    }
+
+    async refresh() {
+        try {
+            const response = await fetch(`${this.config.apiBase}/runs`);
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || "加载任务列表失败");
+            this.runs = Array.isArray(data.runs) ? data.runs : [];
+            this.activeRunIds = Array.isArray(data.active_run_ids) ? data.active_run_ids : [];
+            this.renderRunList();
+            const preferred = this.pickPreferredRun();
+            if (!preferred) {
+                this.renderEmptyState();
+                this.syncLegacyState();
+                updateWorkflowIndicators();
+                return;
+            }
+            this.currentRunId = preferred.run_id;
+            this.renderRunList();
+            await this.loadRunDetail(this.currentRunId);
+            if (!this.activeRunIds.length) this.stopPolling();
+            else this.startPolling();
+            this.syncLegacyState();
+            updateWorkflowIndicators();
+        } catch (error) {
+            console.warn(`${this.config.displayName} 资源获取刷新失败`, error);
+        }
+    }
+
+    pickPreferredRun() {
+        const selected = this.currentRunId ? this.runs.find((run) => run.run_id === this.currentRunId) : null;
+        if (selected) return selected;
+        if (this.activeRunIds.length) {
+            const active = this.runs.find((run) => run.run_id === this.activeRunIds[0]);
+            if (active) return active;
+        }
+        return this.runs[0] || null;
+    }
+
+    renderRunList() {
+        const container = this.getRole("run-list") || document.getElementById(this.proto === "tcp" ? "tcpRunList" : "dnsRunList");
+        if (!container) return;
+        if (!this.runs.length) {
+            container.innerHTML = `<div class="info-text">暂无 ${this.config.displayName} 资源获取任务。</div>`;
+            return;
+        }
+        container.innerHTML = this.runs.map((run) => {
+            const active = run.run_id === this.currentRunId;
+            const statusText = getAttackResourceStatusText(run.status);
+            return `
+                <button type="button" class="tcp-run-item ${active ? "active" : ""}" data-run-id="${escapeHtml(run.run_id)}">
+                    <span class="tcp-run-item-main">
+                        <span>${escapeHtml(run.primary_text || run.run_id)}</span>
+                        <span>${escapeHtml(run.secondary_text || "-")}</span>
+                    </span>
+                    <span class="tcp-run-item-meta">
+                        <span>${escapeHtml(run.badge_text || "-")}</span>
+                        <strong>${escapeHtml(statusText)}</strong>
+                    </span>
+                </button>
+            `;
+        }).join("");
+        container.querySelectorAll("[data-run-id]").forEach((item) => {
+            item.addEventListener("click", async () => {
+                this.currentRunId = item.getAttribute("data-run-id");
+                this.renderRunList();
+                await this.loadRunDetail(this.currentRunId);
+                this.syncLegacyState();
+                updateWorkflowIndicators();
+            });
+        });
+    }
+
+    async loadRunDetail(runId) {
+        const response = await fetch(`${this.config.apiBase}/runs/${encodeURIComponent(runId)}`);
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || "加载任务详情失败");
+        }
+        this.currentRun = data.run;
+        await this.loadRunLog(runId);
+        this.renderCurrentRun();
+    }
+
+    async loadRunLog(runId) {
+        try {
+            const response = await fetch(`${this.config.apiBase}/runs/${encodeURIComponent(runId)}/logs?tail=200`);
+            const data = await response.json();
+            if (data.success) {
+                const logBox = this.getRole("pipeline-log") || document.getElementById(this.proto === "tcp" ? "tcpPipelineLog" : "dnsPipelineLog");
+                if (logBox) logBox.textContent = data.log || this.config.emptyLogText;
+            }
+        } catch (error) {
+            console.warn(`${this.config.displayName} 日志加载失败`, error);
+        }
+    }
+
+    renderCurrentRun() {
+        const run = this.currentRun;
+        if (!run) {
+            this.renderEmptyState();
+            return;
+        }
+        this.renderSummaryCards(run);
+        this.renderDetailMeta(run.detail_items || []);
+        this.renderStages(run.stages || []);
+        this.renderArtifacts(run.artifacts || []);
+        this.renderResultPreview(run.result_preview);
+        const runtimeError = this.getRole("runtime-error") || document.getElementById(this.proto === "tcp" ? "tcpRuntimeError" : "dnsRuntimeError");
+        if (runtimeError) runtimeError.textContent = run.runtime_error ? `失败原因：${run.runtime_error}` : "";
+        const startButton = document.getElementById(this.config.controls.start);
+        const stopButton = document.getElementById(this.config.controls.stop);
+        if (startButton) startButton.disabled = Boolean(run.is_running);
+        if (stopButton) stopButton.disabled = !run.is_running;
+        if (this.config.controls.stopCleanup) {
+            const stopCleanupButton = document.getElementById(this.config.controls.stopCleanup);
+            if (stopCleanupButton) stopCleanupButton.disabled = !run.is_running;
+        }
+    }
+
+    renderSummaryCards(run) {
+        const values = this.config.getSummaryValues(run);
+        Object.entries(this.config.summaryCardIds).forEach(([key, id]) => {
+            setText(id, values[key] ?? "-");
+        });
+    }
+
+    renderDetailMeta(items) {
+        const container = this.getRole("detail-meta") || document.getElementById(this.proto === "tcp" ? "tcpRunMeta" : "dnsRunMeta");
+        if (!container) return;
+        container.innerHTML = items.map((item) => `
+            <div class="tcp-run-meta-item">
+                <span>${escapeHtml(String(item.label || "-"))}</span>
+                <strong>${escapeHtml(String(item.value ?? "-"))}</strong>
+            </div>
+        `).join("");
+    }
+
+    renderStages(stages) {
+        const container = this.getRole("stage-list") || document.getElementById(this.proto === "tcp" ? "tcpStages" : "dnsStageList");
+        if (!container) return;
+        container.innerHTML = stages.map((stage) => `
+            <div class="tcp-stage-item">
+                <span>${escapeHtml(stage.label || stage.key || "-")}</span>
+                <strong>${escapeHtml(getAttackResourceStatusText(stage.status))}</strong>
+            </div>
+        `).join("");
+    }
+
+    renderArtifacts(artifacts) {
+        const container = this.getRole("artifact-list") || document.getElementById(this.proto === "tcp" ? "tcpArtifacts" : "dnsArtifacts");
+        if (!container) return;
+        if (!artifacts.length) {
+            container.innerHTML = `<div class="info-text">暂无输出文件。</div>`;
+            return;
+        }
+        container.innerHTML = artifacts.map((artifact) => `
+            <button type="button" class="tcp-artifact-item tcp-file-button" data-file-name="${escapeHtml(artifact.name)}">
+                <span>${escapeHtml(artifact.name)}</span>
+                <strong>${formatBytes(artifact.size || 0)}</strong>
+            </button>
+        `).join("");
+        container.querySelectorAll("[data-file-name]").forEach((item) => {
+            item.addEventListener("click", () => this.openFile(item.getAttribute("data-file-name")));
+        });
+    }
+
+    renderResultPreview(resultPreview) {
+        const container = this.getRole("result-preview") || document.getElementById("dnsQualifiedPreview");
+        if (!container) return;
+        if (!resultPreview) {
+            container.textContent = "";
+            return;
+        }
+        if (resultPreview.type === "list") {
+            const items = Array.isArray(resultPreview.items) ? resultPreview.items : [];
+            if (!items.length) {
+                container.textContent = resultPreview.empty_text || "暂无结果预览。";
+                return;
+            }
+            container.innerHTML = `<strong>${escapeHtml(resultPreview.title || "结果预览")}</strong><br>${items.map((item) => escapeHtml(item)).join("<br>")}${resultPreview.total > items.length ? `<br>共 ${resultPreview.total} 条` : ""}`;
+            return;
+        }
+        container.textContent = "";
+    }
+
+    renderEmptyState() {
+        this.currentRun = null;
+        this.currentRunId = null;
+        this.renderSummaryCards({
+            status: "idle",
+            run_id: "-",
+            summary_stats: { method: "-", target_host: "-", stage: "-", progress: "0/0" },
+            progress: { label: "0/0" }
+        });
+        this.renderDetailMeta([]);
+        this.renderStages([]);
+        this.renderArtifacts([]);
+        this.renderResultPreview(null);
+        const logBox = this.getRole("pipeline-log") || document.getElementById(this.proto === "tcp" ? "tcpPipelineLog" : "dnsPipelineLog");
+        if (logBox) logBox.textContent = this.config.emptyLogText;
+        const runtimeError = this.getRole("runtime-error") || document.getElementById(this.proto === "tcp" ? "tcpRuntimeError" : "dnsRuntimeError");
+        if (runtimeError) runtimeError.textContent = "";
+        const startButton = document.getElementById(this.config.controls.start);
+        const stopButton = document.getElementById(this.config.controls.stop);
+        if (startButton) startButton.disabled = false;
+        if (stopButton) stopButton.disabled = true;
+        if (this.config.controls.stopCleanup) {
+            const stopCleanupButton = document.getElementById(this.config.controls.stopCleanup);
+            if (stopCleanupButton) stopCleanupButton.disabled = true;
+        }
+    }
+
+    async openFile(filename) {
+        if (!this.currentRunId || !filename) return;
+        try {
+            const response = await fetch(`${this.config.apiBase}/runs/${encodeURIComponent(this.currentRunId)}/files/${encodeURIComponent(filename)}`);
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || "文件加载失败");
+            currentAttackResourceFile = {
+                proto: this.proto,
+                runId: this.currentRunId,
+                ...data.file
+            };
+            renderAttackResourceFileModal(currentAttackResourceFile);
+            const modal = document.getElementById("tcpFileModal");
+            if (modal) modal.hidden = false;
+        } catch (error) {
+            showNotification(`文件加载失败：${error.message}`, "error");
+        }
+    }
+
+    syncLegacyState() {
+        this.config.syncLegacyState?.(this);
+    }
+}
+
+function initAttackResourceTaskFramework() {
+    if (attackResourceTaskFrameworkInitialized) return;
+    attackResourceTaskFrameworkInitialized = true;
+    bindTcpModalControls();
+    Object.entries(ATTACK_RESOURCE_PROTO_CONFIG).forEach(([proto, config]) => {
+        attackResourceControllers[proto] = new AttackResourceTaskController(proto, config);
+    });
+    Object.values(attackResourceControllers).forEach((controller) => controller.init());
+}
+
+function readUnifiedTcpForm() {
+    const checkedMethods = Array.from(document.querySelectorAll('#tcpMethodChecks input[type="checkbox"]:checked'))
+        .map((input) => input.value);
+    const payload = {
+        ip_file: document.getElementById("tcpIpFile")?.value || "",
+        target_host: document.getElementById("tcpTargetHost")?.value.trim() || "",
+        pkt_method: document.getElementById("tcpPktMethod")?.value || "PSH",
+        pkt_methods: checkedMethods.length ? checkedMethods : undefined,
+        scan_rate: readNumber("tcpScanRate", 2500),
+        ttl: readNumber("tcpTtl", 255),
+        scan_count: readNumber("tcpScanCount", 10),
+        result_limit: readNumberAllowZero("tcpResultLimit", 30),
+        length_threshold: readNumberAllowZero("tcpLengthThreshold", 2000),
+        network_interface: document.getElementById("tcpNetworkInterface")?.value.trim() || "eth0",
+        dry_run: Boolean(document.getElementById("tcpDryRun")?.checked)
+    };
+    if (!payload.ip_file || !payload.target_host) {
+        showNotification("TCP 资源获取需要选择 IP 资源并填写目标主机", "error");
+        return null;
+    }
+    if (!checkedMethods.length && !payload.pkt_method) {
+        showNotification("请至少选择一种报文方法", "error");
+        return null;
+    }
+    return payload;
+}
+
+function readUnifiedDnsForm() {
+    return {
+        ip_file: document.getElementById("dnsIpFile")?.value || "",
+        test_domains: document.getElementById("dnsTestDomains")?.value || "",
+        query_type: document.getElementById("dnsQueryType")?.value || "TXT",
+        use_dnssec: document.getElementById("dnsUseDnssec")?.value === "1",
+        concurrency: Number(document.getElementById("dnsConcurrency")?.value) || 80,
+        timeout_sec: parseFloat(document.getElementById("dnsTimeout")?.value) || 3.0,
+        min_amplification: parseFloat(document.getElementById("dnsMinAmplification")?.value) || 3.0,
+        min_reliability: parseFloat(document.getElementById("dnsMinReliability")?.value) || 50
+    };
+}
+
+function renderUnifiedTcpResources(resources = []) {
+    const select = document.getElementById("tcpIpFile");
+    if (!select) return;
+    select.innerHTML = "";
+    resources.forEach((resource) => {
+        const option = document.createElement("option");
+        option.value = resource.path || resource.filename;
+        option.textContent = `${resource.filename || resource.name} (${resource.non_empty_lines || resource.entry_count || 0})`;
+        if (resource.filename === "test.txt") option.selected = true;
+        select.appendChild(option);
+    });
+}
+
+function renderUnifiedDnsResources(resources = []) {
+    const select = document.getElementById("dnsIpFile");
+    if (!select) return;
+    if (!resources.length) {
+        select.innerHTML = `<option value="">暂无可用 IP 资源</option>`;
+        updateDnsIpFileSummary([]);
+        return;
+    }
+    select.innerHTML = resources.map((file) => {
+        const location = (file.path || "").includes("attack_resources\\shared\\ip_lists") ? "共享目录" : "DNS 目录";
+        return `<option value="${escapeHtml(file.path || "")}">${escapeHtml(file.name)} · ${file.entry_count || 0} 条 · ${location}</option>`;
+    }).join("");
+    updateDnsIpFileSummary(resources);
+}
+
+function getAttackResourceStatusText(status) {
+    return {
+        idle: "空闲",
+        running: "运行中",
+        stopping: "停止中",
+        stopped: "已停止",
+        completed: "已完成",
+        failed: "失败",
+        error: "失败",
+        skipped: "已跳过",
+        pending: "等待中",
+        unknown: "未知"
+    }[status] || status || "未知";
+}
+
+function getAttackResourceRunCount(proto = currentAttackResourceProto) {
+    return attackResourceControllers[proto]?.runs?.length || 0;
+}
+
+function getCurrentAttackResourceRun(proto = currentAttackResourceProto) {
+    return attackResourceControllers[proto]?.currentRun || null;
+}
+
+function renderAttackResourceFileModal(file) {
+    const title = document.getElementById("tcpFileModalTitle");
+    const body = document.getElementById("tcpFileModalBody");
+    const saveBtn = document.getElementById("tcpFileSaveBtn");
+    const reloadBtn = document.getElementById("tcpFileReloadBtn");
+    if (title) title.textContent = file.name || "文件内容";
+    if (reloadBtn) reloadBtn.disabled = false;
+    if (file.kind === "db" || file.type === "db") {
+        if (saveBtn) saveBtn.disabled = true;
+        if (body) body.innerHTML = renderTcpDbPreview(file.preview);
+        return;
+    }
+    if (saveBtn) saveBtn.disabled = !file.editable;
+    if (body) {
+        body.innerHTML = file.editable
+            ? `<textarea id="tcpFileEditor">${escapeHtml(file.content || "")}</textarea>`
+            : `<pre>${escapeHtml(file.content || "")}</pre>`;
+        if (file.editable) {
+            const textarea = document.getElementById("tcpFileEditor");
+            if (textarea) textarea.value = file.content || "";
+        }
+    }
+}
+
+function closeTcpFileModal() {
+    const modal = document.getElementById("tcpFileModal");
+    if (modal) modal.hidden = true;
+    currentAttackResourceFile = null;
+    currentTcpFile = null;
+    currentDnsFile = null;
+}
+
+async function saveTcpFileContent() {
+    if (!currentAttackResourceFile?.editable) return;
+    const textarea = document.getElementById("tcpFileEditor");
+    const content = textarea?.value ?? "";
+    try {
+        const response = await fetch(`/api/attack-resource/${currentAttackResourceFile.proto}/runs/${encodeURIComponent(currentAttackResourceFile.runId)}/files/${encodeURIComponent(currentAttackResourceFile.name)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || "文件保存失败");
+        showNotification(data.message || "文件已保存", "success");
+        await attackResourceControllers[currentAttackResourceFile.proto]?.refresh();
+        await reloadTcpFileContent();
+    } catch (error) {
+        showNotification(`文件保存失败：${error.message}`, "error");
+    }
+}
+
+async function reloadTcpFileContent() {
+    if (!currentAttackResourceFile?.name) return;
+    await attackResourceControllers[currentAttackResourceFile.proto]?.openFile(currentAttackResourceFile.name);
+}
+
+async function openTcpFileModal(filename) {
+    await attackResourceControllers.tcp?.openFile(filename);
+}
+
+async function openDnsFileModal(filename) {
+    await attackResourceControllers.dns?.openFile(filename);
+}
+
+async function initTcpScan() {
+    initAttackResourceTaskFramework();
+}
+
+async function refreshTcpScan() {
+    await attackResourceControllers.tcp?.refresh();
+}
+
+async function startTcpScan() {
+    await attackResourceControllers.tcp?.start();
+}
+
+async function stopTcpScan(cleanup = false) {
+    await attackResourceControllers.tcp?.stop(cleanup);
+}
+
+async function clearTcpRunRecords() {
+    await attackResourceControllers.tcp?.clear();
+}
+
+function initDnsScanView() {
+    initAttackResourceTaskFramework();
+}
+
+async function refreshDnsScan() {
+    await attackResourceControllers.dns?.refresh();
+}
+
+async function startDnsScan() {
+    await attackResourceControllers.dns?.start();
+}
+
+async function stopDnsScan() {
+    await attackResourceControllers.dns?.stop(false);
+}
+
+async function clearDnsRunRecords() {
+    await attackResourceControllers.dns?.clear();
+}
+
+function getWorkflowState() {
+    const hasResourceRecord = getAttackResourceRunCount() > 0;
+    const resourceTotal = getCurrentResourceTotal();
+    const configReady = isConsoleConfigReady();
+    const hasRunningConfig = Boolean(latestStatusSnapshot?.config?.target_ip);
+    const hasLatencySample = latencyDataPoints.some((point) => point.value !== undefined);
+    const filterTitle = document.getElementById("serverFilterTitle")?.innerText || "全部资源";
+
+    let resourceState = "not_started";
+    if (currentView === "attack-resources" && !hasResourceRecord) {
+        resourceState = "in_progress";
+    } else if (hasResourceRecord) {
+        resourceState = "completed";
+    } else if ((configReady || hasRunningConfig || currentView === "console" || currentView === "latency") && resourceTotal > 0) {
+        resourceState = "optional";
+    }
+
+    let poolState = "not_started";
+    if (currentView === "servers" || serverListFilterMode !== "all" || filterTitle !== "全部资源") {
+        poolState = "in_progress";
+    } else if (resourceTotal > 0) {
+        poolState = (configReady || hasRunningConfig) ? "optional" : "completed";
+    }
+
+    let consoleState = "not_started";
+    if (latestStatusSnapshot?.status === "running") {
+        consoleState = "completed";
+    } else if (currentView === "console" || configReady) {
+        consoleState = "in_progress";
+    } else if (hasRunningConfig) {
+        consoleState = "completed";
+    }
+
+    let latencyState = "not_started";
+    if (isMonitoringLatency) {
+        latencyState = "in_progress";
+    } else if (hasLatencySample) {
+        latencyState = "completed";
+    } else if ((configReady || hasRunningConfig) && currentView === "console") {
+        latencyState = "optional";
+    }
+
+    const steps = {
+        resource: { uiState: resourceState },
+        pool: { uiState: poolState },
+        console: { uiState: consoleState },
+        latency: { uiState: latencyState }
+    };
+
+    const currentStep = VIEW_TO_WORKFLOW_STEP[currentView]
+        || WORKFLOW_STEP_ORDER.find((step) => steps[step].uiState === "in_progress")
+        || lastVisitedWorkflowStep;
+    const recommendedStep = WORKFLOW_STEP_ORDER.find((step) => steps[step].uiState === "in_progress")
+        || WORKFLOW_STEP_ORDER.find((step) => steps[step].uiState === "not_started")
+        || WORKFLOW_STEP_ORDER.find((step) => steps[step].uiState === "optional")
+        || currentStep
+        || "resource";
+
+    return { steps, currentStep, recommendedStep };
+}
+
+function getWorkflowStepMessage(workflow, step) {
+    if (step === "resource") {
+        const count = getAttackResourceRunCount();
+        return count
+            ? `当前已存在 ${count} 个 ${getMethodText(currentAttackResourceProto)} 资源任务记录，可以继续查看结果或直接进入资源池 / 控制台。`
+            : "建议先完成资源获取；如果当前资源池已经可用，也可以直接跳到后续步骤。";
+    }
+    if (step === "pool") {
+        return `当前资源池已识别 ${getCurrentResourceTotal()} 条资源，筛选视图为“${document.getElementById("serverFilterTitle")?.innerText || "全部资源"}”。`;
+    }
+    if (step === "console") {
+        return isConsoleConfigReady()
+            ? "控制台参数已经具备启动条件，可以直接发起测试。"
+            : "这里负责配置目标、时长、线程和协议组合，熟练用户也可以直接从这里开始。";
+    }
+    return isMonitoringLatency
+        ? "延迟监控正在采样中，可以继续观察基准延迟、最新延迟和变化趋势。"
+        : "延迟监控不是必选步骤，但对观察链路扰动和效果变化很有帮助。";
+}
+
+function renderAttackResourceSummary() {
+    const run = getCurrentAttackResourceRun();
+    setText("attackResourcesActiveProto", getMethodText(currentAttackResourceProto).toUpperCase());
+    setText("attackResourcesTcpStatus", "已接入");
+    const taskText = run ? `${run.run_id} · ${getAttackResourceStatusText(run.status)}` : "暂无任务";
+    setText("attackResourcesLastTask", taskText);
+    const fileCount = Array.isArray(run?.artifacts) ? run.artifacts.length : 0;
+    setText("attackResourcesArtifactSummary", fileCount ? `${fileCount} 个输出文件` : "暂无输出");
+    setText("workflowSummaryResourceProto", getMethodText(currentAttackResourceProto).toUpperCase());
+    setText("workflowSummaryResourceTask", taskText);
 }

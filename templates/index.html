@@ -254,7 +254,7 @@
                         </section>
 
                         <div class="attack-resource-panels">
-                            <div class="attack-resource-panel active" data-proto-panel="tcp">
+                            <div class="attack-resource-panel active" data-proto-panel="tcp" data-attack-proto="tcp">
                                 <div class="dashboard-grid tcp-scan-grid">
                                     <div class="tcp-column tcp-left-column">
                                         <section class="panel config-panel">
@@ -266,7 +266,7 @@
                                                 <span class="panel-chip">默认模拟运行</span>
                                             </div>
 
-                                            <form id="tcpScanForm">
+                                            <form id="tcpScanForm" data-role="task-form">
                                                 <div class="form-grid">
                                                     <div class="form-group wide">
                                                         <label for="tcpIpFile">IP 资源</label>
@@ -346,7 +346,7 @@
                                                     <i class="fas fa-trash-can"></i>清除记录
                                                 </button>
                                             </div>
-                                            <div id="tcpRunList" class="tcp-run-list"></div>
+                                            <div id="tcpRunList" class="tcp-run-list" data-role="run-list"></div>
                                         </section>
 
                                         <section class="panel resources-panel">
@@ -356,7 +356,7 @@
                                                     <h2><i class="fas fa-folder-open"></i> 输出文件</h2>
                                                 </div>
                                             </div>
-                                            <div id="tcpArtifacts" class="tcp-artifact-list"></div>
+                                            <div id="tcpArtifacts" class="tcp-artifact-list" data-role="artifact-list"></div>
                                         </section>
                                     </div>
 
@@ -386,8 +386,8 @@
                                                     <div class="stat-value tcp-small-value" id="tcpRunHost">-</div>
                                                 </div>
                                             </div>
-                                            <div id="tcpRunMeta" class="tcp-run-meta"></div>
-                                            <div id="tcpStages" class="tcp-stage-list"></div>
+                                            <div id="tcpRunMeta" class="tcp-run-meta" data-role="detail-meta"></div>
+                                            <div id="tcpStages" class="tcp-stage-list" data-role="stage-list"></div>
                                         </section>
 
                                         <section class="panel chart-panel tcp-log-panel">
@@ -479,7 +479,7 @@
                                 </div>
                             </div>
 
-                            <div class="attack-resource-panel" data-proto-panel="dns">
+                            <div class="attack-resource-panel" data-proto-panel="dns" data-attack-proto="dns">
                                 <div class="dashboard-grid tcp-scan-grid">
                                     <div class="tcp-column tcp-left-column">
                                         <section class="panel config-panel">
@@ -491,7 +491,7 @@
                                                 <span class="panel-chip">放大率测量</span>
                                             </div>
 
-                                            <form id="dnsScanForm">
+                                            <form id="dnsScanForm" data-role="task-form">
                                                 <div class="form-grid">
                                                     <div class="form-group wide">
                                                         <label for="dnsIpFile">IP 资源</label>
@@ -562,7 +562,7 @@ iana.org</textarea>
                                                     <i class="fas fa-trash-can"></i>清除记录
                                                 </button>
                                             </div>
-                                            <div id="dnsRunList" class="tcp-run-list"></div>
+                                            <div id="dnsRunList" class="tcp-run-list" data-role="run-list"></div>
                                         </section>
 
                                         <section class="panel resources-panel">
@@ -572,7 +572,7 @@ iana.org</textarea>
                                                     <h2><i class="fas fa-folder-open"></i> 输出文件</h2>
                                                 </div>
                                             </div>
-                                            <div id="dnsArtifacts" class="tcp-artifact-list"></div>
+                                            <div id="dnsArtifacts" class="tcp-artifact-list" data-role="artifact-list"></div>
                                         </section>
                                     </div>
 
@@ -602,14 +602,14 @@ iana.org</textarea>
                                                     <div class="stat-value tcp-small-value" id="dnsProgress">0/0</div>
                                                 </div>
                                             </div>
-                                            <div id="dnsRunMeta" class="tcp-run-meta"></div>
-                                            <div id="dnsStageList" class="tcp-stage-list">
+                                            <div id="dnsRunMeta" class="tcp-run-meta" data-role="detail-meta"></div>
+                                            <div id="dnsStageList" class="tcp-stage-list" data-role="stage-list">
                                                 <div class="tcp-stage-item"><span>加载候选 IP 列表</span><strong>待开始</strong></div>
                                                 <div class="tcp-stage-item"><span>多域名放大率测量</span><strong>待开始</strong></div>
                                                 <div class="tcp-stage-item"><span>按放大率+可靠性筛选</span><strong>待开始</strong></div>
                                                 <div class="tcp-stage-item"><span>保存优质 IP 列表</span><strong>待开始</strong></div>
                                             </div>
-                                            <div id="dnsQualifiedPreview" class="info-text" style="margin-top:8px;"></div>
+                                            <div id="dnsQualifiedPreview" class="info-text" style="margin-top:8px;" data-role="result-preview"></div>
                                         </section>
 
                                         <section class="panel chart-panel tcp-log-panel">

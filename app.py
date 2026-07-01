@@ -37,6 +37,7 @@ from attack_resources.dns.code.tester import DNSTester
 from attack_resources.ntp.code.tester import NTPTester
 from attack_resources.tcp.code.tester import TcpTester
 from multi_protocol_test import MultiProtocolTester
+from attack_resources.shared.attack_resource_api import attack_resource_bp
 from attack_resources.tcp.code.routes import tcp_censor_bp
 from attack_resources.dns.code.routes import dns_scan_bp
 
@@ -100,6 +101,7 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 Session(app)
 app.register_blueprint(tcp_censor_bp)
 app.register_blueprint(dns_scan_bp)
+app.register_blueprint(attack_resource_bp)
 
 VALID_SERVER_PROTOCOLS = {'tcp', 'memcached', 'dns', 'ntp'}
 GEOIP_CACHE_FILE = os.path.join('config', 'geoip_cache.json')
