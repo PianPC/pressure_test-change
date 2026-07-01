@@ -26,6 +26,7 @@ let selectedIp = "";
 let serverListFilterMode = "all";
 let currentServerFile = null;
 let currentServerSource = "";
+let currentServerEditorProto = "";
 let availableServerSourcesByProto = {};
 let selectedServerSourcesByProto = {};
 let multiProtoSelectedSources = {};  // 多协议模式下每个协议的源文件选择
@@ -289,6 +290,12 @@ function bindControls() {
             updateWorkflowIndicators();
         });
     });
+}
+
+function setServerSourceApplyHandler(handler) {
+    const applyBtn = document.getElementById("serverSourceApplyBtn");
+    if (!applyBtn) return;
+    applyBtn.onclick = handler;
 }
 
 function setupNavigation() {
@@ -659,9 +666,10 @@ async function openMultiProtoSourcePicker(proto) {
         renderMultiProtoSourceModal(proto);
         const modal = document.getElementById("serverSourceModal");
         if (modal) modal.hidden = false;
+        setServerSourceApplyHandler(applyServerSourceSelection);
         // 保存 proto 用于 apply 时使用
         currentProto = savedProto;
-        document.getElementById("serverSourceApplyBtn").onclick = () => applyMultiProtoSourceSelection(proto);
+        setServerSourceApplyHandler(() => applyMultiProtoSourceSelection(proto));
     } catch (error) {
         showNotification(`加载源文件失败：${error.message}`, "error");
     }
@@ -698,7 +706,7 @@ function renderMultiProtoSourceModal(proto) {
 }
 
 async function initProtoSourceButtons() {
-    document.querySelectorAll(".proto-source-btn").forEach((btn) => {
+    document.querySelectorAll(".proto-source-btn[data-proto]").forEach((btn) => {
         btn.addEventListener("click", async (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -707,7 +715,7 @@ async function initProtoSourceButtons() {
         });
     });
     // 初始化每个协议的默认选择
-    for (const btn of document.querySelectorAll(".proto-source-btn")) {
+    for (const btn of document.querySelectorAll(".proto-source-btn[data-proto]")) {
         const proto = btn.dataset.proto;
         try {
             await ensureMultiProtoSourceSelection(proto);
@@ -744,7 +752,7 @@ async function openSingleProtoSourceModal() {
         renderSingleProtoSourceModal(method);
         const modal = document.getElementById("serverSourceModal");
         if (modal) modal.hidden = false;
-        document.getElementById("serverSourceApplyBtn").onclick = () => applySingleProtoSourceSelection(method);
+        setServerSourceApplyHandler(() => applySingleProtoSourceSelection(method));
     } catch (error) {
         showNotification(`源文件加载失败：${error.message}`, "error");
     }
@@ -830,7 +838,7 @@ async function openSingleProtoViewEditModal() {
     currentProto = method;
     selectedServerSourcesByProto[method] = singleSelectedSources;
     try {
-        await openServerEditorModal(fileToEdit);
+        await openServerEditorModal(fileToEdit, method);
     } finally {
         currentProto = savedProto;
     }
@@ -850,7 +858,7 @@ function bindTcpModalControls() {
     document.getElementById("tcpFileReloadBtn")?.addEventListener("click", reloadTcpFileContent);
     document.getElementById("serverSourceModalClose")?.addEventListener("click", closeServerSourceModal);
     document.querySelector('[data-dismiss="server-source-modal"]')?.addEventListener("click", closeServerSourceModal);
-    document.getElementById("serverSourceApplyBtn")?.addEventListener("click", applyServerSourceSelection);
+    setServerSourceApplyHandler(applyServerSourceSelection);
     document.getElementById("serverSourceNewFileBtn")?.addEventListener("click", openServerSourceNewFileDialog);
     document.getElementById("serverFileModalClose")?.addEventListener("click", closeServerFileModal);
     document.querySelector('[data-dismiss="server-file-modal"]')?.addEventListener("click", closeServerFileModal);
@@ -1843,7 +1851,7 @@ async function applyServerSourceSelection() {
     closeServerSourceModal();
     resetServerSelectionState();
     await loadServerGeoMap();
-    await openServerEditorModal(selected[0]);
+    await openServerEditorModal(selected[0], currentProto);
 }
 
 function renderServerFileModal(file) {
@@ -1851,7 +1859,7 @@ function renderServerFileModal(file) {
     const body = document.getElementById("serverFileModalBody");
     const saveBtn = document.getElementById("serverFileSaveBtn");
     const reloadBtn = document.getElementById("serverFileReloadBtn");
-    const selected = getSelectedServerSources();
+    const selected = getSelectedServerSources(currentServerEditorProto);
     if (title) title.textContent = file.name || "编辑源文件";
     if (saveBtn) saveBtn.disabled = !file.editable;
     if (reloadBtn) reloadBtn.disabled = false;
@@ -1875,18 +1883,19 @@ function renderServerFileModal(file) {
         if (textarea) textarea.value = file.content || "";
     }
     document.getElementById("serverFileSourceSelect")?.addEventListener("change", async (event) => {
-        await openServerEditorModal(event.target.value);
+        await openServerEditorModal(event.target.value, currentServerEditorProto);
     });
 }
 
-async function openServerEditorModal(sourceName = "") {
+async function openServerEditorModal(sourceName = "", proto = currentServerEditorProto || currentProto) {
     try {
-        const selected = getSelectedServerSources();
+        const selected = getSelectedServerSources(proto);
         const nextSource = sourceName || currentServerSource || selected[0] || "";
         if (!nextSource) throw new Error("未找到可编辑的源文件");
-        const response = await fetch(`/api/servers/${currentProto}/file?source=${encodeURIComponent(nextSource)}`);
+        const response = await fetch(`/api/servers/${proto}/file?source=${encodeURIComponent(nextSource)}`);
         const data = await response.json();
         if (!data.success) throw new Error(data.message || "资源文件加载失败");
+        currentServerEditorProto = proto;
         currentServerSource = nextSource;
         currentServerFile = data.file;
         renderServerFileModal(data.file);
@@ -1902,14 +1911,15 @@ function closeServerFileModal() {
     if (modal) modal.hidden = true;
     currentServerFile = null;
     currentServerSource = "";
+    currentServerEditorProto = "";
 }
 
 async function saveServerFileContent() {
-    if (!currentServerFile?.editable || !currentServerSource) return;
+    if (!currentServerFile?.editable || !currentServerSource || !currentServerEditorProto) return;
     const textarea = document.getElementById("serverFileEditor");
     const content = textarea?.value ?? "";
     try {
-        const response = await fetch(`/api/servers/${currentProto}/file?source=${encodeURIComponent(currentServerSource)}`, {
+        const response = await fetch(`/api/servers/${currentServerEditorProto}/file?source=${encodeURIComponent(currentServerSource)}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ content })
@@ -1917,8 +1927,10 @@ async function saveServerFileContent() {
         const data = await response.json();
         if (!data.success) throw new Error(data.message || "资源文件保存失败");
         showNotification(data.message || "资源文件已保存", "success");
-        await ensureServerSourceSelection(currentProto, true);
-        await loadServerGeoMap();
+        await ensureServerSourceSelection(currentServerEditorProto, true);
+        if (currentServerEditorProto === currentProto) {
+            await loadServerGeoMap();
+        }
         await reloadServerFileContent();
         loadAllServerCounts();
     } catch (error) {
@@ -1927,8 +1939,8 @@ async function saveServerFileContent() {
 }
 
 async function reloadServerFileContent() {
-    if (!currentServerSource) return;
-    await openServerEditorModal(currentServerSource);
+    if (!currentServerSource || !currentServerEditorProto) return;
+    await openServerEditorModal(currentServerSource, currentServerEditorProto);
 }
 
 function setMapStatus(message, loading = false, hide = false) {
