@@ -22,3 +22,8 @@ python app.py
 ```
 
 Open `http://localhost:5000`, then use the `TCP Scan` navigation item.
+
+
+git fetch origin
+git reset --hard origin/trae/ui-simplify
+git pull origin trae/ui-simplify
