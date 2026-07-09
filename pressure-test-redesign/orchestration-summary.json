@@ -1,0 +1,200 @@
+{
+  "project": {
+    "name": "压力测试工作台",
+    "path": "c:\\workplace\\project\\mi4\\pressure_test-change\\pressure-test-redesign",
+    "operation": "create",
+    "deviceType": "desktop",
+    "language": "zh-CN",
+    "dashboardMode": true,
+    "replicationMode": null,
+    "sourceUrl": null,
+    "visualSpecExcerpt": null,
+    "styleDefinitionBrief": null,
+    "designRead": "dashboard / security engineers / restrained-utility / medium-density / avoid-card-wall",
+    "designDials": {
+      "layoutVariance": 2,
+      "motionIntensity": 2,
+      "visualDensity": 2
+    },
+    "styleContinuityAnchors": {
+      "colorSystem": {
+        "primaryColorRole": "Library --bg-brand #32F08C green for primary CTA and active states",
+        "brandHuePolicy": "library-bound — follow TRAE tokens",
+        "stateColors": "Library status tokens for success/warning/error"
+      },
+      "shapeSystem": "radius 4-8 for cards/buttons, radius-full for tags; border-neutral-l1 for chrome",
+      "typographySystem": "SF Pro / SF Pro Text body, JetBrains Mono code; heading scale 3xs-3xl; body-sm (11px) for labels, body-base (13px) for main text",
+      "spacingSystem": "spacer-12 (12px) for card padding, spacer-16 (16px) for section gaps, spacer-24 (24px) for page margin",
+      "componentLanguage": "dark surface layering bg-base-default → bg-base-secondary → bg-base-tertiary; bordered cards with subtle surface lifts; green brand accent sparingly",
+      "surfaceAndDepth": "static surfaces use border + bg-overlay tints; shadow only for modals/dialogs",
+      "imageryAndIconography": "2px stroke SVG icons from nimbus icon set; data-icon attribute for icon rendering",
+      "interactionTone": "hover: bg-overlay-l2 lift; focus-visible: ring accent; active: bg-overlay-l3"
+    },
+    "sharedProjectShellContract": {
+      "navigationShell": "left sidebar (240px), dark bg with green accent nav items; top bar with page title + status badge",
+      "primaryColorSystem": "TRAE --bg-brand #32F08C green",
+      "typographySystem": "SF Pro / SF Pro Text; headings use heading-sm (16px) to heading-md (20px); body uses body-sm (11px) to body-base (13px)",
+      "radiusScale": "4px / 6px / 8px / 10px / full",
+      "surfaceDepthModel": "bg-base-default (canvas) → bg-base-secondary (cards) → bg-base-tertiary (raised); border-neutral-l1 for all chrome",
+      "ctaStyle": "brand green button for primary action; secondary ghost/outline for lesser actions",
+      "alignmentRules": "left-edge alignment for forms and lists; right-edge for status badges; center for empty states"
+    },
+    "specsConstraints": null,
+    "generationTree": {
+      "root": {
+        "nodeId": "gen-project-shell",
+        "kind": "project-shell",
+        "pageIds": ["page-overview", "page-attack-resources", "page-resource-pool", "page-console", "page-latency-monitor"],
+        "output": "partials/project-shell.html",
+        "sharedRegions": ["sidebar", "topbar", "page-frame"],
+        "privateRegions": [],
+        "mutableSlots": ["activeNavItem", "pageTitle", "statusBadge"],
+        "status": "planned",
+        "children": [
+          { "nodeId": "gen-page-overview", "kind": "page-leaf", "pageIds": ["page-overview"], "output": "pages/overview.html", "sharedRegions": [], "privateRegions": ["overview body"], "mutableSlots": ["activeNavItem", "pageTitle"], "status": "planned", "children": [] },
+          { "nodeId": "gen-page-attack-resources", "kind": "page-leaf", "pageIds": ["page-attack-resources"], "output": "pages/attack-resources.html", "sharedRegions": [], "privateRegions": ["attack resources body"], "mutableSlots": ["activeNavItem", "pageTitle"], "status": "planned", "children": [] },
+          { "nodeId": "gen-page-resource-pool", "kind": "page-leaf", "pageIds": ["page-resource-pool"], "output": "pages/resource-pool.html", "sharedRegions": [], "privateRegions": ["resource pool body"], "mutableSlots": ["activeNavItem", "pageTitle"], "status": "planned", "children": [] },
+          { "nodeId": "gen-page-console", "kind": "page-leaf", "pageIds": ["page-console"], "output": "pages/console.html", "sharedRegions": [], "privateRegions": ["console body"], "mutableSlots": ["activeNavItem", "pageTitle"], "status": "planned", "children": [] },
+          { "nodeId": "gen-page-latency-monitor", "kind": "page-leaf", "pageIds": ["page-latency-monitor"], "output": "pages/latency-monitor.html", "sharedRegions": [], "privateRegions": ["latency monitor body"], "mutableSlots": ["activeNavItem", "pageTitle"], "status": "planned", "children": [] }
+        ]
+      }
+    }
+  },
+  "designSource": {
+    "operatingMode": "library-bound",
+    "libraryIdentity": {
+      "name": "TRAE",
+      "id": "dl_builtin_trae",
+      "version": null,
+      "scope": "built-in-global",
+      "path": "C:\\Users\\PPCa1\\.trae-cn\\design_libraries\\dl_builtin_trae",
+      "versionSource": null
+    },
+    "libraryPath": "C:\\Users\\PPCa1\\.trae-cn\\design_libraries\\dl_builtin_trae",
+    "cssFilePath": "C:\\Users\\PPCa1\\.trae-cn\\design_libraries\\dl_builtin_trae\\colors_and_type.css",
+    "brandPrefix": "",
+    "themeMode": "dark",
+    "designDecisionSummary": "Dark dashboard for pressure-testing workbench. TRAE design system: green brand accent (#32F08C), deep dark surfaces, restrained borders, SF Pro typography. Density reduced by 30% vs original via progressive disclosure, fewer concurrent panels, and single-focus layout per page.",
+    "componentContractKind": "legacy-json",
+    "forbiddenInventedComponents": ["layout", "space"],
+    "allowedComponents": ["stat-card", "buttons", "cards", "forms", "table-panel", "tag", "nav-list", "page-header", "tabs", "alert", "dialog"],
+    "styleConstraints": {
+      "radiusMax": 10,
+      "spacingBase": 4,
+      "fontSizeBody": 13,
+      "fontSizeMin": 10,
+      "controlHeightDefault": 32,
+      "controlHeightLarge": 38
+    },
+    "productContext": {
+      "kitType": "dashboard",
+      "productType": "压力测试安全工具工作台"
+    },
+    "iconAssets": {
+      "path": "assets/icons/nimbus",
+      "files": ["alert-circle", "arrow-right", "check-circle", "chevron-down", "chevron-right", "clock", "cpu", "database", "dashboard", "edit", "file-text", "files", "filter", "folder", "globe", "home", "info", "layers", "list", "network", "play", "refresh", "search", "settings", "shield", "sliders", "stop", "terminal", "trash", "trending-down", "trending-up", "user", "users", "zap"]
+    }
+  },
+  "pages": [
+    {
+      "nodeId": "page-overview",
+      "title": "流程总览",
+      "pageIndex": 1,
+      "visualNorthStar": "Single-CTA dashboard hero with compact 4-step progress bar — users immediately understand where they are and what to do next",
+      "compositionPattern": "Hero intro + inline workflow status bar + collapsible boundary card",
+      "continuityAnchors": ["sidebar nav with green accent", "dark surface layering", "13px body / 16px heading-sm"],
+      "componentPlan": [
+        { "component": "stat-card", "slug": "stat-card", "why": "KPI summaries for each workflow step" },
+        { "component": "buttons", "slug": "buttons", "why": "Primary CTA and secondary actions" },
+        { "component": "cards", "slug": "cards", "why": "Workflow progress step cards" },
+        { "component": "tag", "slug": "tag", "why": "Status indicators (未开始/进行中/已完成)" }
+      ],
+      "imagePlan": [],
+      "chartsRequired": false,
+      "pageType": "showcase"
+    },
+    {
+      "nodeId": "page-attack-resources",
+      "title": "攻击资源获取",
+      "pageIndex": 2,
+      "visualNorthStar": "Protocol selector + single-column focused task form — collapsed advanced options reduce visual noise, empty states guide first-time users",
+      "compositionPattern": "Protocol tabs + core form + results panel (empty state by default)",
+      "continuityAnchors": ["sidebar nav with green accent", "dark surface layering", "13px body / 16px heading-sm", "form control height 32px"],
+      "componentPlan": [
+        { "component": "forms", "slug": "forms", "why": "Task configuration form inputs" },
+        { "component": "tabs", "slug": "tabs", "why": "Protocol switching (TCP/DNS/Memcached/NTP)" },
+        { "component": "buttons", "slug": "buttons", "why": "Start/stop/refresh actions" },
+        { "component": "table-panel", "slug": "table-panel", "why": "Task records and output files" },
+        { "component": "tag", "slug": "tag", "why": "Protocol status badges" }
+      ],
+      "imagePlan": [],
+      "chartsRequired": false,
+      "pageType": "task-driven"
+    },
+    {
+      "nodeId": "page-resource-pool",
+      "title": "资源池",
+      "pageIndex": 3,
+      "visualNorthStar": "Map+list split layout with dominant 2D geographic view — protocol tabs moved below map header, pending protocols visually de-emphasized",
+      "compositionPattern": "Geo map (60%) + resource list (40%) split with protocol selector",
+      "continuityAnchors": ["sidebar nav with green accent", "dark surface layering", "13px body / 16px heading-sm"],
+      "componentPlan": [
+        { "component": "tabs", "slug": "tabs", "why": "Protocol switching" },
+        { "component": "stat-card", "slug": "stat-card", "why": "Resource count statistics" },
+        { "component": "buttons", "slug": "buttons", "why": "Refresh and edit actions" },
+        { "component": "tag", "slug": "tag", "why": "Protocol status and location tags" }
+      ],
+      "imagePlan": [],
+      "chartsRequired": true,
+      "pageType": "information-dense"
+    },
+    {
+      "nodeId": "page-console",
+      "title": "控制台",
+      "pageIndex": 4,
+      "visualNorthStar": "Progressive 3-step configuration (target → protocol → confirm) with live telemetry side panel — form density reduced, scenario presets for quick start",
+      "compositionPattern": "Step form left (55%) + live monitor right (45%)",
+      "continuityAnchors": ["sidebar nav with green accent", "dark surface layering", "13px body / 16px heading-sm", "form control height 32px"],
+      "componentPlan": [
+        { "component": "forms", "slug": "forms", "why": "Test configuration inputs" },
+        { "component": "stat-card", "slug": "stat-card", "why": "Real-time PPS/bandwidth metrics" },
+        { "component": "buttons", "slug": "buttons", "why": "Start/stop/reset actions" },
+        { "component": "tag", "slug": "tag", "why": "Mode and status indicators" },
+        { "component": "cards", "slug": "cards", "why": "Scenario preset cards" }
+      ],
+      "imagePlan": [],
+      "chartsRequired": true,
+      "pageType": "task-driven"
+    },
+    {
+      "nodeId": "page-latency-monitor",
+      "title": "延迟监控",
+      "pageIndex": 5,
+      "visualNorthStar": "Minimal two-tab interface (follow-console / manual-target) with dominant latency chart — reduces standalone page overhead, embeds quick latency snapshot",
+      "compositionPattern": "Target controls + latency chart (dominant) + trend cards",
+      "continuityAnchors": ["sidebar nav with green accent", "dark surface layering", "13px body / 16px heading-sm"],
+      "componentPlan": [
+        { "component": "forms", "slug": "forms", "why": "Target IP/port inputs" },
+        { "component": "stat-card", "slug": "stat-card", "why": "Baseline / latest / trend metric cards" },
+        { "component": "buttons", "slug": "buttons", "why": "Start/stop monitoring" },
+        { "component": "tabs", "slug": "tabs", "why": "Follow console / Manual target mode switch" }
+      ],
+      "imagePlan": [],
+      "chartsRequired": true,
+      "pageType": "information-dense"
+    }
+  ],
+  "assets": [],
+  "wiringPlan": [
+    { "fromPageId": "page-overview", "toPageId": "page-attack-resources", "domId": "nav-attack-resources", "hideEdge": false },
+    { "fromPageId": "page-overview", "toPageId": "page-resource-pool", "domId": "nav-resource-pool", "hideEdge": false },
+    { "fromPageId": "page-overview", "toPageId": "page-console", "domId": "nav-console", "hideEdge": false },
+    { "fromPageId": "page-overview", "toPageId": "page-latency-monitor", "domId": "nav-latency-monitor", "hideEdge": false }
+  ],
+  "hiddenInteractionPlan": [
+    { "fromPageId": "page-attack-resources", "toPageId": "page-overview", "domId": "nav-overview", "hideEdge": true },
+    { "fromPageId": "page-resource-pool", "toPageId": "page-overview", "domId": "nav-overview", "hideEdge": true },
+    { "fromPageId": "page-console", "toPageId": "page-overview", "domId": "nav-overview", "hideEdge": true },
+    { "fromPageId": "page-latency-monitor", "toPageId": "page-overview", "domId": "nav-overview", "hideEdge": true }
+  ]
+}

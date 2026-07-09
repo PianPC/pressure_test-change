@@ -1,0 +1,394 @@
+<style>
+/* ============================================================
+   Project Shell — Shared Layout Fragment
+   Sidebar + Topbar + page-body wrapper
+   ============================================================ */
+
+/* ── Layout ── */
+.sh-app-layout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-base-default);
+  color: var(--text-default);
+  font-family: var(--body-base-font-family);
+  font-size: var(--body-base-font-size);
+  line-height: var(--body-base-line-height);
+}
+
+/* ── Sidebar ── */
+.sh-sidebar {
+  width: 240px;
+  min-width: 240px;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base-secondary);
+  border-right: 1px solid var(--border-neutral-l1);
+}
+
+.sh-sidebar__logo {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-8);
+  padding: var(--spacer-16) var(--spacer-16) var(--spacer-12);
+}
+
+.sh-sidebar__logo-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.sh-sidebar__logo-text {
+  font-family: var(--font-family-heading);
+  font-size: var(--body-sm-strong-font-size);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-default);
+  letter-spacing: 0.06em;
+}
+
+/* ── Navigation ── */
+.sh-nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacer-8) var(--spacer-8);
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.sh-nav__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-8);
+  padding: var(--spacer-8) var(--spacer-12);
+  border-radius: var(--radius-6);
+  border-left: 2px solid transparent;
+  font-size: var(--body-base-font-size);
+  line-height: var(--body-base-line-height);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.sh-nav__item:hover {
+  background: var(--bg-overlay-l2);
+  color: var(--text-default);
+}
+
+.sh-nav__item.is-active {
+  background: var(--bg-brand-popup);
+  color: var(--text-brand);
+  border-left-color: var(--bg-brand);
+}
+
+.sh-nav__item-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-4);
+  background: var(--bg-overlay-l2);
+  font-size: var(--body-xs-font-size);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.sh-nav__item.is-active .sh-nav__item-step {
+  background: var(--bg-brand-popup);
+  color: var(--text-brand);
+}
+
+.sh-nav__item-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.sh-nav__item-label {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Sidebar Footer ── */
+.sh-sidebar__footer {
+  padding: var(--spacer-12) var(--spacer-16);
+  border-top: 1px solid var(--border-neutral-l1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-8);
+}
+
+.sh-sidebar__quick-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacer-6);
+  width: 100%;
+  height: 32px;
+  padding: 0 var(--spacer-12);
+  border-radius: var(--radius-6);
+  border: none;
+  cursor: pointer;
+  font-family: var(--body-sm-strong-font-family);
+  font-size: var(--body-sm-strong-font-size);
+  line-height: 1;
+  font-weight: var(--body-sm-strong-font-weight);
+  color: var(--text-onbrand);
+  background: var(--bg-brand);
+  transition: background 0.12s ease;
+}
+
+.sh-sidebar__quick-btn:hover {
+  background: var(--bg-brand-hover);
+}
+
+.sh-sidebar__quick-btn-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.sh-sidebar__badge-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-8);
+}
+
+.sh-sidebar__mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 var(--spacer-6);
+  height: 18px;
+  border-radius: var(--radius-2);
+  font-size: var(--body-xs-font-size);
+  line-height: 1;
+  background: var(--bg-overlay-l2);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-neutral-l1);
+  white-space: nowrap;
+}
+
+.sh-sidebar__mode-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--status-warning-default);
+  flex-shrink: 0;
+}
+
+.sh-sidebar__disclaimer {
+  font-size: var(--body-xs-font-size);
+  line-height: var(--body-xs-line-height);
+  color: var(--text-tertiary);
+}
+
+/* ── Main Content Area ── */
+.sh-main-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ── Top Bar ── */
+.sh-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacer-16);
+  padding: 0 var(--spacer-24);
+  height: 48px;
+  background: var(--bg-base-default);
+  border-bottom: 1px solid var(--border-neutral-l1);
+  flex-shrink: 0;
+}
+
+.sh-topbar__title-area {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-12);
+  min-width: 0;
+}
+
+.sh-topbar__page-title {
+  font-size: var(--heading-sm-font-size);
+  line-height: var(--heading-sm-line-height);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-default);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sh-topbar__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-16);
+  flex-shrink: 0;
+}
+
+.sh-topbar__status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 var(--spacer-8);
+  height: 22px;
+  border-radius: var(--radius-4);
+  font-size: var(--body-xs-font-size);
+  font-weight: var(--font-weight-medium);
+  color: var(--status-success-default);
+  background: var(--status-success-surface-l1);
+  white-space: nowrap;
+}
+
+.sh-topbar__status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-success-default);
+  flex-shrink: 0;
+}
+
+.sh-topbar__stats {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-16);
+  font-size: var(--body-sm-font-size);
+  color: var(--text-secondary);
+}
+
+.sh-topbar__stats-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-6);
+  white-space: nowrap;
+}
+
+.sh-topbar__stats-value {
+  color: var(--text-default);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Page Body ── */
+.sh-page-body {
+  flex: 1;
+  padding: var(--spacer-24);
+  min-height: 0;
+}
+</style>
+
+<div class="sh-app-layout">
+  <!-- ================================================================
+       Sidebar — 240px, sticky left
+       ================================================================ -->
+  <aside class="sh-sidebar">
+    <!-- Logo area -->
+    <div class="sh-sidebar__logo">
+      <span data-icon class="sh-sidebar__logo-icon" style="-webkit-mask-image: url('../assets/icons/nimbus/shield.svg'); mask-image: url('../assets/icons/nimbus/shield.svg'); background-color: var(--icon-brand);"></span>
+      <span class="sh-sidebar__logo-text">PRESSURE CONSOLE</span>
+    </div>
+
+    <!-- Navigation items -->
+    <nav class="sh-nav">
+      <a class="sh-nav__item is-active" data-dom-id="nav-overview" data-nav-key="overview" href="#">
+        <span class="sh-nav__item-step">1</span>
+        <span data-icon class="sh-nav__item-icon" style="-webkit-mask-image: url('../assets/icons/nimbus/home.svg'); mask-image: url('../assets/icons/nimbus/home.svg');"></span>
+        <span class="sh-nav__item-label">流程总览</span>
+      </a>
+
+      <a class="sh-nav__item" data-dom-id="nav-attack-resources" data-nav-key="attack-resources" href="#">
+        <span class="sh-nav__item-step">2</span>
+        <span data-icon class="sh-nav__item-icon" style="-webkit-mask-image: url('../assets/icons/nimbus/globe.svg'); mask-image: url('../assets/icons/nimbus/globe.svg');"></span>
+        <span class="sh-nav__item-label">攻击资源获取</span>
+      </a>
+
+      <a class="sh-nav__item" data-dom-id="nav-resource-pool" data-nav-key="resource-pool" href="#">
+        <span class="sh-nav__item-step">3</span>
+        <span data-icon class="sh-nav__item-icon" style="-webkit-mask-image: url('../assets/icons/nimbus/box.svg'); mask-image: url('../assets/icons/nimbus/box.svg');"></span>
+        <span class="sh-nav__item-label">资源池</span>
+      </a>
+
+      <a class="sh-nav__item" data-dom-id="nav-console" data-nav-key="console" href="#">
+        <span class="sh-nav__item-step">4</span>
+        <span data-icon class="sh-nav__item-icon" style="-webkit-mask-image: url('../assets/icons/nimbus/sliders.svg'); mask-image: url('../assets/icons/nimbus/sliders.svg');"></span>
+        <span class="sh-nav__item-label">控制台</span>
+      </a>
+
+      <a class="sh-nav__item" data-dom-id="nav-latency-monitor" data-nav-key="latency-monitor" href="#">
+        <span class="sh-nav__item-step">5</span>
+        <span data-icon class="sh-nav__item-icon" style="-webkit-mask-image: url('../assets/icons/nimbus/clock.svg'); mask-image: url('../assets/icons/nimbus/clock.svg');"></span>
+        <span class="sh-nav__item-label">延迟监控</span>
+      </a>
+    </nav>
+
+    <!-- Sidebar footer -->
+    <div class="sh-sidebar__footer">
+      <button class="sh-sidebar__quick-btn" data-dom-id="sidebar-quick-launch">
+        <span data-icon class="sh-sidebar__quick-btn-icon" style="-webkit-mask-image: url('../assets/icons/nimbus/zap.svg'); mask-image: url('../assets/icons/nimbus/zap.svg'); background-color: var(--text-onbrand);"></span>
+        快速启动
+      </button>
+
+      <div class="sh-sidebar__badge-row">
+        <span class="sh-sidebar__mode-badge">
+          <span class="sh-sidebar__mode-dot"></span>
+          授权测试模式
+        </span>
+      </div>
+
+      <span class="sh-sidebar__disclaimer">仅限授权安全测试使用</span>
+    </div>
+  </aside>
+
+  <!-- ================================================================
+       Main Content Area
+       ================================================================ -->
+  <main class="sh-main-content">
+    <!-- Top header bar -->
+    <header class="sh-topbar">
+      <div class="sh-topbar__title-area">
+        <span class="sh-topbar__page-title" data-dom-id="page-title">流程总览</span>
+      </div>
+
+      <div class="sh-topbar__meta">
+        <div class="sh-topbar__stats">
+          <span class="sh-topbar__stats-item">
+            <span data-icon style="width: 14px; height: 14px; -webkit-mask-image: url('../assets/icons/nimbus/cpu.svg'); mask-image: url('../assets/icons/nimbus/cpu.svg'); background-color: var(--icon-secondary); flex-shrink: 0;"></span>
+            <span class="sh-topbar__stats-value">32%</span>
+          </span>
+          <span class="sh-topbar__stats-item">
+            <span data-icon style="width: 14px; height: 14px; -webkit-mask-image: url('../assets/icons/nimbus/plug.svg'); mask-image: url('../assets/icons/nimbus/plug.svg'); background-color: var(--icon-secondary); flex-shrink: 0;"></span>
+            <span class="sh-topbar__stats-value">4.2 GB</span>
+          </span>
+        </div>
+
+        <span class="sh-topbar__status-badge" data-dom-id="top-status-badge">
+          <span class="sh-topbar__status-dot"></span>
+          待命中
+        </span>
+      </div>
+    </header>
+
+    <!-- Page body placeholder — leaf pages fill content here -->
+    <div class="sh-page-body" data-dom-id="page-body">
+      <!-- SLOT: pageContent -->
+      <!-- Page-specific content injected here by leaf pages -->
+      <!-- /SLOT: pageContent -->
+    </div>
+  </main>
+</div>
+
+<!-- SLOT: activeNavItem -->
+<!-- Leaf pages set the active nav key here, e.g.:
+     <script>document.querySelector('[data-nav-key="overview"]').classList.add('is-active');</script>
+-->
+<!-- /SLOT: activeNavItem -->
