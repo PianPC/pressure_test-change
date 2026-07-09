@@ -211,9 +211,9 @@
                                     <span class="attack-resource-card-icon ntp"><i class="fas fa-clock"></i></span>
                                     <span class="attack-resource-card-body">
                                         <strong>NTP 资源获取</strong>
-                                        <span>保留高保真任务骨架，后续只需补后端能力。</span>
+                                        <span>Monlist 放大率测量 · 优质反射器筛选</span>
                                     </span>
-                                    <span class="attack-resource-card-state pending">待接入</span>
+                                    <span class="attack-resource-card-state live">已接入</span>
                                 </button>
                             </div>
                         </section>
@@ -656,25 +656,134 @@ DNS 放大率测量原理：
                                 </div>
                             </div>
 
-                            <div class="attack-resource-panel" data-proto-panel="ntp">
-                                <div class="dashboard-grid tcp-scan-grid" style="grid-template-columns:1fr;">
-                                    <section class="panel">
-                                        <div class="panel-heading">
-                                            <div>
-                                                <h2><i class="fas fa-clock"></i> NTP 资源获取</h2>
+                            <div class="attack-resource-panel" data-proto-panel="ntp" data-attack-proto="ntp">
+                                <div class="dashboard-grid tcp-scan-grid">
+                                    <div class="tcp-column tcp-left-column">
+                                        <section class="panel config-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <h2><i class="fas fa-clock"></i> NTP 资源获取</h2>
+                                                </div>
+                                                <span class="panel-chip">放大率测量</span>
                                             </div>
-                                            <span class="panel-chip">后端待接入</span>
-                                        </div>
-                                        <div class="placeholder-compact" style="margin-bottom:10px;">
-                                            <span class="placeholder-compact-icon ntp"><i class="fas fa-clock"></i></span>
-                                            <div class="placeholder-compact-body">
-                                                <strong>NTP 资源获取与放大筛选</strong>
-                                                <span>前端已设计完成，等待后端接入 NTP 版本识别、可用命令筛选和放大潜力分析接口。</span>
+
+                                            <form id="ntpScanForm" data-role="task-form">
+                                                <div class="form-grid">
+                                                    <div class="form-group wide">
+                                                        <label for="ntpIpFile">IP 资源</label>
+                                                        <select id="ntpIpFile"></select>
+                                                        <div id="ntpIpFileSummary" class="dns-field-hint">正在加载共享 IP 资源...</div>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="ntpProbeAction">探测动作</label>
+                                                        <select id="ntpProbeAction">
+                                                            <option value="both">存活+放大测量 (推荐)</option>
+                                                            <option value="monlist">仅 Monlist 测量</option>
+                                                            <option value="probe">仅存活探测</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="ntpConcurrency">并发数</label>
+                                                        <input type="number" id="ntpConcurrency" value="50" min="1" max="500">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="ntpTimeout">超时 (秒)</label>
+                                                        <input type="number" id="ntpTimeout" value="3.0" min="0.5" max="30" step="0.5">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="ntpMinAmplification">最小放大率</label>
+                                                        <input type="number" id="ntpMinAmplification" value="50.0" min="0" max="1000" step="1">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label for="ntpMinAvailability">最小可用性 (%)</label>
+                                                        <input type="number" id="ntpMinAvailability" value="30" min="0" max="100" step="1">
+                                                    </div>
+                                                </div>
+
+                                                <div class="action-buttons-cta">
+                                                    <button type="button" id="ntpStartBtn" class="btn btn-primary btn-cta"><i class="fas fa-play"></i>开始获取</button>
+                                                </div>
+                                                <div class="action-buttons-secondary">
+                                                    <button type="button" id="ntpStopBtn" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
+                                                    <button type="button" id="ntpRefreshBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>刷新</button>
+                                                </div>
+                                                <div id="ntpScanStatus" class="info-text">点击"开始获取"测量候选 NTP 服务器的 Monlist 放大率，筛选优质反射器。</div>
+                                            </form>
+                                        </section>
+                                    </div>
+
+                                    <div class="tcp-column tcp-right-column">
+                                        <section class="panel metrics-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <h2><i class="fas fa-chart-simple"></i> 任务详情</h2>
+                                                </div>
                                             </div>
-                                            <span class="placeholder-compact-tag">即将推出</span>
-                                        </div>
-                                        <div class="info-text">点击上方 TCP 或 DNS 协议卡片可切换至已接入的功能模块。</div>
-                                    </section>
+                                            <div class="stats-grid tcp-status-grid">
+                                                <div class="stat-card">
+                                                    <div class="stat-title">状态</div>
+                                                    <div class="stat-value tcp-small-value" id="ntpStatus">空闲</div>
+                                                </div>
+                                                <div class="stat-card">
+                                                    <div class="stat-title">运行 ID</div>
+                                                    <div class="stat-value tcp-small-value" id="ntpRunId">-</div>
+                                                </div>
+                                                <div class="stat-card">
+                                                    <div class="stat-title">阶段</div>
+                                                    <div class="stat-value tcp-small-value" id="ntpStage">-</div>
+                                                </div>
+                                                <div class="stat-card">
+                                                    <div class="stat-title">已测 / 总数</div>
+                                                    <div class="stat-value tcp-small-value" id="ntpProgress">0/0</div>
+                                                </div>
+                                            </div>
+                                            <div id="ntpRunMeta" class="tcp-run-meta" data-role="detail-meta"></div>
+                                            <div id="ntpStageList" class="tcp-stage-list" data-role="stage-list">
+                                                <div class="tcp-stage-item"><span>加载候选 IP 列表</span><strong>待开始</strong></div>
+                                                <div class="tcp-stage-item"><span>执行 NTP 探测</span><strong>待开始</strong></div>
+                                                <div class="tcp-stage-item"><span>筛选高倍率目标</span><strong>待开始</strong></div>
+                                                <div class="tcp-stage-item"><span>保存结果</span><strong>待开始</strong></div>
+                                            </div>
+                                            <div id="ntpQualifiedPreview" class="info-text" style="margin-top:8px;" data-role="result-preview"></div>
+                                        </section>
+                                    </div>
+
+                                    <div class="tcp-results-row">
+                                        <section class="panel tcp-runs-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <h2><i class="fas fa-list-check"></i> 任务记录</h2>
+                                                </div>
+                                                <button type="button" id="ntpClearRunsBtn" class="btn btn-secondary tcp-panel-action">
+                                                    <i class="fas fa-trash-can"></i>清除记录
+                                                </button>
+                                            </div>
+                                            <div id="ntpRunList" class="tcp-run-list" data-role="run-list"></div>
+                                        </section>
+
+                                        <section class="panel resources-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <h2><i class="fas fa-folder-open"></i> 输出文件</h2>
+                                                </div>
+                                            </div>
+                                            <div id="ntpArtifacts" class="tcp-artifact-list" data-role="artifact-list"></div>
+                                        </section>
+
+                                        <section class="panel chart-panel tcp-log-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <h2><i class="fas fa-terminal"></i> 流水线日志</h2>
+                                                </div>
+                                            </div>
+                                            <pre id="ntpPipelineLog" class="tcp-log-box">尚未选择 NTP 资源获取任务。
+NTP 放大率测量原理：
+  1. 向候选 NTP 服务器发送 MON_GETLIST (Mode=7, Opcode=42) 请求
+  2. 测量 响应总大小 / 请求大小 = 放大率（典型可达 500x+）
+  3. 按阈值筛选高放大率 IP 作为优质攻击资源</pre>
+                                            <div id="ntpRuntimeError" class="info-text"></div>
+                                        </section>
+                                    </div>
                                 </div>
                             </div>
                         </div>
