@@ -2368,7 +2368,7 @@
 /* ── Results Panels ── */
 .ar-results-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: var(--spacer-16);
   margin-bottom: var(--spacer-16);
 }
@@ -2466,29 +2466,15 @@
 }
 
 /* ── Pipeline Log ── */
-.ar-pipeline-log {
+.ar-pipeline-log__body {
   padding: var(--spacer-16);
-  border-top: 1px solid var(--border-neutral-l1);
-}
-
-.ar-pipeline-log__header {
-  font-size: var(--body-sm-font-size);
-  font-weight: var(--font-weight-medium);
-  color: var(--text-secondary);
-  margin-bottom: var(--spacer-8);
-}
-
-.ar-pipeline-log__empty {
   font-family: var(--code-terminal-font-family);
   font-size: var(--code-terminal-font-size);
   color: var(--text-tertiary);
-  background: var(--bg-overlay-l1);
-  border: 1px solid var(--border-neutral-l1);
-  border-radius: var(--radius-4);
-  padding: var(--spacer-12) var(--spacer-16);
-  min-height: 80px;
+  min-height: 120px;
   display: flex;
   align-items: center;
+  justify-content: center;
 }
 
 /* ── Protocol Tab Icon Colors ── */
@@ -2752,7 +2738,7 @@
       </div>
 
       <!-- ================================================================
-           Task Records + Output Files (2-column grid)
+           Task Records + Output Files + Pipeline Log (3-column grid)
            ================================================================ -->
       <div class="ar-results-grid">
         <!-- Task Records -->
@@ -2778,6 +2764,16 @@
             <span data-icon class="ar-empty__icon" style="-webkit-mask-image: url('../assets/icons/nimbus/file-text.svg'); mask-image: url('../assets/icons/nimbus/file-text.svg');"></span>
             <span class="ar-empty__title">暂无输出文件</span>
             <span class="ar-empty__desc">任务完成后输出文件将出现在此处</span>
+          </div>
+        </div>
+
+        <!-- Pipeline Log -->
+        <div class="ar-panel" data-dom-id="panel-pipeline-log">
+          <div class="ar-panel__header">
+            <span class="ar-panel__title">流水线日志</span>
+          </div>
+          <div class="ar-pipeline-log__body">
+            <span style="color: var(--text-tertiary); user-select: none;">选择任务查看详情</span>
           </div>
         </div>
       </div>
@@ -2806,13 +2802,6 @@
           <div class="ar-detail-card">
             <span class="ar-detail-card__label">主机</span>
             <span class="ar-detail-card__value" style="color: var(--text-tertiary);">—</span>
-          </div>
-        </div>
-        <!-- Pipeline Log -->
-        <div class="ar-pipeline-log">
-          <div class="ar-pipeline-log__header">管道日志</div>
-          <div class="ar-pipeline-log__empty">
-            <span style="color: var(--text-tertiary); user-select: none;">选择任务查看详情</span>
           </div>
         </div>
       </div>
