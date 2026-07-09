@@ -14,7 +14,7 @@
     <link rel="stylesheet" href="/static/style.css?v=tcp-layout-4">
 </head>
 <body>
-    <canvas id="particleCanvas" class="particle-bg"></canvas>
+    <canvas id="particleCanvas" class="particle-bg" style="display:none"></canvas>
 
     <div class="app-layout">
         <aside class="sidebar">
@@ -28,7 +28,7 @@
 
             <nav class="nav-menu" aria-label="主导航">
                 <a href="#" class="nav-item active" data-view="dashboard" title="流程总览">
-                    <span class="nav-step-indicator home"><i class="fas fa-compass"></i></span>
+                    <span class="nav-step-indicator"><i class="fas fa-compass" style="font-size:10px"></i></span>
                     <span class="nav-item-label">流程总览</span>
                 </a>
                 <a href="#" class="nav-item workflow-nav-item" data-view="attack-resources" data-workflow-step="resource" title="攻击资源获取">
@@ -54,7 +54,7 @@
             </div>
 
             <div class="sidebar-footer">
-                <div class="system-badge"><i class="fas fa-shield-halved"></i> 授权测试模式</div>
+                <div class="system-badge"><span class="dot"></span> 授权测试模式</div>
                 <div class="sidebar-boundary-note">
                     仅用于授权环境内的压力测试、链路验证和防护演练。
                 </div>
@@ -63,10 +63,7 @@
 
         <main class="main-content">
             <header class="top-bar">
-                <div>
-                    <p class="eyebrow">Operations Dashboard</p>
-                    <h1>多协议压力测试工作台</h1>
-                </div>
+                <h1>多协议压力测试工作台</h1>
                 <div class="top-status">
                     <div class="attack-status" id="attackModeTag">待命中</div>
                     <div class="system-stats">
@@ -80,9 +77,8 @@
                 <section class="view-pane active" id="view-dashboard">
                     <div class="workflow-overview-layout">
                         <section class="panel workflow-hero-panel">
-                            <div class="workflow-hero-header">
+                            <div class="panel-heading">
                                 <div>
-                                    <p class="eyebrow">Recommended Flow</p>
                                     <h2><i class="fas fa-route"></i> 攻击使用流程总览</h2>
                                 </div>
                                 <span class="panel-chip" id="workflowCurrentChip">流程待开始</span>
@@ -139,10 +135,7 @@
 
                         <section class="panel workflow-boundary-panel">
                             <div class="panel-heading">
-                                <div>
-                                    <p class="eyebrow">Usage Boundary</p>
-                                    <h2><i class="fas fa-shield-halved"></i> 使用边界与建议</h2>
-                                </div>
+                                <h2><i class="fas fa-shield-halved"></i> 使用边界与建议</h2>
                             </div>
                             <div class="workflow-boundary-grid">
                                 <div class="workflow-boundary-card">
@@ -163,7 +156,6 @@
                         <section class="panel attack-resource-overview">
                             <div class="panel-heading">
                                 <div>
-                                    <p class="eyebrow">Attack Resource Center</p>
                                     <h2><i class="fas fa-satellite-dish"></i> 攻击资源获取</h2>
                                 </div>
                                 <span class="panel-chip">TCP 已接入</span>
@@ -233,7 +225,6 @@
                                         <section class="panel config-panel">
                                             <div class="panel-heading">
                                                 <div>
-                                                    <p class="eyebrow">TCP Resource Workflow</p>
                                                     <h2><i class="fas fa-network-wired"></i> TCP 资源获取</h2>
                                                 </div>
                                                 <span class="panel-chip">默认模拟运行</span>
@@ -314,7 +305,6 @@
                                         <section class="panel tcp-runs-panel">
                                             <div class="panel-heading">
                                                 <div>
-                                                    <p class="eyebrow">Existing Tasks</p>
                                                     <h2><i class="fas fa-list-check"></i> 任务记录</h2>
                                                 </div>
                                                 <button type="button" id="tcpClearRunsBtn" class="btn btn-secondary tcp-panel-action">
@@ -327,7 +317,6 @@
                                         <section class="panel resources-panel">
                                             <div class="panel-heading">
                                                 <div>
-                                                    <p class="eyebrow">Artifacts</p>
                                                     <h2><i class="fas fa-folder-open"></i> 输出文件</h2>
                                                 </div>
                                             </div>
@@ -339,7 +328,6 @@
                                         <section class="panel metrics-panel">
                                             <div class="panel-heading">
                                                 <div>
-                                                    <p class="eyebrow">Current Task</p>
                                                     <h2><i class="fas fa-chart-simple"></i> 任务详情</h2>
                                                 </div>
                                             </div>
@@ -368,7 +356,6 @@
                                         <section class="panel chart-panel tcp-log-panel">
                                             <div class="panel-heading">
                                                 <div>
-                                                    <p class="eyebrow">Pipeline Log</p>
                                                     <h2><i class="fas fa-terminal"></i> 流水线日志</h2>
                                                 </div>
                                             </div>
@@ -384,7 +371,6 @@
                                     <section class="panel">
                                         <div class="panel-heading">
                                             <div>
-                                                <p class="eyebrow">Memcached Resource</p>
                                                 <h2><i class="fas fa-database"></i> Memcached 资源获取</h2>
                                             </div>
                                             <span class="panel-chip">后端待接入</span>
@@ -408,7 +394,6 @@
                                         <section class="panel config-panel">
                                             <div class="panel-heading">
                                                 <div>
-                                                    <p class="eyebrow">DNS Resource Workflow</p>
                                                     <h2><i class="fas fa-globe"></i> DNS 资源获取</h2>
                                                 </div>
                                                 <span class="panel-chip">放大率测量</span>
@@ -430,7 +415,7 @@
 isc.org
 dns-oarc.net
 iana.org</textarea>
-                                                        <div id="dnsDomainFormatHint" class="dns-field-hint">支持“每行一个”或“逗号分隔”两种输入方式，提交时会自动整理。</div>
+                                                        <div id="dnsDomainFormatHint" class="dns-field-hint">支持"每行一个"或"逗号分隔"两种输入方式，提交时会自动整理。</div>
                                                     </div>
                                                     <div class="form-group">
                                                         <label for="dnsQueryType">查询类型</label>
@@ -480,7 +465,6 @@ iana.org</textarea>
                                         <section class="panel tcp-runs-panel">
                                             <div class="panel-heading">
                                                 <div>
-                                                    <p class="eyebrow">Existing Tasks</p>
                                                     <h2><i class="fas fa-list-check"></i> 任务记录</h2>
                                                 </div>
                                                 <button type="button" id="dnsClearRunsBtn" class="btn btn-secondary tcp-panel-action">
@@ -493,7 +477,6 @@ iana.org</textarea>
                                         <section class="panel resources-panel">
                                             <div class="panel-heading">
                                                 <div>
-                                                    <p class="eyebrow">Artifacts</p>
                                                     <h2><i class="fas fa-folder-open"></i> 输出文件</h2>
                                                 </div>
                                             </div>
@@ -505,7 +488,6 @@ iana.org</textarea>
                                         <section class="panel metrics-panel">
                                             <div class="panel-heading">
                                                 <div>
-                                                    <p class="eyebrow">Current Task</p>
                                                     <h2><i class="fas fa-chart-simple"></i> 任务详情</h2>
                                                 </div>
                                             </div>
@@ -540,7 +522,6 @@ iana.org</textarea>
                                         <section class="panel chart-panel tcp-log-panel">
                                             <div class="panel-heading">
                                                 <div>
-                                                    <p class="eyebrow">Pipeline Log</p>
                                                     <h2><i class="fas fa-terminal"></i> 流水线日志</h2>
                                                 </div>
                                             </div>
@@ -560,7 +541,6 @@ DNS 放大率测量原理：
                                     <section class="panel">
                                         <div class="panel-heading">
                                             <div>
-                                                <p class="eyebrow">NTP Resource</p>
                                                 <h2><i class="fas fa-clock"></i> NTP 资源获取</h2>
                                             </div>
                                             <span class="panel-chip">后端待接入</span>
@@ -585,7 +565,6 @@ DNS 放大率测量原理：
                     <div class="panel servers-panel">
                         <div class="panel-heading">
                             <div>
-                                <p class="eyebrow">Reflectors</p>
                                 <h2><i class="fas fa-database"></i> 资源池管理</h2>
                             </div>
                         </div>
@@ -623,7 +602,6 @@ DNS 放大率测量原理：
                                 <section class="server-map-panel">
                                     <div class="server-map-header">
                                         <div>
-                                            <p class="eyebrow">Geo Distribution</p>
                                             <h3><i class="fas fa-earth-asia"></i> 资源地理分布</h3>
                                         </div>
                                         <div class="map-actions">
@@ -652,7 +630,6 @@ DNS 放大率测量原理：
                                 <section class="panel server-resource-panel">
                                     <div class="panel-heading">
                                         <div>
-                                            <p class="eyebrow">Resource Browser</p>
                                             <h2><i class="fas fa-server"></i> IP 与区域联动</h2>
                                         </div>
                                         <div class="server-panel-actions">
@@ -703,7 +680,6 @@ DNS 放大率测量原理：
                         <section class="panel config-panel">
                             <div class="panel-heading">
                                 <div>
-                                    <p class="eyebrow">Target & Load</p>
                                     <h2><i class="fas fa-sliders"></i> 控制台配置与启动</h2>
                                 </div>
                                 <span class="panel-chip">可直接跳步启动</span>
@@ -853,7 +829,6 @@ DNS 放大率测量原理：
                         <section class="panel metrics-panel">
                             <div class="panel-heading">
                                 <div>
-                                    <p class="eyebrow">Live Telemetry</p>
                                     <h2><i class="fas fa-gauge-high"></i> 实时监控</h2>
                                 </div>
                             </div>
@@ -903,7 +878,6 @@ DNS 放大率测量原理：
                         <section class="panel chart-panel">
                             <div class="panel-heading">
                                 <div>
-                                    <p class="eyebrow">Throughput</p>
                                     <h2><i class="fas fa-chart-area"></i> PPS 趋势</h2>
                                 </div>
                             </div>
@@ -915,7 +889,6 @@ DNS 放大率测量原理：
                         <section class="panel resources-panel">
                             <div class="panel-heading">
                                 <div>
-                                    <p class="eyebrow">Host Resources</p>
                                     <h2><i class="fas fa-desktop"></i> 本机资源</h2>
                                 </div>
                             </div>
@@ -932,7 +905,6 @@ DNS 放大率测量原理：
                         <section id="protocolStatsSection" class="panel protocol-panel" style="display:none;">
                             <div class="panel-heading">
                                 <div>
-                                    <p class="eyebrow">Protocols</p>
                                     <h2><i class="fas fa-layer-group"></i> 协议战报</h2>
                                 </div>
                             </div>
@@ -945,7 +917,6 @@ DNS 放大率测量原理：
                     <div class="panel latency-panel">
                         <div class="panel-heading">
                             <div>
-                                <p class="eyebrow">TCP Latency</p>
                                 <h2><i class="fas fa-timeline"></i> 延迟监控</h2>
                             </div>
                         </div>
@@ -1002,7 +973,6 @@ DNS 放大率测量原理：
                     <div class="tcp-modal-panel">
                         <div class="panel-heading">
                             <div>
-                                <p class="eyebrow">产物查看器</p>
                                 <h2><i class="fas fa-file-lines"></i> <span id="tcpFileModalTitle">文件内容</span></h2>
                             </div>
                             <button type="button" id="tcpFileModalClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
@@ -1020,7 +990,6 @@ DNS 放大率测量原理：
                     <div class="tcp-modal-panel server-source-modal-panel">
                         <div class="panel-heading">
                             <div>
-                                <p class="eyebrow">Resource Sources</p>
                                 <h2><i class="fas fa-layer-group"></i> <span id="serverSourceModalTitle">选择源文件</span></h2>
                             </div>
                             <button type="button" id="serverSourceModalClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
@@ -1040,7 +1009,6 @@ DNS 放大率测量原理：
                     <div class="tcp-modal-panel">
                         <div class="panel-heading">
                             <div>
-                                <p class="eyebrow">Resource Source</p>
                                 <h2><i class="fas fa-file-lines"></i> <span id="serverFileModalTitle">编辑源文件</span></h2>
                             </div>
                             <button type="button" id="serverFileModalClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
@@ -1058,7 +1026,7 @@ DNS 放大率测量原理：
 
     <script src="/static/script.js?v=tcp-layout-4"></script>
     <script>
-    // 折叠面板切换
+    // Collapsible section toggle
     document.addEventListener("click", function(e) {
         const trigger = e.target.closest(".collapsible-trigger");
         if (trigger) {
@@ -1067,39 +1035,17 @@ DNS 放大率测量原理：
             trigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
         }
     });
-
-    // 侧边栏快速启动按钮
+    // Sidebar quick launch
     const sidebarQuick = document.getElementById("sidebarQuickConsole");
-    if (sidebarQuick) {
-        sidebarQuick.addEventListener("click", function() {
-            if (typeof navigateToView === "function") {
-                navigateToView("console");
-            }
-        });
-    }
-
-    // 工作流进度条点击导航
+    if (sidebarQuick) { sidebarQuick.addEventListener("click", function() { if (typeof navigateToView === "function") { navigateToView("console"); } }); }
+    // Workflow progress bar click navigation
     document.getElementById("workflowStepGrid")?.addEventListener("click", function(e) {
         const step = e.target.closest("[data-workflow-card]");
         if (!step) return;
         const card = step.dataset.workflowCard;
         const viewMap = { resource: "attack-resources", pool: "servers", console: "console", latency: "latency" };
         const view = viewMap[card];
-        if (view && typeof navigateToView === "function") {
-            navigateToView(view);
-        }
-    });
-
-    // 信息横幅折叠按钮
-    document.addEventListener("click", function(e) {
-        const toggle = e.target.closest(".info-banner-toggle");
-        if (toggle) {
-            const banner = toggle.closest(".info-banner-collapsible");
-            banner.classList.toggle("collapsed");
-            toggle.innerHTML = banner.classList.contains("collapsed")
-                ? '<i class="fas fa-chevron-down"></i>'
-                : '<i class="fas fa-chevron-up"></i>';
-        }
+        if (view && typeof navigateToView === "function") { navigateToView(view); }
     });
     </script>
 </body>

@@ -79,7 +79,7 @@
       "version": 1,
       "createdAt": 1752087343000,
       "canvasData": {
-        "x": 480,
+        "x": 620,
         "y": 0,
         "group": 0
       },
@@ -120,8 +120,8 @@
       "version": 1,
       "createdAt": 1752087343000,
       "canvasData": {
-        "x": 480,
-        "y": 488,
+        "x": 620,
+        "y": 425,
         "group": 0
       },
       "devMetadata": {
@@ -161,8 +161,8 @@
       "version": 1,
       "createdAt": 1752087343000,
       "canvasData": {
-        "x": 480,
-        "y": 976,
+        "x": 620,
+        "y": 802,
         "group": 0
       },
       "devMetadata": {
@@ -202,8 +202,8 @@
       "version": 1,
       "createdAt": 1752087343000,
       "canvasData": {
-        "x": 480,
-        "y": 1464,
+        "x": 620,
+        "y": 1179,
         "group": 0
       },
       "devMetadata": {
@@ -239,7 +239,7 @@
   ],
   "config": {
     "autoLayout": true,
-    "deviceType": "tablet",
+    "deviceType": "desktop",
     "projectName": "压力测试工作台",
     "designLibrary": {
       "name": "TRAE",
