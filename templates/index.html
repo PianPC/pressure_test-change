@@ -301,27 +301,6 @@
                                                 <div id="tcpPreflightStatus" class="info-text">真实资源获取前会自动执行环境预检。</div>
                                             </form>
                                         </section>
-
-                                        <section class="panel tcp-runs-panel">
-                                            <div class="panel-heading">
-                                                <div>
-                                                    <h2><i class="fas fa-list-check"></i> 任务记录</h2>
-                                                </div>
-                                                <button type="button" id="tcpClearRunsBtn" class="btn btn-secondary tcp-panel-action">
-                                                    <i class="fas fa-trash-can"></i>清除记录
-                                                </button>
-                                            </div>
-                                            <div id="tcpRunList" class="tcp-run-list" data-role="run-list"></div>
-                                        </section>
-
-                                        <section class="panel resources-panel">
-                                            <div class="panel-heading">
-                                                <div>
-                                                    <h2><i class="fas fa-folder-open"></i> 输出文件</h2>
-                                                </div>
-                                            </div>
-                                            <div id="tcpArtifacts" class="tcp-artifact-list" data-role="artifact-list"></div>
-                                        </section>
                                     </div>
 
                                     <div class="tcp-column tcp-right-column">
@@ -352,11 +331,34 @@
                                             <div id="tcpRunMeta" class="tcp-run-meta" data-role="detail-meta"></div>
                                             <div id="tcpStages" class="tcp-stage-list" data-role="stage-list"></div>
                                         </section>
+                                    </div>
+
+                                    <div class="tcp-results-row">
+                                        <section class="panel tcp-runs-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <h2><i class="fas fa-list-check"></i> &#20219;&#21153;&#35760;&#24405;</h2>
+                                                </div>
+                                                <button type="button" id="tcpClearRunsBtn" class="btn btn-secondary tcp-panel-action">
+                                                    <i class="fas fa-trash-can"></i>&#28165;&#38500;&#35760;&#24405;
+                                                </button>
+                                            </div>
+                                            <div id="tcpRunList" class="tcp-run-list" data-role="run-list"></div>
+                                        </section>
+
+                                        <section class="panel resources-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <h2><i class="fas fa-folder-open"></i> &#36755;&#20986;&#25991;&#20214;</h2>
+                                                </div>
+                                            </div>
+                                            <div id="tcpArtifacts" class="tcp-artifact-list" data-role="artifact-list"></div>
+                                        </section>
 
                                         <section class="panel chart-panel tcp-log-panel">
                                             <div class="panel-heading">
                                                 <div>
-                                                    <h2><i class="fas fa-terminal"></i> 流水线日志</h2>
+                                                    <h2><i class="fas fa-terminal"></i> &#27969;&#27700;&#32447;&#26085;&#24535;</h2>
                                                 </div>
                                             </div>
                                             <pre id="tcpPipelineLog" class="tcp-log-box">尚未选择 TCP 资源获取任务。</pre>
@@ -461,27 +463,6 @@ iana.org</textarea>
                                                 <div id="dnsScanStatus" class="info-text">点击"开始获取"测量候选 IP 的 DNS 放大率，筛选优质反射器。</div>
                                             </form>
                                         </section>
-
-                                        <section class="panel tcp-runs-panel">
-                                            <div class="panel-heading">
-                                                <div>
-                                                    <h2><i class="fas fa-list-check"></i> 任务记录</h2>
-                                                </div>
-                                                <button type="button" id="dnsClearRunsBtn" class="btn btn-secondary tcp-panel-action">
-                                                    <i class="fas fa-trash-can"></i>清除记录
-                                                </button>
-                                            </div>
-                                            <div id="dnsRunList" class="tcp-run-list" data-role="run-list"></div>
-                                        </section>
-
-                                        <section class="panel resources-panel">
-                                            <div class="panel-heading">
-                                                <div>
-                                                    <h2><i class="fas fa-folder-open"></i> 输出文件</h2>
-                                                </div>
-                                            </div>
-                                            <div id="dnsArtifacts" class="tcp-artifact-list" data-role="artifact-list"></div>
-                                        </section>
                                     </div>
 
                                     <div class="tcp-column tcp-right-column">
@@ -518,11 +499,34 @@ iana.org</textarea>
                                             </div>
                                             <div id="dnsQualifiedPreview" class="info-text" style="margin-top:8px;" data-role="result-preview"></div>
                                         </section>
+                                    </div>
+
+                                    <div class="tcp-results-row">
+                                        <section class="panel tcp-runs-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <h2><i class="fas fa-list-check"></i> &#20219;&#21153;&#35760;&#24405;</h2>
+                                                </div>
+                                                <button type="button" id="dnsClearRunsBtn" class="btn btn-secondary tcp-panel-action">
+                                                    <i class="fas fa-trash-can"></i>&#28165;&#38500;&#35760;&#24405;
+                                                </button>
+                                            </div>
+                                            <div id="dnsRunList" class="tcp-run-list" data-role="run-list"></div>
+                                        </section>
+
+                                        <section class="panel resources-panel">
+                                            <div class="panel-heading">
+                                                <div>
+                                                    <h2><i class="fas fa-folder-open"></i> &#36755;&#20986;&#25991;&#20214;</h2>
+                                                </div>
+                                            </div>
+                                            <div id="dnsArtifacts" class="tcp-artifact-list" data-role="artifact-list"></div>
+                                        </section>
 
                                         <section class="panel chart-panel tcp-log-panel">
                                             <div class="panel-heading">
                                                 <div>
-                                                    <h2><i class="fas fa-terminal"></i> 流水线日志</h2>
+                                                    <h2><i class="fas fa-terminal"></i> &#27969;&#27700;&#32447;&#26085;&#24535;</h2>
                                                 </div>
                                             </div>
                                             <pre id="dnsPipelineLog" class="tcp-log-box">尚未选择 DNS 资源获取任务。
