@@ -52,6 +52,23 @@ from attack_resources.dns.code.routes import (
 )
 
 
+from attack_resources.ntp.code.ntp_resource_scanner import NTPResourceScanner, PROBE_ACTIONS
+from attack_resources.ntp.code.routes import (
+    NTP_OUTPUT_ROOT,
+    _bool as ntp_bool,
+    _build_config_dict as ntp_build_config_dict,
+    _float_or as ntp_float_or,
+    _generate_run_id as ntp_generate_run_id,
+    _int_or as ntp_int_or,
+    _list_ip_files as ntp_list_ip_files,
+    _list_run_dirs as ntp_list_run_dirs,
+    _read_run_file as ntp_read_run_file,
+    _read_run_log as ntp_read_run_log,
+    ntp_registry,
+    ScanConfig as NtpScanConfig,
+)
+
+
 attack_resource_bp = Blueprint("attack_resource", __name__, url_prefix="/api/attack-resource")
 
 EDITABLE_TEXT_SUFFIXES = {".log", ".txt", ".csv", ".json"}
@@ -67,6 +84,13 @@ DNS_STAGE_ORDER = [
     ("loading", "加载候选 IP"),
     ("scanning", "放大率测量"),
     ("filtering", "按阈值筛选"),
+    ("saving", "保存结果"),
+]
+
+NTP_STAGE_ORDER = [
+    ("loading", "加载候选 IP"),
+    ("scanning", "执行 NTP 探测"),
+    ("filtering", "筛选高倍率目标"),
     ("saving", "保存结果"),
 ]
 
@@ -622,9 +646,320 @@ class DnsAdapter(_ProtoAdapter):
         raise ValueError("File type is not editable")
 
 
+def _build_ntp_run_payload(run_id: str) -> dict[str, Any]:
+    scanner = ntp_registry.get_scanner(run_id)
+    run_dir = NTP_OUTPUT_ROOT / run_id
+    stats: dict[str, Any] = {}
+    if scanner:
+        stats = scanner.get_stats()
+        is_running = ntp_registry.is_running(run_id)
+    else:
+        stats_path = run_dir / "final_stats.json"
+        summary_path = run_dir / "scan_summary.json"
+        if stats_path.exists():
+            try:
+                stats = json.loads(stats_path.read_text(encoding="utf-8"))
+            except Exception:
+                stats = {}
+        if summary_path.exists():
+            try:
+                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                stats.update(summary)
+            except Exception:
+                pass
+        if run_dir.exists():
+            log_path = run_dir / "pipeline.log"
+            if log_path.exists():
+                try:
+                    lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+                    if lines:
+                        stats.setdefault("log_tail", "\n".join(lines[-200:]))
+                except Exception:
+                    pass
+        is_running = False
+
+    runtime_error = ntp_registry.get_error(run_id) or str(stats.get("error") or "")
+    config = ntp_registry.get_config(run_id)
+    if config:
+        config_dict = ntp_build_config_dict(config)
+    else:
+        config_dict = stats.get("config") if isinstance(stats.get("config"), dict) else None
+    config_dict = config_dict or {}
+
+    current_stage = stats.get("current_stage") or stats.get("stage")
+    normalized_stages = []
+    stage_states = stats.get("stages", {})
+    final_stage = stats.get("stage")
+    for stage_key, stage_label in NTP_STAGE_ORDER:
+        stage_status = stage_states.get(stage_key, {}).get("status")
+        if not stage_status and is_running and current_stage == stage_key:
+            stage_status = "running"
+        if not stage_status and final_stage == "done":
+            stage_status = "completed"
+        normalized_stages.append({
+            "key": stage_key,
+            "label": stage_label,
+            "status": _normalize_ntp_stage_status(stage_status, final_stage, current_stage, stage_key),
+        })
+
+    artifacts = []
+    if run_dir.exists():
+        for file in sorted(run_dir.iterdir()):
+            if file.is_file():
+                artifacts.append(_text_artifact_descriptor(file.name, file.stat().st_size, editable=False))
+
+    qualified_ips = _ntp_get_qualified_ips(run_id, scanner)
+    detail_items = [
+        {"label": "当前阶段", "value": _ntp_stage_status_label(stats.get("stage"), is_running)},
+        {"label": "探测动作", "value": config_dict.get("probe_action") or "-"},
+        {"label": "并发数", "value": config_dict.get("concurrency", "-")},
+        {"label": "最小放大率", "value": config_dict.get("min_amplification", "-")},
+        {"label": "最小可用性", "value": config_dict.get("min_availability", "-")},
+        {"label": "优质 IP", "value": len(qualified_ips)},
+        {"label": "失败原因", "value": runtime_error or "-"},
+    ]
+
+    return {
+        "run_id": run_id,
+        "proto": "ntp",
+        "status": stats.get("status", "idle"),
+        "is_running": is_running,
+        "started_at": stats.get("started_at"),
+        "ended_at": stats.get("ended_at"),
+        "current_stage": current_stage,
+        "progress": _build_progress(stats.get("tested"), stats.get("total_tasks") or stats.get("total_ips")),
+        "config": config_dict,
+        "summary_stats": {
+            "stage": (stats.get("stage") or "-").upper(),
+            "qualified_count": len(qualified_ips),
+            "tested": stats.get("tested", 0),
+        },
+        "detail_items": detail_items,
+        "stages": normalized_stages,
+        "artifacts": artifacts,
+        "result_preview": {
+            "type": "list",
+            "title": "优质 IP",
+            "items": qualified_ips[:5],
+            "total": len(qualified_ips),
+            "empty_text": "暂无优质 IP。完整结果可通过输出文件查看。",
+        },
+        "runtime_error": runtime_error,
+    }
+
+
+def _ntp_stage_status_label(stage: str | None, is_running: bool) -> str:
+    if stage == "done":
+        return "已完成"
+    if stage == "error":
+        return "失败"
+    if stage == "stopped":
+        return "已停止"
+    if stage == "saving":
+        return "保存中" if is_running else "已保存"
+    if stage == "filtering":
+        return "筛选中" if is_running else "已筛选"
+    if stage == "scanning":
+        return "探测中" if is_running else "已探测"
+    if stage == "loading":
+        return "加载中" if is_running else "已加载"
+    return "运行中" if is_running else "空闲"
+
+
+def _normalize_ntp_stage_status(stage_status: str | None, final_stage: str | None, current_stage: str | None, stage_key: str) -> str:
+    if stage_status in {"completed", "failed", "stopped", "running"}:
+        return stage_status
+    if final_stage == "done":
+        return "completed"
+    if final_stage == "error" and current_stage == stage_key:
+        return "failed"
+    if final_stage == "stopped" and current_stage == stage_key:
+        return "stopped"
+    return "pending"
+
+
+def _ntp_get_qualified_ips(run_id: str, scanner: NTPResourceScanner | None) -> list[str]:
+    if scanner:
+        return scanner.get_qualified_ips()
+    ip_file = NTP_OUTPUT_ROOT / run_id / "qualified_ips.txt"
+    if not ip_file.exists():
+        return []
+    return [
+        line.strip()
+        for line in ip_file.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+
+
+def _build_ntp_runs_list() -> dict[str, Any]:
+    runs = []
+    for run in ntp_list_run_dirs():
+        run_id = run["run_id"]
+        runs.append({
+            "run_id": run_id,
+            "proto": "ntp",
+            "status": run.get("status", "idle"),
+            "is_running": ntp_registry.is_running(run_id),
+            "primary_text": run_id,
+            "secondary_text": f"优质: {run.get('qualified_count', 0)} IPs",
+            "badge_text": (run.get("stage") or run.get("status") or "-").upper(),
+        })
+    active_run_ids = ntp_registry.active_run_ids()
+    return {"runs": runs, "active_run_ids": active_run_ids, "running_count": len(active_run_ids)}
+
+
+def _ntp_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    ip_file = str(payload.get("ip_file") or "")
+    if not ip_file:
+        available = ntp_list_ip_files()
+        if not available:
+            return {"success": False, "message": "没有可用的 IP 候选文件"}, 400
+        ip_file = available[0]["path"]
+    if not Path(ip_file).exists():
+        return {"success": False, "message": f"IP 文件不存在: {ip_file}"}, 400
+
+    probe_action = str(payload.get("probe_action", "both")).strip().lower()
+    if probe_action not in PROBE_ACTIONS:
+        probe_action = "both"
+
+    config = NtpScanConfig(
+        ip_file=ip_file,
+        output_dir=str(NTP_OUTPUT_ROOT / ntp_generate_run_id()),
+        probe_action=probe_action,
+        timeout_sec=ntp_float_or(payload.get("timeout_sec"), 3.0),
+        concurrency=ntp_int_or(payload.get("concurrency"), 50),
+        min_amplification=ntp_float_or(payload.get("min_amplification"), 50.0),
+        min_availability=ntp_float_or(payload.get("min_availability"), 30.0),
+        max_ips=ntp_int_or(payload.get("max_ips"), 0),
+    )
+
+    run_id = Path(config.output_dir).name
+    os.makedirs(config.output_dir, exist_ok=True)
+    log_path = Path(config.output_dir) / "pipeline.log"
+    config_dict = ntp_build_config_dict(config)
+    scanner = NTPResourceScanner()
+
+    def log_persister(message: str) -> None:
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(message + "\n")
+
+    def scan_worker() -> None:
+        try:
+            scanner.run_scan(config, log_callback=log_persister)
+        except Exception as exc:  # pragma: no cover - defensive thread path
+            ntp_registry.set_error(run_id, f"{exc}\n{traceback.format_exc()}")
+        finally:
+            stats_file = Path(config.output_dir) / "final_stats.json"
+            try:
+                final_stats = scanner.get_stats()
+                final_stats.setdefault("config", config_dict)
+                stats_file.write_text(json.dumps(final_stats, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+
+    thread = Thread(target=scan_worker, daemon=True)
+    ntp_registry.register(run_id, scanner, thread, config)
+    thread.start()
+    return {
+        "success": True,
+        "message": "NTP 资源获取任务已创建",
+        "run_ids": [run_id],
+        "runs": [{"run_id": run_id}],
+    }, 200
+
+
+def _ntp_clear() -> dict[str, Any]:
+    active = set(ntp_registry.active_run_ids())
+    deleted: list[str] = []
+    skipped: list[str] = []
+    if NTP_OUTPUT_ROOT.exists():
+        for directory in sorted(NTP_OUTPUT_ROOT.iterdir()):
+            if not directory.is_dir():
+                continue
+            run_id = directory.name
+            if run_id in active:
+                skipped.append(run_id)
+                continue
+            try:
+                shutil.rmtree(str(directory))
+                deleted.append(run_id)
+            except Exception:
+                pass
+    ntp_registry.forget(deleted)
+    return {
+        "success": True,
+        "message": f"已清除 {len(deleted)} 条历史记录",
+        "deleted": deleted,
+        "skipped": skipped,
+    }
+
+
+
+class NtpAdapter(_ProtoAdapter):
+    def __init__(self) -> None:
+        super().__init__("ntp")
+
+    def list_resources(self) -> list[dict[str, Any]]:
+        return ntp_list_ip_files()
+
+    def list_runs(self) -> dict[str, Any]:
+        return _build_ntp_runs_list()
+
+    def start_run(self, payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        return _ntp_start(payload)
+
+    def clear_runs(self) -> dict[str, Any]:
+        return _ntp_clear()
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        return _build_ntp_run_payload(run_id)
+
+    def get_logs(self, run_id: str, tail: int) -> str:
+        return ntp_read_run_log(run_id, tail)
+
+    def stop_run(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        scanner = ntp_registry.get_scanner(run_id)
+        if scanner and scanner.is_running:
+            scanner.stop()
+            return {"success": True, "message": "正在停止 NTP 资源扫描…"}
+        return {"success": False, "message": "没有正在运行的扫描"}
+
+    def get_results(self, run_id: str) -> dict[str, Any]:
+        scanner = ntp_registry.get_scanner(run_id)
+        qualified = _ntp_get_qualified_ips(run_id, scanner)
+        if scanner:
+            results = scanner.get_results(limit=500)
+        else:
+            csv_file = NTP_OUTPUT_ROOT / run_id / "scan_results.csv"
+            results = []
+            if csv_file.exists():
+                with csv_file.open("r", encoding="utf-8") as handle:
+                    reader = csv.DictReader(handle)
+                    results = [row for row in reader]
+        return {
+            "success": True,
+            "qualified_ips": qualified,
+            "qualified_count": len(qualified),
+            "results": results,
+        }
+
+    def read_file(self, run_id: str, filename: str) -> dict[str, Any]:
+        return {
+            "name": filename,
+            "path": str(NTP_OUTPUT_ROOT / run_id / filename),
+            "type": "text",
+            "editable": False,
+            "content": ntp_read_run_file(run_id, filename),
+        }
+
+    def write_file(self, run_id: str, filename: str, content: str) -> dict[str, Any]:
+        raise ValueError("File type is not editable")
+
+
 ADAPTERS: dict[str, _ProtoAdapter] = {
     "tcp": TcpAdapter(),
     "dns": DnsAdapter(),
+    "ntp": NtpAdapter(),
 }
 
 
