@@ -1,0 +1,253 @@
+{
+  "data": [
+    {
+      "id": "page-overview",
+      "title": "流程总览",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1752087343000,
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/overview.html",
+        "interactions": [
+          {
+            "domId": "wp-step-resource",
+            "targetPageId": "page-attack-resources",
+            "label": "攻击资源获取"
+          },
+          {
+            "domId": "wp-step-pool",
+            "targetPageId": "page-resource-pool",
+            "label": "资源池确认"
+          },
+          {
+            "domId": "wp-step-console",
+            "targetPageId": "page-console",
+            "label": "控制台配置"
+          },
+          {
+            "domId": "wp-step-latency",
+            "targetPageId": "page-latency-monitor",
+            "label": "延迟监控"
+          },
+          {
+            "domId": "nav-attack-resources",
+            "targetPageId": "page-attack-resources",
+            "label": "侧边栏-攻击资源获取",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-resource-pool",
+            "targetPageId": "page-resource-pool",
+            "label": "侧边栏-资源池",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-console",
+            "targetPageId": "page-console",
+            "label": "侧边栏-控制台",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-latency-monitor",
+            "targetPageId": "page-latency-monitor",
+            "label": "侧边栏-延迟监控",
+            "hideEdge": true
+          },
+          {
+            "domId": "cta-start-config",
+            "targetPageId": "page-attack-resources",
+            "label": "开始配置"
+          },
+          {
+            "domId": "link-goto-console",
+            "targetPageId": "page-console",
+            "label": "直接进入控制台",
+            "hideEdge": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-attack-resources",
+      "title": "攻击资源获取",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1752087343000,
+      "canvasData": {
+        "x": 620,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/attack-resources.html",
+        "interactions": [
+          {
+            "domId": "nav-overview",
+            "targetPageId": "page-overview",
+            "label": "侧边栏-流程总览",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-resource-pool",
+            "targetPageId": "page-resource-pool",
+            "label": "侧边栏-资源池",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-console",
+            "targetPageId": "page-console",
+            "label": "侧边栏-控制台",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-latency-monitor",
+            "targetPageId": "page-latency-monitor",
+            "label": "侧边栏-延迟监控",
+            "hideEdge": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-resource-pool",
+      "title": "资源池",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1752087343000,
+      "canvasData": {
+        "x": 620,
+        "y": 384,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/resource-pool.html",
+        "interactions": [
+          {
+            "domId": "nav-overview",
+            "targetPageId": "page-overview",
+            "label": "侧边栏-流程总览",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-attack-resources",
+            "targetPageId": "page-attack-resources",
+            "label": "侧边栏-攻击资源获取",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-console",
+            "targetPageId": "page-console",
+            "label": "侧边栏-控制台",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-latency-monitor",
+            "targetPageId": "page-latency-monitor",
+            "label": "侧边栏-延迟监控",
+            "hideEdge": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-console",
+      "title": "控制台",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1752087343000,
+      "canvasData": {
+        "x": 620,
+        "y": 761,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/console.html",
+        "interactions": [
+          {
+            "domId": "nav-overview",
+            "targetPageId": "page-overview",
+            "label": "侧边栏-流程总览",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-attack-resources",
+            "targetPageId": "page-attack-resources",
+            "label": "侧边栏-攻击资源获取",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-resource-pool",
+            "targetPageId": "page-resource-pool",
+            "label": "侧边栏-资源池",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-latency-monitor",
+            "targetPageId": "page-latency-monitor",
+            "label": "侧边栏-延迟监控",
+            "hideEdge": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-latency-monitor",
+      "title": "延迟监控",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1752087343000,
+      "canvasData": {
+        "x": 620,
+        "y": 1138,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/latency-monitor.html",
+        "interactions": [
+          {
+            "domId": "nav-overview",
+            "targetPageId": "page-overview",
+            "label": "侧边栏-流程总览",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-attack-resources",
+            "targetPageId": "page-attack-resources",
+            "label": "侧边栏-攻击资源获取",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-resource-pool",
+            "targetPageId": "page-resource-pool",
+            "label": "侧边栏-资源池",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-console",
+            "targetPageId": "page-console",
+            "label": "侧边栏-控制台",
+            "hideEdge": true
+          }
+        ]
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": true,
+    "deviceType": "desktop",
+    "projectName": "压力测试工作台",
+    "designLibrary": {
+      "name": "TRAE",
+      "id": "dl_builtin_trae",
+      "version": null,
+      "scope": "built-in-global",
+      "path": "C:\\Users\\PPCa1\\.trae-cn\\design_libraries\\dl_builtin_trae",
+      "versionSource": null
+    }
+  }
+}
