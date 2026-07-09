@@ -49,6 +49,10 @@
                 </a>
             </nav>
 
+            <div class="sidebar-quick-launch">
+                <button type="button" id="sidebarQuickConsole" class="btn btn-primary"><i class="fas fa-bolt"></i>快速启动</button>
+            </div>
+
             <div class="sidebar-footer">
                 <div class="system-badge"><i class="fas fa-shield-halved"></i> 授权测试模式</div>
                 <div class="sidebar-boundary-note">
@@ -83,85 +87,54 @@
                                 </div>
                                 <span class="panel-chip" id="workflowCurrentChip">流程待开始</span>
                             </div>
-                            <div class="workflow-hero-grid">
-                                <div class="workflow-hero-copy">
+                            <div class="workflow-hero-simple">
+                                <div>
                                     <h3 id="workflowCurrentStepTitle">从资源准备开始</h3>
-                                    <p id="workflowCurrentStepText">首页会按推荐顺序展示完整使用路径，但任何模块都可直接进入，适合新手快速理解，也不妨碍熟练用户跳步操作。</p>
+                                    <p id="workflowCurrentStepText">首页会按推荐顺序展示完整使用路径，任何模块都可直接进入，适合新手快速理解，也不妨碍熟练用户跳步操作。</p>
                                     <div class="workflow-hero-tags">
                                         <span id="workflowFlowStatus">推荐下一步：攻击资源获取</span>
-                                        <span>流程只做引导，不做阻塞</span>
                                     </div>
                                 </div>
-                                <div class="workflow-quick-start">
-                                    <div class="quick-start-card">
-                                        <span class="quick-start-label">专业快捷路径</span>
-                                        <strong>直接进入需要的模块</strong>
-                                        <p>资源获取、资源池确认、延迟监控都可按需跳过；如果你只想快速发起一次测试，可以直接进入控制台。</p>
-                                        <div class="action-buttons compact">
-                                            <button type="button" id="quickStartConsole" class="btn btn-primary"><i class="fas fa-sliders"></i>直接进入控制台</button>
-                                            <button type="button" id="quickResumeFlow" class="btn btn-outline"><i class="fas fa-forward-step"></i>继续上次流程</button>
-                                        </div>
-                                    </div>
+                                <div class="workflow-hero-actions">
+                                    <button type="button" id="quickStartConsole" class="btn btn-primary btn-cta"><i class="fas fa-sliders"></i>直接进入控制台</button>
+                                    <button type="button" id="quickResumeFlow" class="btn btn-outline"><i class="fas fa-forward-step"></i>继续上次流程</button>
                                 </div>
                             </div>
                         </section>
 
-                        <section class="workflow-step-grid" id="workflowStepGrid">
-                            <article class="panel workflow-step-card" data-workflow-card="resource">
-                                <div class="workflow-step-card-top">
-                                    <span class="workflow-step-index">01</span>
-                                    <span class="workflow-step-state" id="workflowBadge-resource">未开始</span>
+                        <section class="workflow-progress-bar" id="workflowStepGrid">
+                            <div class="workflow-progress-step" data-workflow-card="resource">
+                                <span class="workflow-progress-num">01</span>
+                                <div class="workflow-progress-body">
+                                    <strong>攻击资源获取</strong>
+                                    <span id="workflowSummaryResourceTask">暂无任务</span>
                                 </div>
-                                <h3><i class="fas fa-network-wired"></i> 攻击资源获取</h3>
-                                <p>统一查看 TCP / Memcached / DNS / NTP 的资源获取链路，先完成资源任务，或者在已有资源池时直接跳过。</p>
-                                <div class="workflow-step-summary">
-                                    <div><span>当前协议</span><strong id="workflowSummaryResourceProto">TCP</strong></div>
-                                    <div><span>任务状态</span><strong id="workflowSummaryResourceTask">暂无任务</strong></div>
+                                <span class="workflow-step-state" id="workflowBadge-resource">未开始</span>
+                            </div>
+                            <div class="workflow-progress-step" data-workflow-card="pool">
+                                <span class="workflow-progress-num">02</span>
+                                <div class="workflow-progress-body">
+                                    <strong>资源池确认</strong>
+                                    <span id="workflowSummaryPoolTotal">0 个资源</span>
                                 </div>
-                                <button type="button" class="btn btn-outline workflow-step-action" data-nav-target="attack-resources">进入模块</button>
-                            </article>
-
-                            <article class="panel workflow-step-card" data-workflow-card="pool">
-                                <div class="workflow-step-card-top">
-                                    <span class="workflow-step-index">02</span>
-                                    <span class="workflow-step-state" id="workflowBadge-pool">未开始</span>
+                                <span class="workflow-step-state" id="workflowBadge-pool">未开始</span>
+                            </div>
+                            <div class="workflow-progress-step" data-workflow-card="console">
+                                <span class="workflow-progress-num">03</span>
+                                <div class="workflow-progress-body">
+                                    <strong>控制台</strong>
+                                    <span id="workflowSummaryConsoleTarget">未指定</span>
                                 </div>
-                                <h3><i class="fas fa-database"></i> 资源池确认</h3>
-                                <p>查看当前协议资源总量、地理分布和筛选结果，确认后续测试是否直接复用现有资源，或回到资源页补充获取。</p>
-                                <div class="workflow-step-summary">
-                                    <div><span>资源总数</span><strong id="workflowSummaryPoolTotal">0</strong></div>
-                                    <div><span>当前视图</span><strong id="workflowSummaryPoolView">全部资源</strong></div>
+                                <span class="workflow-step-state" id="workflowBadge-console">未开始</span>
+                            </div>
+                            <div class="workflow-progress-step" data-workflow-card="latency">
+                                <span class="workflow-progress-num">04</span>
+                                <div class="workflow-progress-body">
+                                    <strong>延迟监控</strong>
+                                    <span id="workflowSummaryLatencyState">未启动</span>
                                 </div>
-                                <button type="button" class="btn btn-outline workflow-step-action" data-nav-target="servers">进入模块</button>
-                            </article>
-
-                            <article class="panel workflow-step-card" data-workflow-card="console">
-                                <div class="workflow-step-card-top">
-                                    <span class="workflow-step-index">03</span>
-                                    <span class="workflow-step-state" id="workflowBadge-console">未开始</span>
-                                </div>
-                                <h3><i class="fas fa-sliders"></i> 控制台配置与启动</h3>
-                                <p>配置目标、端口、时长、线程、目标 PPS 和协议组合。熟练用户可以直接从这里启动测试，不必先经过前置步骤。</p>
-                                <div class="workflow-step-summary">
-                                    <div><span>当前目标</span><strong id="workflowSummaryConsoleTarget">未指定</strong></div>
-                                    <div><span>模式</span><strong id="workflowSummaryConsoleMode">单协议</strong></div>
-                                </div>
-                                <button type="button" class="btn btn-outline workflow-step-action" data-nav-target="console">进入模块</button>
-                            </article>
-
-                            <article class="panel workflow-step-card" data-workflow-card="latency">
-                                <div class="workflow-step-card-top">
-                                    <span class="workflow-step-index">04</span>
-                                    <span class="workflow-step-state" id="workflowBadge-latency">未开始</span>
-                                </div>
-                                <h3><i class="fas fa-chart-line"></i> 延迟监控与效果观察</h3>
-                                <p>实时观察 TCP 延迟变化，判断测试期间链路是否出现明显劣化。监控可以自动跟随任务启动，也可以单独手动开启。</p>
-                                <div class="workflow-step-summary">
-                                    <div><span>监控状态</span><strong id="workflowSummaryLatencyState">未启动</strong></div>
-                                    <div><span>最新延迟</span><strong id="workflowSummaryLatencyLatest">-- ms</strong></div>
-                                </div>
-                                <button type="button" class="btn btn-outline workflow-step-action" data-nav-target="latency">进入模块</button>
-                            </article>
+                                <span class="workflow-step-state" id="workflowBadge-latency">未开始</span>
+                            </div>
                         </section>
 
                         <section class="panel workflow-boundary-panel">
@@ -326,8 +299,10 @@
                                                     <label><input type="checkbox" id="tcpDryRun" checked> 模拟运行</label>
                                                 </div>
 
-                                                <div class="action-buttons">
-                                                    <button type="button" id="tcpStartBtn" class="btn btn-primary"><i class="fas fa-play"></i>开始获取</button>
+                                                <div class="action-buttons-cta">
+                                                    <button type="button" id="tcpStartBtn" class="btn btn-primary btn-cta"><i class="fas fa-play"></i>开始获取</button>
+                                                </div>
+                                                <div class="action-buttons-secondary">
                                                     <button type="button" id="tcpStopBtn" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
                                                     <button type="button" id="tcpStopCleanupBtn" class="btn btn-danger" disabled><i class="fas fa-trash"></i>停止并清理</button>
                                                     <button type="button" id="tcpRefreshBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>刷新</button>
@@ -405,77 +380,25 @@
                             </div>
 
                             <div class="attack-resource-panel" data-proto-panel="memcached">
-                                <div class="dashboard-grid tcp-scan-grid attack-placeholder-grid">
-                                    <div class="tcp-column tcp-left-column">
-                                        <section class="panel config-panel">
-                                            <div class="panel-heading">
-                                                <div>
-                                                    <p class="eyebrow">Placeholder Workflow</p>
-                                                    <h2><i class="fas fa-database"></i> Memcached 资源获取</h2>
-                                                </div>
-                                                <span class="panel-chip">后端待接入</span>
+                                <div class="dashboard-grid tcp-scan-grid" style="grid-template-columns:1fr;">
+                                    <section class="panel">
+                                        <div class="panel-heading">
+                                            <div>
+                                                <p class="eyebrow">Memcached Resource</p>
+                                                <h2><i class="fas fa-database"></i> Memcached 资源获取</h2>
                                             </div>
-                                            <div class="attack-placeholder-banner">
-                                                <i class="fas fa-screwdriver-wrench"></i>
-                                                <span>前端流程已设计完成，当前仅提供高保真占位，不会触发真实后端请求。</span>
+                                            <span class="panel-chip">后端待接入</span>
+                                        </div>
+                                        <div class="placeholder-compact" style="margin-bottom:10px;">
+                                            <span class="placeholder-compact-icon memcached"><i class="fas fa-database"></i></span>
+                                            <div class="placeholder-compact-body">
+                                                <strong>Memcached 反射资源筛选</strong>
+                                                <span>前端已设计完成，等待后端接入资源探测、放大因子筛选、任务轮询与产物归档接口。</span>
                                             </div>
-                                            <div class="form-grid">
-                                                <div class="form-group wide"><label>资源文件</label><input type="text" value="memcached.txt" disabled></div>
-                                                <div class="form-group wide"><label>查询目标</label><input type="text" value="stats / version / slabs" disabled></div>
-                                                <div class="form-group"><label>放大方向</label><select disabled><option>反射资源筛选</option></select></div>
-                                                <div class="form-group"><label>并发策略</label><select disabled><option>批量获取</option></select></div>
-                                                <div class="form-group"><label>速率限制</label><input type="number" value="8000" disabled></div>
-                                                <div class="form-group"><label>结果阈值</label><input type="number" value="50" disabled></div>
-                                            </div>
-                                            <div class="action-buttons">
-                                                <button type="button" class="btn btn-primary" disabled><i class="fas fa-play"></i>开始获取</button>
-                                                <button type="button" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
-                                                <button type="button" class="btn btn-secondary" disabled><i class="fas fa-rotate"></i>刷新</button>
-                                                <button type="button" class="btn btn-outline" disabled><i class="fas fa-floppy-disk"></i>保存模板</button>
-                                            </div>
-                                            <div class="info-text">建议后续接入资源探测、放大因子筛选、任务轮询与产物归档接口。</div>
-                                        </section>
-                                        <section class="panel tcp-runs-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Task Queue</p><h2><i class="fas fa-list-check"></i> 任务记录</h2></div></div>
-                                            <div class="attack-placeholder-list">
-                                                <div class="tcp-run-item"><span class="tcp-run-item-main"><span>尚无 Memcached 资源获取记录</span><span>后端接入后在此显示任务 ID、目标与执行状态。</span></span><span class="tcp-run-item-meta"><span>占位</span><strong>待接入</strong></span></div>
-                                            </div>
-                                        </section>
-                                        <section class="panel resources-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Artifacts</p><h2><i class="fas fa-folder-open"></i> 输出文件</h2></div></div>
-                                            <div class="attack-placeholder-list">
-                                                <div class="tcp-artifact-item"><span>资源结果 CSV / 日志 / 可视化摘要将在此展示</span><strong>待接入</strong></div>
-                                            </div>
-                                        </section>
-                                    </div>
-                                    <div class="tcp-column tcp-right-column">
-                                        <section class="panel metrics-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Task Detail</p><h2><i class="fas fa-chart-simple"></i> 任务详情</h2></div></div>
-                                            <div class="stats-grid tcp-status-grid">
-                                                <div class="stat-card"><div class="stat-title">状态</div><div class="stat-value tcp-small-value">待接入</div></div>
-                                                <div class="stat-card"><div class="stat-title">任务 ID</div><div class="stat-value tcp-small-value">MEMCACHED-PLACEHOLDER</div></div>
-                                                <div class="stat-card"><div class="stat-title">模式</div><div class="stat-value tcp-small-value">资源筛选</div></div>
-                                                <div class="stat-card"><div class="stat-title">结果</div><div class="stat-value tcp-small-value">前端占位</div></div>
-                                            </div>
-                                            <div class="attack-placeholder-stage-list">
-                                                <div class="tcp-stage-item"><span>加载资源清单</span><strong>待接入</strong></div>
-                                                <div class="tcp-stage-item"><span>执行协议探测</span><strong>待接入</strong></div>
-                                                <div class="tcp-stage-item"><span>筛选高价值目标</span><strong>待接入</strong></div>
-                                                <div class="tcp-stage-item"><span>输出结果文件</span><strong>待接入</strong></div>
-                                            </div>
-                                        </section>
-                                        <section class="panel chart-panel tcp-log-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Pipeline Log</p><h2><i class="fas fa-terminal"></i> 流水线日志</h2></div></div>
-                                            <pre class="tcp-log-box">Memcached 资源获取前端已就绪。
-后端尚未接入，因此当前不会发送真实请求。
-
-建议后续接入：
-1. 资源文件读取与预检
-2. 协议探测与放大因子判断
-3. 任务状态轮询
-4. 结果产物与日志归档</pre>
-                                        </section>
-                                    </div>
+                                            <span class="placeholder-compact-tag">即将推出</span>
+                                        </div>
+                                        <div class="info-text">点击上方 TCP 或 DNS 协议卡片可切换至已接入的功能模块。</div>
+                                    </section>
                                 </div>
                             </div>
 
@@ -543,8 +466,10 @@ iana.org</textarea>
                                                     </div>
                                                 </div>
 
-                                                <div class="action-buttons">
-                                                    <button type="button" id="dnsStartBtn" class="btn btn-primary"><i class="fas fa-play"></i>开始获取</button>
+                                                <div class="action-buttons-cta">
+                                                    <button type="button" id="dnsStartBtn" class="btn btn-primary btn-cta"><i class="fas fa-play"></i>开始获取</button>
+                                                </div>
+                                                <div class="action-buttons-secondary">
                                                     <button type="button" id="dnsStopBtn" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
                                                     <button type="button" id="dnsRefreshBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>刷新</button>
                                                 </div>
@@ -631,64 +556,25 @@ DNS 放大率测量原理：
                             </div>
 
                             <div class="attack-resource-panel" data-proto-panel="ntp">
-                                <div class="dashboard-grid tcp-scan-grid attack-placeholder-grid">
-                                    <div class="tcp-column tcp-left-column">
-                                        <section class="panel config-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Placeholder Workflow</p><h2><i class="fas fa-clock"></i> NTP 资源获取</h2></div><span class="panel-chip">后端待接入</span></div>
-                                            <div class="attack-placeholder-banner"><i class="fas fa-screwdriver-wrench"></i><span>NTP 面板已预设为完整任务视图，后续接入探测与筛选能力即可启用。</span></div>
-                                            <div class="form-grid">
-                                                <div class="form-group wide"><label>资源文件</label><input type="text" value="ntp.txt" disabled></div>
-                                                <div class="form-group wide"><label>探测动作</label><input type="text" value="monlist / readvar / control message" disabled></div>
-                                                <div class="form-group"><label>资源模式</label><select disabled><option>放大目标筛选</option></select></div>
-                                                <div class="form-group"><label>执行批次</label><select disabled><option>阶段化获取</option></select></div>
-                                                <div class="form-group"><label>发送速率</label><input type="number" value="6000" disabled></div>
-                                                <div class="form-group"><label>结果条数</label><input type="number" value="40" disabled></div>
+                                <div class="dashboard-grid tcp-scan-grid" style="grid-template-columns:1fr;">
+                                    <section class="panel">
+                                        <div class="panel-heading">
+                                            <div>
+                                                <p class="eyebrow">NTP Resource</p>
+                                                <h2><i class="fas fa-clock"></i> NTP 资源获取</h2>
                                             </div>
-                                            <div class="action-buttons">
-                                                <button type="button" class="btn btn-primary" disabled><i class="fas fa-play"></i>开始获取</button>
-                                                <button type="button" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
-                                                <button type="button" class="btn btn-secondary" disabled><i class="fas fa-rotate"></i>刷新</button>
-                                                <button type="button" class="btn btn-outline" disabled><i class="fas fa-floppy-disk"></i>保存模板</button>
+                                            <span class="panel-chip">后端待接入</span>
+                                        </div>
+                                        <div class="placeholder-compact" style="margin-bottom:10px;">
+                                            <span class="placeholder-compact-icon ntp"><i class="fas fa-clock"></i></span>
+                                            <div class="placeholder-compact-body">
+                                                <strong>NTP 资源获取与放大筛选</strong>
+                                                <span>前端已设计完成，等待后端接入 NTP 版本识别、可用命令筛选和放大潜力分析接口。</span>
                                             </div>
-                                            <div class="info-text">建议后续接入 NTP 版本识别、可用命令筛选和放大潜力分析接口。</div>
-                                        </section>
-                                        <section class="panel tcp-runs-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Task Queue</p><h2><i class="fas fa-list-check"></i> 任务记录</h2></div></div>
-                                            <div class="attack-placeholder-list"><div class="tcp-run-item"><span class="tcp-run-item-main"><span>尚无 NTP 资源获取记录</span><span>后端接入后可在此查看批次、资源过滤结果与执行日志。</span></span><span class="tcp-run-item-meta"><span>占位</span><strong>待接入</strong></span></div></div>
-                                        </section>
-                                        <section class="panel resources-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Artifacts</p><h2><i class="fas fa-folder-open"></i> 输出文件</h2></div></div>
-                                            <div class="attack-placeholder-list"><div class="tcp-artifact-item"><span>预期输出高价值资源列表、日志、摘要报告</span><strong>待接入</strong></div></div>
-                                        </section>
-                                    </div>
-                                    <div class="tcp-column tcp-right-column">
-                                        <section class="panel metrics-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Task Detail</p><h2><i class="fas fa-chart-simple"></i> 任务详情</h2></div></div>
-                                            <div class="stats-grid tcp-status-grid">
-                                                <div class="stat-card"><div class="stat-title">状态</div><div class="stat-value tcp-small-value">待接入</div></div>
-                                                <div class="stat-card"><div class="stat-title">任务 ID</div><div class="stat-value tcp-small-value">NTP-PLACEHOLDER</div></div>
-                                                <div class="stat-card"><div class="stat-title">模式</div><div class="stat-value tcp-small-value">阶段化获取</div></div>
-                                                <div class="stat-card"><div class="stat-title">结果</div><div class="stat-value tcp-small-value">前端占位</div></div>
-                                            </div>
-                                            <div class="attack-placeholder-stage-list">
-                                                <div class="tcp-stage-item"><span>载入 NTP 资源</span><strong>待接入</strong></div>
-                                                <div class="tcp-stage-item"><span>执行版本与能力识别</span><strong>待接入</strong></div>
-                                                <div class="tcp-stage-item"><span>筛选高价值目标</span><strong>待接入</strong></div>
-                                                <div class="tcp-stage-item"><span>输出结构化资产</span><strong>待接入</strong></div>
-                                            </div>
-                                        </section>
-                                        <section class="panel chart-panel tcp-log-panel">
-                                            <div class="panel-heading"><div><p class="eyebrow">Pipeline Log</p><h2><i class="fas fa-terminal"></i> 流水线日志</h2></div></div>
-                                            <pre class="tcp-log-box">NTP 资源获取界面已搭建完成。
-当前尚未绑定后端逻辑，因此按钮保持禁用。
-
-后续建议接入：
-1. NTP 资源文件管理
-2. 版本/命令可用性探测
-3. 高价值目标筛选
-4. 结果文件与阶段日志输出</pre>
-                                        </section>
-                                    </div>
+                                            <span class="placeholder-compact-tag">即将推出</span>
+                                        </div>
+                                        <div class="info-text">点击上方 TCP 或 DNS 协议卡片可切换至已接入的功能模块。</div>
+                                    </section>
                                 </div>
                             </div>
                         </div>
@@ -859,13 +745,24 @@ DNS 放大率测量原理：
                                         <label for="duration">时长（分钟）</label>
                                         <input type="number" id="duration" value="5" min="1">
                                     </div>
-                                    <div class="form-group">
-                                        <label for="threads">线程数</label>
-                                        <input type="number" id="threads" value="8" min="1">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="target_pps">目标 PPS</label>
-                                        <input type="number" id="target_pps" value="5000" min="1">
+                                </div>
+
+                                <div class="collapsible-section">
+                                    <button type="button" class="collapsible-trigger" aria-expanded="false">
+                                        <span>高级选项（线程数、目标 PPS）</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </button>
+                                    <div class="collapsible-body">
+                                        <div class="form-grid">
+                                            <div class="form-group">
+                                                <label for="threads">线程数</label>
+                                                <input type="number" id="threads" value="8" min="1">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="target_pps">目标 PPS</label>
+                                                <input type="number" id="target_pps" value="5000" min="1">
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -943,8 +840,10 @@ DNS 放大率测量原理：
                                     <div class="info-text">当前可用资源：<span id="reflectors_count">0</span> 个</div>
                                 </div>
 
-                                <div class="action-buttons">
-                                    <button type="button" id="startBtn" class="btn btn-primary"><i class="fas fa-play"></i>启动</button>
+                                <div class="action-buttons-cta">
+                                    <button type="button" id="startBtn" class="btn btn-primary btn-cta"><i class="fas fa-play"></i>启动测试</button>
+                                </div>
+                                <div class="action-buttons-secondary">
                                     <button type="button" id="stopBtn" class="btn btn-danger" disabled><i class="fas fa-stop"></i>停止</button>
                                     <button type="button" id="resetBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>重置</button>
                                 </div>
@@ -1158,5 +1057,50 @@ DNS 放大率测量原理：
     </div>
 
     <script src="/static/script.js?v=tcp-layout-4"></script>
+    <script>
+    // 折叠面板切换
+    document.addEventListener("click", function(e) {
+        const trigger = e.target.closest(".collapsible-trigger");
+        if (trigger) {
+            const section = trigger.closest(".collapsible-section");
+            const isOpen = section.classList.toggle("open");
+            trigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
+        }
+    });
+
+    // 侧边栏快速启动按钮
+    const sidebarQuick = document.getElementById("sidebarQuickConsole");
+    if (sidebarQuick) {
+        sidebarQuick.addEventListener("click", function() {
+            if (typeof navigateToView === "function") {
+                navigateToView("console");
+            }
+        });
+    }
+
+    // 工作流进度条点击导航
+    document.getElementById("workflowStepGrid")?.addEventListener("click", function(e) {
+        const step = e.target.closest("[data-workflow-card]");
+        if (!step) return;
+        const card = step.dataset.workflowCard;
+        const viewMap = { resource: "attack-resources", pool: "servers", console: "console", latency: "latency" };
+        const view = viewMap[card];
+        if (view && typeof navigateToView === "function") {
+            navigateToView(view);
+        }
+    });
+
+    // 信息横幅折叠按钮
+    document.addEventListener("click", function(e) {
+        const toggle = e.target.closest(".info-banner-toggle");
+        if (toggle) {
+            const banner = toggle.closest(".info-banner-collapsible");
+            banner.classList.toggle("collapsed");
+            toggle.innerHTML = banner.classList.contains("collapsed")
+                ? '<i class="fas fa-chevron-down"></i>'
+                : '<i class="fas fa-chevron-up"></i>';
+        }
+    });
+    </script>
 </body>
 </html>
