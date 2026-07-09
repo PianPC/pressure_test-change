@@ -247,6 +247,9 @@ function switchAttackResourceProto(proto = "tcp") {
     if (proto === "dns") {
         refreshDnsScan();
     }
+    if (proto === "memcached") {
+        attackResourceControllers["memcached"]?.refresh?.();
+    }
     updateWorkflowIndicators();
 }
 
@@ -2903,6 +2906,9 @@ let dnsScanPollInterval = null;
 let currentDnsRunId = null;
 let currentDnsRuns = [];
 let currentDnsSummary = null;
+let currentMemcachedRunId = null;
+let currentMemcachedRuns = [];
+let currentMemcachedSummary = null;
 const DNS_DOMAIN_PRESET = [
     "ripe.net",
     "isc.org",
@@ -3326,6 +3332,42 @@ const ATTACK_RESOURCE_PROTO_CONFIG = {
                 qualified_count: run.secondary_text
             }));
             currentDnsSummary = controller.currentRun;
+        }
+    },
+    memcached: {
+        displayName: "Memcached",
+        apiBase: "/api/attack-resource/memcached",
+        emptyLogText: "尚未选择 Memcached 资源获取任务。",
+        summaryCardIds: {
+            status: "memcachedStatus",
+            run_id: "memcachedRunId",
+            stage: "memcachedStage",
+            progress: "memcachedProgress"
+        },
+        controls: {
+            start: "memcachedStartBtn",
+            stop: "memcachedStopBtn",
+            refresh: "memcachedRefreshBtn",
+            clear: "memcachedClearRunsBtn"
+        },
+        readForm: readUnifiedMemcachedForm,
+        renderResources: renderUnifiedMemcachedResources,
+        getSummaryValues(run) {
+            return {
+                status: getAttackResourceStatusText(run.status),
+                run_id: run.run_id || "-",
+                stage: (run.summary_stats?.stage || run.current_stage || "-").toUpperCase(),
+                progress: run.progress?.label || "0/0"
+            };
+        },
+        syncLegacyState(controller) {
+            currentMemcachedRunId = controller.currentRunId;
+            currentMemcachedRuns = controller.runs.map((run) => ({
+                run_id: run.run_id,
+                status: run.status,
+                qualified_count: run.secondary_text
+            }));
+            currentMemcachedSummary = controller.currentRun;
         }
     }
 };
@@ -3772,6 +3814,44 @@ function renderUnifiedDnsResources(resources = []) {
         return `<option value="${escapeHtml(file.path || "")}">${escapeHtml(file.name)} · ${file.entry_count || 0} 条 · ${location}</option>`;
     }).join("");
     updateDnsIpFileSummary(resources);
+}
+
+function readUnifiedMemcachedForm() {
+    return {
+        ip_file: document.getElementById("memcachedIpFile")?.value || "",
+        cmd_type: document.getElementById("memcachedCmdType")?.value || "get",
+        data_size_kb: Number(document.getElementById("memcachedDataSizeKb")?.value) || 300,
+        concurrency: Number(document.getElementById("memcachedConcurrency")?.value) || 50,
+        timeout_sec: parseFloat(document.getElementById("memcachedTimeout")?.value) || 3.0,
+        min_amplification: parseFloat(document.getElementById("memcachedMinAmplification")?.value) || 10.0,
+        min_reliability: parseFloat(document.getElementById("memcachedMinReliability")?.value) || 50
+    };
+}
+
+function renderUnifiedMemcachedResources(resources = []) {
+    const select = document.getElementById("memcachedIpFile");
+    if (!select) return;
+    if (!resources.length) {
+        select.innerHTML = `<option value="">暂无可用 IP 资源</option>`;
+        updateMemcachedIpFileSummary([]);
+        return;
+    }
+    select.innerHTML = resources.map((file) => {
+        const location = (file.path || "").includes("attack_resources\\shared\\ip_lists") ? "共享目录" : "Memcached 目录";
+        return `<option value="${escapeHtml(file.path || "")}">${escapeHtml(file.name)} · ${file.entry_count || 0} 条 · ${location}</option>`;
+    }).join("");
+    updateMemcachedIpFileSummary(resources);
+}
+
+function updateMemcachedIpFileSummary(resources = []) {
+    const summary = document.getElementById("memcachedIpFileSummary");
+    if (!summary) return;
+    if (!resources.length) {
+        summary.textContent = "未找到候选 IP 文件，请在共享 IP 资源目录中放置 .txt 文件。";
+        return;
+    }
+    const total = resources.reduce((sum, r) => sum + (r.entry_count || 0), 0);
+    summary.textContent = `共 ${resources.length} 个资源文件，${total} 条候选 IP。`;
 }
 
 function getAttackResourceStatusText(status) {
