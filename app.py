@@ -40,6 +40,7 @@ from multi_protocol_test import MultiProtocolTester
 from attack_resources.shared.attack_resource_api import attack_resource_bp
 from attack_resources.tcp.code.routes import tcp_censor_bp
 from attack_resources.dns.code.routes import dns_scan_bp
+from attack_resources.memcached.code.routes import memcached_scan_bp
 
 # ========= 配置 =========
 class TestMethod(Enum):
@@ -101,6 +102,7 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 Session(app)
 app.register_blueprint(tcp_censor_bp)
 app.register_blueprint(dns_scan_bp)
+app.register_blueprint(memcached_scan_bp)
 app.register_blueprint(attack_resource_bp)
 
 VALID_SERVER_PROTOCOLS = {'tcp', 'memcached', 'dns', 'ntp'}
