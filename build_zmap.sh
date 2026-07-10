@@ -35,7 +35,7 @@ else
     mkdir -p "$ZMAP_SINGLE_BUILD"
     cd "$ZMAP_SINGLE_BUILD"
     print_info "运行 cmake ..."
-    cmake ..
+    cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
     print_info "编译中（可能需要几分钟）..."
     make -j$(nproc)
     cd - > /dev/null
@@ -60,7 +60,7 @@ else
     mkdir -p "$ZMAP_MULTI_BUILD"
     cd "$ZMAP_MULTI_BUILD"
     print_info "运行 cmake ..."
-    cmake ..
+    cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
     print_info "编译中（可能需要几分钟）..."
     make -j$(nproc)
     cd - > /dev/null
