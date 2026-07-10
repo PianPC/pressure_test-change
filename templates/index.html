@@ -361,8 +361,8 @@
                                                     <h2><i class="fas fa-terminal"></i> &#27969;&#27700;&#32447;&#26085;&#24535;</h2>
                                                 </div>
                                             </div>
-                                            <pre id="tcpPipelineLog" class="tcp-log-box">尚未选择 TCP 资源获取任务。</pre>
-                                            <div id="tcpRuntimeError" class="info-text"></div>
+                                            <pre id="tcpPipelineLog" class="tcp-log-box" data-role="pipeline-log">尚未选择 TCP 资源获取任务。</pre>
+                                            <div id="tcpRuntimeError" class="info-text" data-role="runtime-error"></div>
                                         </section>
                                     </div>
                                 </div>
@@ -494,13 +494,13 @@
                                                     <h2><i class="fas fa-terminal"></i> 流水线日志</h2>
                                                 </div>
                                             </div>
-                                            <pre id="memcachedPipelineLog" class="tcp-log-box">尚未选择 Memcached 资源获取任务。
+                                            <pre id="memcachedPipelineLog" class="tcp-log-box" data-role="pipeline-log">尚未选择 Memcached 资源获取任务。
 Memcached 放大率测量原理：
   1. 验证候选 Memcached 服务器 TCP 可用性
   2. 在可用服务器上预置大 value (默认 300KB)
   3. 发送 UDP get 请求，测量 响应大小 / 请求大小 = 放大率
   4. 按阈值筛选高放大率 IP 作为优质攻击资源</pre>
-                                            <div id="memcachedRuntimeError" class="info-text"></div>
+                                            <div id="memcachedRuntimeError" class="info-text" data-role="runtime-error"></div>
                                         </section>
                                     </div>
                                 </div>
@@ -645,12 +645,12 @@ iana.org</textarea>
                                                     <h2><i class="fas fa-terminal"></i> &#27969;&#27700;&#32447;&#26085;&#24535;</h2>
                                                 </div>
                                             </div>
-                                            <pre id="dnsPipelineLog" class="tcp-log-box">尚未选择 DNS 资源获取任务。
+                                            <pre id="dnsPipelineLog" class="tcp-log-box" data-role="pipeline-log">尚未选择 DNS 资源获取任务。
 DNS 放大率测量原理：
   1. 向候选 DNS 服务器发送 TXT+DNSSEC 查询 (ripe.net 等大应答域名)
   2. 测量 响应大小 / 请求大小 = 放大率
   3. 按阈值筛选高放大率 IP 作为优质攻击资源</pre>
-                                            <div id="dnsRuntimeError" class="info-text"></div>
+                                            <div id="dnsRuntimeError" class="info-text" data-role="runtime-error"></div>
                                         </section>
                                     </div>
                                 </div>
@@ -776,12 +776,12 @@ DNS 放大率测量原理：
                                                     <h2><i class="fas fa-terminal"></i> 流水线日志</h2>
                                                 </div>
                                             </div>
-                                            <pre id="ntpPipelineLog" class="tcp-log-box">尚未选择 NTP 资源获取任务。
+                                            <pre id="ntpPipelineLog" class="tcp-log-box" data-role="pipeline-log">尚未选择 NTP 资源获取任务。
 NTP 放大率测量原理：
   1. 向候选 NTP 服务器发送 MON_GETLIST (Mode=7, Opcode=42) 请求
   2. 测量 响应总大小 / 请求大小 = 放大率（典型可达 500x+）
   3. 按阈值筛选高放大率 IP 作为优质攻击资源</pre>
-                                            <div id="ntpRuntimeError" class="info-text"></div>
+                                            <div id="ntpRuntimeError" class="info-text" data-role="runtime-error"></div>
                                         </section>
                                     </div>
                                 </div>

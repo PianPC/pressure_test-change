@@ -3456,6 +3456,26 @@ class AttackResourceTaskController {
         return this.getPanel()?.querySelector(`[data-role="${role}"]`);
     }
 
+    _legacyIdMap = {
+        "run-list": { tcp: "tcpRunList", dns: "dnsRunList", memcached: "memcachedRunList", ntp: "ntpRunList" },
+        "pipeline-log": { tcp: "tcpPipelineLog", dns: "dnsPipelineLog", memcached: "memcachedPipelineLog", ntp: "ntpPipelineLog" },
+        "runtime-error": { tcp: "tcpRuntimeError", dns: "dnsRuntimeError", memcached: "memcachedRuntimeError", ntp: "ntpRuntimeError" },
+        "detail-meta": { tcp: "tcpRunMeta", dns: "dnsRunMeta", memcached: "memcachedRunMeta", ntp: "ntpRunMeta" },
+        "stage-list": { tcp: "tcpStages", dns: "dnsStageList", memcached: "memcachedStageList", ntp: "ntpStageList" },
+        "artifact-list": { tcp: "tcpArtifacts", dns: "dnsArtifacts", memcached: "memcachedArtifacts", ntp: "ntpArtifacts" },
+        "result-preview": { tcp: "tcpQualifiedPreview", dns: "dnsQualifiedPreview", memcached: "memcachedQualifiedPreview", ntp: "ntpQualifiedPreview" }
+    };
+
+    _getElement(role) {
+        const el = this.getRole(role);
+        if (el) return el;
+        const idMap = this._legacyIdMap[role];
+        if (idMap && idMap[this.proto]) {
+            return document.getElementById(idMap[this.proto]);
+        }
+        return null;
+    }
+
     async loadResources() {
         try {
             const response = await fetch(`${this.config.apiBase}/resources`);
@@ -3583,7 +3603,7 @@ class AttackResourceTaskController {
     }
 
     renderRunList() {
-        const container = this.getRole("run-list") || document.getElementById(this.proto === "tcp" ? "tcpRunList" : "dnsRunList");
+        const container = this._getElement("run-list");
         if (!container) return;
         if (!this.runs.length) {
             container.innerHTML = `<div class="info-text">暂无 ${this.config.displayName} 资源获取任务。</div>`;
@@ -3632,7 +3652,7 @@ class AttackResourceTaskController {
             const response = await fetch(`${this.config.apiBase}/runs/${encodeURIComponent(runId)}/logs?tail=200`);
             const data = await response.json();
             if (data.success) {
-                const logBox = this.getRole("pipeline-log") || document.getElementById(this.proto === "tcp" ? "tcpPipelineLog" : "dnsPipelineLog");
+                const logBox = this._getElement("pipeline-log");
                 if (logBox) logBox.textContent = data.log || this.config.emptyLogText;
             }
         } catch (error) {
@@ -3651,7 +3671,7 @@ class AttackResourceTaskController {
         this.renderStages(run.stages || []);
         this.renderArtifacts(run.artifacts || []);
         this.renderResultPreview(run.result_preview);
-        const runtimeError = this.getRole("runtime-error") || document.getElementById(this.proto === "tcp" ? "tcpRuntimeError" : "dnsRuntimeError");
+        const runtimeError = this._getElement("runtime-error");
         if (runtimeError) runtimeError.textContent = run.runtime_error ? `失败原因：${run.runtime_error}` : "";
         const startButton = document.getElementById(this.config.controls.start);
         const stopButton = document.getElementById(this.config.controls.stop);
@@ -3671,7 +3691,7 @@ class AttackResourceTaskController {
     }
 
     renderDetailMeta(items) {
-        const container = this.getRole("detail-meta") || document.getElementById(this.proto === "tcp" ? "tcpRunMeta" : "dnsRunMeta");
+        const container = this._getElement("detail-meta");
         if (!container) return;
         container.innerHTML = items.map((item) => `
             <div class="tcp-run-meta-item">
@@ -3682,7 +3702,7 @@ class AttackResourceTaskController {
     }
 
     renderStages(stages) {
-        const container = this.getRole("stage-list") || document.getElementById(this.proto === "tcp" ? "tcpStages" : "dnsStageList");
+        const container = this._getElement("stage-list");
         if (!container) return;
         container.innerHTML = stages.map((stage) => `
             <div class="tcp-stage-item">
@@ -3693,7 +3713,7 @@ class AttackResourceTaskController {
     }
 
     renderArtifacts(artifacts) {
-        const container = this.getRole("artifact-list") || document.getElementById(this.proto === "tcp" ? "tcpArtifacts" : "dnsArtifacts");
+        const container = this._getElement("artifact-list");
         if (!container) return;
         if (!artifacts.length) {
             container.innerHTML = `<div class="info-text">暂无输出文件。</div>`;
@@ -3711,7 +3731,7 @@ class AttackResourceTaskController {
     }
 
     renderResultPreview(resultPreview) {
-        const container = this.getRole("result-preview") || document.getElementById("dnsQualifiedPreview");
+        const container = this._getElement("result-preview");
         if (!container) return;
         if (!resultPreview) {
             container.textContent = "";
@@ -3742,9 +3762,9 @@ class AttackResourceTaskController {
         this.renderStages([]);
         this.renderArtifacts([]);
         this.renderResultPreview(null);
-        const logBox = this.getRole("pipeline-log") || document.getElementById(this.proto === "tcp" ? "tcpPipelineLog" : "dnsPipelineLog");
+        const logBox = this._getElement("pipeline-log");
         if (logBox) logBox.textContent = this.config.emptyLogText;
-        const runtimeError = this.getRole("runtime-error") || document.getElementById(this.proto === "tcp" ? "tcpRuntimeError" : "dnsRuntimeError");
+        const runtimeError = this._getElement("runtime-error");
         if (runtimeError) runtimeError.textContent = "";
         const startButton = document.getElementById(this.config.controls.start);
         const stopButton = document.getElementById(this.config.controls.stop);
