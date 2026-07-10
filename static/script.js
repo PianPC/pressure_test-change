@@ -96,7 +96,8 @@ const IPResourceManager = (() => {
     }
 
     async function readResource(path) {
-        const resp = await fetch(getApiUrl(`/resources/${encodeURIComponent(path)}`));
+        const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+        const resp = await fetch(getApiUrl(`/resources/${encodedPath}`));
         const data = await resp.json();
         if (data.success) {
             return data.resource;
@@ -105,7 +106,8 @@ const IPResourceManager = (() => {
     }
 
     async function writeResource(path, content) {
-        const resp = await fetch(getApiUrl(`/resources/${encodeURIComponent(path)}`), {
+        const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+        const resp = await fetch(getApiUrl(`/resources/${encodedPath}`), {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content })
@@ -131,7 +133,8 @@ const IPResourceManager = (() => {
     }
 
     async function deleteResource(path) {
-        const resp = await fetch(getApiUrl(`/resources/${encodeURIComponent(path)}`), {
+        const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+        const resp = await fetch(getApiUrl(`/resources/${encodedPath}`), {
             method: 'DELETE'
         });
         const data = await resp.json();
@@ -1619,12 +1622,6 @@ async function openSingleProtoViewEditModal() {
     }
 }
 
-async function initTcpScan() {
-    bindTcpModalControls();
-    await loadTcpResources();
-    await refreshTcpScan();
-}
-
 function bindTcpModalControls() {
     document.getElementById("tcpStopCleanupBtn")?.addEventListener("click", () => stopTcpScan(true));
     document.getElementById("tcpFileModalClose")?.addEventListener("click", closeTcpFileModal);
@@ -1639,47 +1636,6 @@ function bindTcpModalControls() {
     document.querySelector('[data-dismiss="server-file-modal"]')?.addEventListener("click", closeServerFileModal);
     document.getElementById("serverFileSaveBtn")?.addEventListener("click", saveServerFileContent);
     document.getElementById("serverFileReloadBtn")?.addEventListener("click", reloadServerFileContent);
-}
-
-async function loadTcpResources() {
-    const select = document.getElementById("tcpIpFile");
-    if (!select) return;
-    try {
-        const response = await fetch("/api/attack-resource/resources");
-        const data = await response.json();
-        if (!data.success) throw new Error(data.message || "TCP 资源加载失败");
-        
-        select.innerHTML = "";
-        const resources = data.resources || [];
-        
-        const grouped = { manual: [], auto: [] };
-        resources.forEach(r => {
-            const key = r.type === 'manual' ? 'manual' : 'auto';
-            grouped[key].push(r);
-        });
-
-        grouped.manual.forEach(resource => {
-            const option = document.createElement("option");
-            option.value = resource.path || resource.filename;
-            option.textContent = `[手动] ${resource.filename} (${resource.non_empty_lines || 0}行)`;
-            if (resource.filename === "test.txt") option.selected = true;
-            select.appendChild(option);
-        });
-
-        grouped.auto.forEach(resource => {
-            const option = document.createElement("option");
-            option.value = resource.path || resource.filename;
-            const source = resource.source_name || resource.source || 'auto';
-            const country = resource.country_name ? ` ${resource.country_name}` : '';
-            const protocol = resource.protocol_name ? ` ${resource.protocol_name}` : '';
-            option.textContent = `[${source}] ${resource.filename} (${resource.non_empty_lines || 0}行)${country}${protocol}`;
-            select.appendChild(option);
-        });
-
-        updateWorkflowIndicators();
-    } catch (error) {
-        showNotification(`TCP 资源加载失败：${error.message}`, "error");
-    }
 }
 
 function readTcpScanPayload() {
@@ -4949,14 +4905,15 @@ function readUnifiedDnsForm() {
 function renderUnifiedTcpResources(resources = []) {
     const select = document.getElementById("tcpIpFile");
     if (!select) return;
-    select.innerHTML = "";
-    resources.forEach((resource) => {
-        const option = document.createElement("option");
-        option.value = resource.path || resource.filename;
-        option.textContent = `${resource.filename || resource.name} (${resource.non_empty_lines || resource.entry_count || 0})`;
-        if (resource.filename === "test.txt") option.selected = true;
-        select.appendChild(option);
-    });
+    if (!resources.length) {
+        select.innerHTML = `<option value="">暂无可用 IP 资源</option>`;
+        return;
+    }
+    select.innerHTML = resources.map((file) => {
+        const location = (file.path || "").includes("shared/ip_lists") || (file.path || "").includes("shared\\ip_lists") ? "共享目录" : "TCP 目录";
+        const subDir = file.sub_dir ? ` · ${file.sub_dir}` : "";
+        return `<option value="${escapeHtml(file.path || "")}">${escapeHtml(file.name || file.filename)} · ${file.entry_count || file.non_empty_lines || 0} 条 · ${location}${subDir}</option>`;
+    }).join("");
 }
 
 function renderUnifiedDnsResources(resources = []) {
@@ -4968,8 +4925,9 @@ function renderUnifiedDnsResources(resources = []) {
         return;
     }
     select.innerHTML = resources.map((file) => {
-        const location = (file.path || "").includes("attack_resources\\shared\\ip_lists") ? "共享目录" : "DNS 目录";
-        return `<option value="${escapeHtml(file.path || "")}">${escapeHtml(file.name)} · ${file.entry_count || 0} 条 · ${location}</option>`;
+        const location = (file.path || "").includes("shared/ip_lists") || (file.path || "").includes("shared\\ip_lists") ? "共享目录" : "DNS 目录";
+        const subDir = file.sub_dir ? ` · ${file.sub_dir}` : "";
+        return `<option value="${escapeHtml(file.path || "")}">${escapeHtml(file.name)} · ${file.entry_count || 0} 条 · ${location}${subDir}</option>`;
     }).join("");
     updateDnsIpFileSummary(resources);
 }

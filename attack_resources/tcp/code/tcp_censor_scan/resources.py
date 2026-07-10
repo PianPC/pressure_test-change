@@ -13,16 +13,27 @@ def list_ip_resources(ip_root: str | Path | None = None) -> list[dict[str, Any]]
         from ...shared.ip_resource_manager import IPResourceManager
         manager = IPResourceManager()
         result = manager.list_resources(filter_type=None, filter_source=None, filter_country=None, filter_protocol=None)
-        return [
-            {
+        resources = []
+        for r in result["resources"]:
+            full_path = r.get("full_path", r["path"])
+            rel_path = r.get("path", "")
+            if rel_path.startswith("manual/"):
+                sub_dir = "manual"
+            elif rel_path.startswith("auto/"):
+                parts = rel_path.split("/")
+                sub_dir = "/".join(parts[1:-1]) if len(parts) > 2 else parts[1]
+            else:
+                sub_dir = ""
+            resources.append({
                 "name": r["filename"].replace(".txt", ""),
                 "filename": r["filename"],
-                "path": r["path"],
+                "path": full_path,
                 "bytes": r.get("size_bytes", 0),
                 "non_empty_lines": r.get("non_empty_lines", 0),
-            }
-            for r in result["resources"]
-        ]
+                "entry_count": r.get("non_empty_lines", 0),
+                "sub_dir": sub_dir,
+            })
+        return resources
     except ImportError:
         roots: list[Path] = []
         if ip_root:
