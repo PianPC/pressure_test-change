@@ -5,63 +5,17 @@ from typing import Any
 import json
 import sqlite3
 
+from attack_resources.shared.ip_resource_catalog import list_protocol_resources
+
 from .config import repo_root
 
 
-def list_ip_resources(ip_root: str | Path | None = None) -> list[dict[str, Any]]:
-    try:
-        from ...shared.ip_resource_manager import IPResourceManager
-        manager = IPResourceManager()
-        result = manager.list_resources(filter_type=None, filter_source=None, filter_country=None, filter_protocol=None)
-        resources = []
-        for r in result["resources"]:
-            full_path = r.get("full_path", r["path"])
-            rel_path = r.get("path", "")
-            if rel_path.startswith("manual/"):
-                sub_dir = "manual"
-            elif rel_path.startswith("auto/"):
-                parts = rel_path.split("/")
-                sub_dir = "/".join(parts[1:-1]) if len(parts) > 2 else parts[1]
-            else:
-                sub_dir = ""
-            resources.append({
-                "name": r["filename"].replace(".txt", ""),
-                "filename": r["filename"],
-                "path": full_path,
-                "bytes": r.get("size_bytes", 0),
-                "non_empty_lines": r.get("non_empty_lines", 0),
-                "entry_count": r.get("non_empty_lines", 0),
-                "sub_dir": sub_dir,
-            })
-        return resources
-    except ImportError:
-        roots: list[Path] = []
-        if ip_root:
-            roots.append(Path(ip_root))
-        else:
-            roots.append(repo_root() / "attack_resources" / "tcp" / "resources" / "ip_lists")
-            shared = repo_root() / "attack_resources" / "shared" / "ip_lists"
-            if shared.exists():
-                roots.append(shared)
+ATTACK_RESOURCES_ROOT = repo_root() / "attack_resources"
 
-        seen: set[str] = set()
-        resources: list[dict[str, Any]] = []
-        for root in roots:
-            if not root.exists():
-                continue
-            for path in sorted(root.glob("*.txt")):
-                if path.name in seen:
-                    continue
-                seen.add(path.name)
-                line_count = _count_non_empty_lines(path)
-                resources.append({
-                    "name": path.stem,
-                    "filename": path.name,
-                    "path": str(path),
-                    "bytes": path.stat().st_size,
-                    "non_empty_lines": line_count,
-                })
-        return resources
+
+def list_ip_resources(ip_root: str | Path | None = None) -> list[dict[str, Any]]:
+    resources = list_protocol_resources("tcp", ATTACK_RESOURCES_ROOT)
+    return [_to_tcp_resource(item) for item in resources]
 
 
 def list_runs(output_root: str | Path | None = None) -> list[dict[str, Any]]:
@@ -205,10 +159,23 @@ def _read_db_preview(path: Path) -> dict[str, Any]:
         conn.close()
 
 
-def _count_non_empty_lines(path: Path) -> int:
-    count = 0
-    with path.open("r", encoding="utf-8", errors="ignore") as fh:
-        for line in fh:
-            if line.strip():
-                count += 1
-    return count
+def _to_tcp_resource(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": item["id"],
+        "name": item["display_name"],
+        "filename": item["filename"],
+        "path": item["path"],
+        "full_path": item["full_path"],
+        "bytes": item.get("bytes", item.get("size_bytes", 0)),
+        "non_empty_lines": item.get("non_empty_lines", 0),
+        "entry_count": item.get("entry_count", 0),
+        "count": item.get("count", 0),
+        "sub_dir": item.get("sub_dir", ""),
+        "source": item.get("source"),
+        "source_name": item.get("source_name"),
+        "type": item.get("type"),
+        "protocols": item.get("protocols", []),
+        "updated_at": item.get("updated_at"),
+        "legacy": item.get("legacy", False),
+        "location_label": item.get("location_label"),
+    }

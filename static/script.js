@@ -1347,9 +1347,33 @@ function getSelectedServerSources(proto = currentProto) {
     return selectedServerSourcesByProto[proto] || [];
 }
 
+function getServerSourceIdentifier(item) {
+    return item?.id || item?.path || item?.name || "";
+}
+
+function getServerSourceLabel(item) {
+    if (!item) return "";
+    return item.display_name || item.name || item.filename || getServerSourceIdentifier(item);
+}
+
+function getServerSourceMap(proto = currentProto) {
+    const map = new Map();
+    getAvailableServerSources(proto).forEach((item) => {
+        const key = getServerSourceIdentifier(item);
+        if (key) map.set(key, item);
+        if (item?.name) map.set(item.name, item);
+        if (item?.path) map.set(item.path, item);
+    });
+    return map;
+}
+
+function resolveServerSourceItem(proto = currentProto, identifier = "") {
+    return getServerSourceMap(proto).get(identifier) || null;
+}
+
 function getDefaultServerSources(proto, sources) {
     if (!sources.length) return [];
-    return sources.map((item) => item.name);
+    return sources.map((item) => getServerSourceIdentifier(item)).filter(Boolean);
 }
 
 async function fetchServerSourceFiles(proto = currentProto, force = false) {
@@ -1365,7 +1389,7 @@ async function fetchServerSourceFiles(proto = currentProto, force = false) {
 async function ensureServerSourceSelection(proto = currentProto, forceRefresh = false) {
     const sources = await fetchServerSourceFiles(proto, forceRefresh);
     const selected = getSelectedServerSources(proto);
-    const validNames = new Set(sources.map((item) => item.name));
+    const validNames = new Set(sources.map((item) => getServerSourceIdentifier(item)));
     const filtered = selected.filter((name) => validNames.has(name));
     const nextSelection = filtered.length ? filtered : getDefaultServerSources(proto, sources);
     selectedServerSourcesByProto[proto] = nextSelection;
@@ -1382,7 +1406,7 @@ function buildServerGeoQuery(proto = currentProto) {
 function getSelectedServerSourceSummary(proto = currentProto) {
     const selected = getSelectedServerSources(proto);
     if (!selected.length) return "未选择源文件";
-    if (selected.length === 1) return selected[0];
+    if (selected.length === 1) return getServerSourceLabel(resolveServerSourceItem(proto, selected[0])) || selected[0];
     return `${selected.length} 个源文件`;
 }
 
@@ -1393,7 +1417,7 @@ function getMultiProtoSelectedSources(proto) {
 async function ensureMultiProtoSourceSelection(proto) {
     const sources = await fetchServerSourceFiles(proto, true);
     const selected = getMultiProtoSelectedSources(proto);
-    const validNames = new Set(sources.map((item) => item.name));
+    const validNames = new Set(sources.map((item) => getServerSourceIdentifier(item)));
     const filtered = selected.filter((name) => validNames.has(name));
     const nextSelection = filtered.length ? filtered : getDefaultServerSources(proto, sources);
     multiProtoSelectedSources[proto] = nextSelection;
@@ -1408,7 +1432,7 @@ function updateProtoSourceButtonLabel(proto) {
     if (!selected.length) {
         label.textContent = "全部文件";
     } else if (selected.length === 1) {
-        label.textContent = selected[0];
+        label.textContent = getServerSourceLabel(resolveServerSourceItem(proto, selected[0])) || selected[0];
     } else {
         label.textContent = `${selected.length} 个文件`;
     }
@@ -1470,9 +1494,9 @@ function renderMultiProtoSourceModal(proto) {
         <div class="server-source-list">
             ${sources.map((file) => `
                 <label class="server-source-item">
-                    <input type="checkbox" value="${escapeHtml(file.name)}" ${selected.has(file.name) ? "checked" : ""}>
+                    <input type="checkbox" value="${escapeHtml(getServerSourceIdentifier(file))}" ${selected.has(getServerSourceIdentifier(file)) ? "checked" : ""}>
                     <span>
-                        <strong>${escapeHtml(file.name)}</strong>
+                        <strong>${escapeHtml(getServerSourceLabel(file))}</strong>
                         <span>${escapeHtml(file.path || "")}</span>
                     </span>
                     <em>${escapeHtml(String(file.entry_count || 0))} 条</em>
@@ -1553,9 +1577,9 @@ function renderSingleProtoSourceModal(proto) {
         <div class="server-source-list">
             ${sources.map((file) => `
                 <label class="server-source-item">
-                    <input type="checkbox" value="${escapeHtml(file.name)}" ${selected.has(file.name) ? "checked" : ""}>
+                    <input type="checkbox" value="${escapeHtml(getServerSourceIdentifier(file))}" ${selected.has(getServerSourceIdentifier(file)) ? "checked" : ""}>
                     <span>
-                        <strong>${escapeHtml(file.name)}</strong>
+                        <strong>${escapeHtml(getServerSourceLabel(file))}</strong>
                         <span>${escapeHtml(file.path || "")}</span>
                     </span>
                     <em>${escapeHtml(String(file.entry_count || 0))} 条</em>
@@ -2504,9 +2528,9 @@ function renderServerSourceModal() {
         <div class="server-source-list">
             ${sources.map((file) => `
                 <label class="server-source-item">
-                    <input type="checkbox" value="${escapeHtml(file.name)}" ${selected.has(file.name) ? "checked" : ""}>
+                    <input type="checkbox" value="${escapeHtml(getServerSourceIdentifier(file))}" ${selected.has(getServerSourceIdentifier(file)) ? "checked" : ""}>
                     <span>
-                        <strong>${escapeHtml(file.name)}</strong>
+                        <strong>${escapeHtml(getServerSourceLabel(file))}</strong>
                         <span>${escapeHtml(file.path || "")}</span>
                     </span>
                     <em>${escapeHtml(String(file.entry_count || 0))} 条</em>
@@ -2558,7 +2582,7 @@ async function openServerSourceNewFileDialog() {
         // 重新渲染当前 Modal，新文件默认选中
         const body = document.getElementById("serverSourceModalBody");
         const sources = getAvailableServerSources(proto);
-        const newFileName = data.file.name;
+        const newFileName = data.file.id || data.file.path || data.file.name;
         const existingChecked = Array.from(body?.querySelectorAll("input[type='checkbox']:checked") || [])
             .map((cb) => cb.value);
         const newSelection = new Set([...existingChecked, newFileName]);
@@ -2574,9 +2598,9 @@ async function openServerSourceNewFileDialog() {
             <div class="server-source-list">
                 ${sources.map((file) => `
                     <label class="server-source-item">
-                        <input type="checkbox" value="${escapeHtml(file.name)}" ${newSelection.has(file.name) ? "checked" : ""}>
+                        <input type="checkbox" value="${escapeHtml(getServerSourceIdentifier(file))}" ${newSelection.has(getServerSourceIdentifier(file)) ? "checked" : ""}>
                         <span>
-                            <strong>${escapeHtml(file.name)}</strong>
+                            <strong>${escapeHtml(getServerSourceLabel(file))}</strong>
                             <span>${escapeHtml(file.path || "")}</span>
                         </span>
                         <em>${escapeHtml(String(file.entry_count || 0))} 条</em>
@@ -2620,7 +2644,7 @@ function renderServerFileModal(file) {
         <div class="server-file-switcher">
             <label for="serverFileSourceSelect">当前编辑文件</label>
             <select id="serverFileSourceSelect">
-                ${selected.map((source) => `<option value="${escapeHtml(source)}" ${source === currentServerSource ? "selected" : ""}>${escapeHtml(source)}</option>`).join("")}
+                ${selected.map((source) => `<option value="${escapeHtml(source)}" ${source === currentServerSource ? "selected" : ""}>${escapeHtml(getServerSourceLabel(resolveServerSourceItem(currentServerEditorProto, source)) || source)}</option>`).join("")}
             </select>
             <small>地图和资源列表展示的是当前已选文件的并集，编辑一次只作用于一个文件。</small>
         </div>

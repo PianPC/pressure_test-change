@@ -1,47 +1,62 @@
 #!/bin/bash
+set -euo pipefail
 
-# 压力测试工具启动脚本
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
-echo "========================================="
-echo "    压力测试工具 - 启动脚本"
-echo "========================================="
-echo ""
+VENV_DIR="$SCRIPT_DIR/venv"
+VENV_PYTHON="$VENV_DIR/bin/python"
+VENV_PIP="$VENV_DIR/bin/pip"
+REQUIREMENTS_FILE="$SCRIPT_DIR/requirements.txt"
 
-# 检查Python版本
-python_version=$(python3 --version 2>&1 | cut -d' ' -f2)
-echo "✓ Python版本: $python_version"
+print_banner() {
+    echo "========================================="
+    echo "    ?????? - ????"
+    echo "========================================="
+    echo
+}
 
-# 检查依赖
-echo ""
-echo "检查依赖..."
-pip3 install -r requirements.txt
+print_banner
 
-# 检查root权限
-if [ "$EUID" -ne 0 ]; then 
-    echo ""
-    echo "⚠️  警告: 推荐使用root权限运行"
-    echo "  某些功能可能需要root权限"
-    echo "  可以使用: sudo ./start.sh"
-    echo ""
+if [ ! -f "$REQUIREMENTS_FILE" ]; then
+    echo "?? requirements.txt?$REQUIREMENTS_FILE"
+    exit 1
 fi
 
-# 创建必要目录
-echo ""
-echo "创建目录..."
+if [ ! -x "$VENV_PYTHON" ] || [ ! -x "$VENV_PIP" ]; then
+    echo "???????????$VENV_DIR"
+    echo "?????????"
+    echo "  python3 -m venv venv"
+    echo "  source venv/bin/activate"
+    echo "  pip install -r requirements.txt"
+    exit 1
+fi
+
+PYTHON_VERSION="$($VENV_PYTHON --version 2>&1)"
+echo "Python ??: $PYTHON_VERSION"
+echo
+
+echo "??/?? Python ??..."
+"$VENV_PIP" install -r "$REQUIREMENTS_FILE"
+
+if [ "$EUID" -ne 0 ]; then
+    echo
+    echo "??: ???? root ???????????????traceroute ????????"
+    echo "????: sudo ./start.sh"
+    echo
+fi
+
+echo "??????..."
 mkdir -p servers static templates
 
-# 复制模板文件（如果不存在）
-if [ ! -f "templates/index.html" ]; then
-    echo "复制模板文件..."
-    cp -r templates_example/* templates/ 2>/dev/null || true
+if [ ! -f "$SCRIPT_DIR/templates/index.html" ] && [ -d "$SCRIPT_DIR/templates_example" ]; then
+    echo "??????..."
+    cp -r "$SCRIPT_DIR/templates_example"/* "$SCRIPT_DIR/templates/" 2>/dev/null || true
 fi
 
-# 启动应用
-echo ""
-echo "启动应用..."
-echo "访问地址: http://localhost:5000"
-echo ""
-echo "按 Ctrl+C 停止服务"
-echo ""
+echo
+echo "????..."
+echo "????: http://localhost:5000"
+echo
 
-python3 app.py
+exec "$VENV_PYTHON" "$SCRIPT_DIR/app.py"

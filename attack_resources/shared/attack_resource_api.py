@@ -12,6 +12,7 @@ from typing import Any
 
 from flask import Blueprint, jsonify, request
 
+from attack_resources.shared.ip_resource_catalog import list_protocol_resources, resolve_protocol_resource_path
 from attack_resources.tcp.code.routes import (
     DEFAULT_CONFIG_PATH as TCP_DEFAULT_CONFIG_PATH,
     TCP_OUTPUT_ROOT,
@@ -117,6 +118,38 @@ MEMCACHED_STAGE_ORDER = [
     ("filtering", "\u7b5b\u9009\u9ad8\u653e\u5927\u7387\u76ee\u6807"),
     ("saving", "\u4fdd\u5b58\u7ed3\u679c"),
 ]
+
+ATTACK_RESOURCES_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _normalize_protocol_resource(proto: str, resource: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": resource["id"],
+        "name": resource["display_name"],
+        "filename": resource["filename"],
+        "path": resource["path"],
+        "full_path": resource["full_path"],
+        "count": resource.get("count", resource.get("entry_count", 0)),
+        "entry_count": resource.get("entry_count", 0),
+        "protocols": resource.get("protocols", []),
+        "source": resource.get("source"),
+        "source_name": resource.get("source_name"),
+        "type": resource.get("type"),
+        "updated_at": resource.get("updated_at"),
+        "location_label": resource.get("location_label"),
+        "legacy": resource.get("legacy", False),
+        "sub_dir": resource.get("sub_dir", ""),
+        "bytes": resource.get("bytes", resource.get("size_bytes", 0)),
+    }
+
+
+def _list_protocol_resources(proto: str) -> list[dict[str, Any]]:
+    return [_normalize_protocol_resource(proto, resource) for resource in list_protocol_resources(proto, ATTACK_RESOURCES_ROOT)]
+
+
+def _resolve_protocol_resource(proto: str, value: str) -> Path | None:
+    return resolve_protocol_resource_path(proto, value, ATTACK_RESOURCES_ROOT)
+
 
 
 def _text_artifact_descriptor(name: str, size: int, editable: bool | None = None) -> dict[str, Any]:
@@ -451,11 +484,12 @@ def _build_dns_runs_list() -> dict[str, Any]:
 def _dns_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     ip_file = str(payload.get("ip_file") or "")
     if not ip_file:
-        available = dns_list_ip_files()
+        available = _list_protocol_resources("dns")
         if not available:
             return {"success": False, "message": "\u6ca1\u6709\u53ef\u7528\u7684 IP \u5019\u9009\u6587\u4ef6"}, 400
         ip_file = available[0]["path"]
-    if not Path(ip_file).exists():
+    resolved_ip_file = _resolve_protocol_resource("memcached", ip_file)
+    if resolved_ip_file is None or not resolved_ip_file.exists():
         return {"success": False, "message": f"IP \u6587\u4ef6\u4e0d\u5b58\u5728: {ip_file}"}, 400
 
     domains_str = str(payload.get("test_domains", "")).strip()
@@ -465,7 +499,7 @@ def _dns_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
         test_domains = DEFAULT_TEST_DOMAINS.copy()
 
     config = DnsScanConfig(
-        ip_file=ip_file,
+        ip_file=str(resolved_ip_file),
         output_dir=str(DNS_OUTPUT_ROOT / dns_generate_run_id()),
         test_domains=test_domains,
         query_type=str(payload.get("query_type", "TXT")).upper(),
@@ -580,7 +614,7 @@ class TcpAdapter(_ProtoAdapter):
         super().__init__("tcp")
 
     def list_resources(self) -> list[dict[str, Any]]:
-        return tcp_list_ip_resources()
+        return _list_protocol_resources("tcp")
 
     def list_runs(self) -> dict[str, Any]:
         return _build_tcp_runs_list()
@@ -628,7 +662,7 @@ class DnsAdapter(_ProtoAdapter):
         super().__init__("dns")
 
     def list_resources(self) -> list[dict[str, Any]]:
-        return dns_list_ip_files()
+        return _list_protocol_resources("dns")
 
     def list_runs(self) -> dict[str, Any]:
         return _build_dns_runs_list()
@@ -850,15 +884,16 @@ def _build_memcached_runs_list() -> dict[str, Any]:
 def _memcached_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     ip_file = str(payload.get("ip_file") or "")
     if not ip_file:
-        available = memcached_list_ip_files()
+        available = _list_protocol_resources("memcached")
         if not available:
             return {"success": False, "message": "\u6ca1\u6709\u53ef\u7528\u7684 IP \u5019\u9009\u6587\u4ef6"}, 400
         ip_file = available[0]["path"]
-    if not Path(ip_file).exists():
+    resolved_ip_file = _resolve_protocol_resource("memcached", ip_file)
+    if resolved_ip_file is None or not resolved_ip_file.exists():
         return {"success": False, "message": f"IP \u6587\u4ef6\u4e0d\u5b58\u5728: {ip_file}"}, 400
 
     config = MemcachedScanConfig(
-        ip_file=ip_file,
+        ip_file=str(resolved_ip_file),
         output_dir=str(MEMCACHED_OUTPUT_ROOT / memcached_generate_run_id()),
         cmd_type=str(payload.get("cmd_type", "get")).lower(),
         data_size_kb=memcached_int_or(payload.get("data_size_kb"), 300),
@@ -939,7 +974,7 @@ class MemcachedAdapter(_ProtoAdapter):
         super().__init__("memcached")
 
     def list_resources(self) -> list[dict[str, Any]]:
-        return memcached_list_ip_files()
+        return _list_protocol_resources("memcached")
 
     def list_runs(self) -> dict[str, Any]:
         return _build_memcached_runs_list()
@@ -1160,7 +1195,7 @@ def _build_ntp_runs_list() -> dict[str, Any]:
 def _ntp_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     ip_file = str(payload.get("ip_file") or "")
     if not ip_file:
-        available = ntp_list_ip_files()
+        available = _list_protocol_resources("ntp")
         if not available:
             return {"success": False, "message": "没有可用的 IP 候选文件"}, 400
         ip_file = available[0]["path"]
@@ -1172,7 +1207,7 @@ def _ntp_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
         probe_action = "both"
 
     config = NtpScanConfig(
-        ip_file=ip_file,
+        ip_file=str(resolved_ip_file),
         output_dir=str(NTP_OUTPUT_ROOT / ntp_generate_run_id()),
         probe_action=probe_action,
         timeout_sec=ntp_float_or(payload.get("timeout_sec"), 3.0),
@@ -1249,7 +1284,7 @@ class NtpAdapter(_ProtoAdapter):
         super().__init__("ntp")
 
     def list_resources(self) -> list[dict[str, Any]]:
-        return ntp_list_ip_files()
+        return _list_protocol_resources("ntp")
 
     def list_runs(self) -> dict[str, Any]:
         return _build_ntp_runs_list()

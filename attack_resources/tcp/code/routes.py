@@ -8,6 +8,7 @@ import traceback
 
 from flask import Blueprint, jsonify, request
 
+from attack_resources.shared.ip_resource_catalog import resolve_protocol_resource_path
 from attack_resources.tcp.code.tcp_censor_scan import (
     cleanup_run_artifacts,
     load_config,
@@ -71,7 +72,7 @@ tcp_scan_registry = TcpScanRegistry()
 
 @tcp_censor_bp.route("/resources", methods=["GET"])
 def tcp_scan_resources():
-    return jsonify({"success": True, "resources": list_ip_resources(repo_root() / "attack_resources" / "tcp" / "resources" / "ip_lists")})
+    return jsonify({"success": True, "resources": list_ip_resources()})
 
 
 @tcp_censor_bp.route("/preflight", methods=["GET"])

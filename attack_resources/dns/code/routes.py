@@ -21,6 +21,8 @@ from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
 
+from attack_resources.shared.ip_resource_catalog import list_protocol_resources, resolve_protocol_resource_path
+
 from attack_resources.dns.code.dns_resource_scanner import (
     DNSResourceScanner,
     ScanConfig,
@@ -98,35 +100,37 @@ dns_registry = DnsScanRegistry()
 
 # ── 辅助函数 ────────────────────────────────────────────
 
+
 def _list_ip_files(search_dirs: Optional[List[Path]] = None) -> List[Dict[str, Any]]:
-    """列出可用的 IP 候选文件（支持子目录）"""
-    files: List[Dict[str, Any]] = []
-    seen = set()
-    dirs = search_dirs or DEFAULT_IP_SEARCH_DIRS
-    for d in dirs:
-        if not d.exists():
-            continue
-        for p in sorted(d.rglob("*.txt")):
-            if p.name in seen:
-                continue
-            seen.add(p.name)
-            try:
-                count = 0
-                with p.open("r", encoding="utf-8", errors="ignore") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#"):
-                            count += 1
-            except Exception:
-                count = 0
-            rel_path = p.relative_to(d)
-            files.append({
-                "name": p.name,
-                "path": str(p),
-                "entry_count": count,
-                "sub_dir": str(rel_path.parent) if rel_path.parent != Path(".") else "",
-            })
-    return files
+    """????????IP ???????????????????????????????"""
+    del search_dirs
+    resources = list_protocol_resources("dns", ATTACK_RESOURCES_ROOT)
+    return [_normalize_resource(resource) for resource in resources]
+
+
+def _resolve_ip_file(value: str) -> Path | None:
+    return resolve_protocol_resource_path("dns", value, ATTACK_RESOURCES_ROOT)
+
+
+def _normalize_resource(resource: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": resource["id"],
+        "name": resource["display_name"],
+        "filename": resource["filename"],
+        "path": resource["path"],
+        "full_path": resource["full_path"],
+        "entry_count": resource.get("entry_count", 0),
+        "count": resource.get("count", 0),
+        "bytes": resource.get("bytes", resource.get("size_bytes", 0)),
+        "source": resource.get("source"),
+        "source_name": resource.get("source_name"),
+        "type": resource.get("type"),
+        "protocols": resource.get("protocols", []),
+        "updated_at": resource.get("updated_at"),
+        "sub_dir": resource.get("sub_dir", ""),
+        "location_label": resource.get("location_label"),
+        "legacy": resource.get("legacy", False),
+    }
 
 
 def _generate_run_id() -> str:
@@ -259,7 +263,8 @@ def start_scan():
             return jsonify({"success": False, "message": "没有可用的 IP 候选文件"}), 400
         ip_file = available[0]["path"]
 
-    if not Path(ip_file).exists():
+    resolved_ip_file = _resolve_ip_file(ip_file)
+    if resolved_ip_file is None or not resolved_ip_file.exists():
         return jsonify({"success": False, "message": f"IP 文件不存在: {ip_file}"}), 400
 
     run_id = _generate_run_id()
@@ -274,7 +279,7 @@ def start_scan():
         test_domains = DEFAULT_TEST_DOMAINS.copy()
 
     config = ScanConfig(
-        ip_file=ip_file,
+        ip_file=str(resolved_ip_file),
         output_dir=output_dir,
         test_domains=test_domains,
         query_type=str(payload.get("query_type", "TXT")).upper(),
@@ -325,7 +330,7 @@ def start_scan():
         "success": True,
         "message": "DNS 资源扫描已启动",
         "run_id": run_id,
-        "ip_file": os.path.basename(ip_file),
+        "ip_file": os.path.basename(str(resolved_ip_file)),
         "config": config_dict,
         "total_ips": 0,
     })

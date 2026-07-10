@@ -38,6 +38,11 @@ from attack_resources.ntp.code.tester import NTPTester
 from attack_resources.tcp.code.tester import TcpTester
 from multi_protocol_test import MultiProtocolTester
 from attack_resources.shared.attack_resource_api import attack_resource_bp
+from attack_resources.shared.ip_resource_catalog import (
+    count_ip_entries,
+    list_protocol_resources,
+    resolve_protocol_resource_path,
+)
 from attack_resources.tcp.code.routes import tcp_censor_bp
 from attack_resources.dns.code.routes import dns_scan_bp
 from attack_resources.memcached.code.routes import memcached_scan_bp
@@ -386,58 +391,69 @@ def get_server_file(method: str) -> str:
     return os.path.join(ATTACK_RESOURCES_ROOT, method, 'resources', 'ip_lists', 'default.txt')
 
 def get_default_server_file_content(method: str) -> str:
-    return '# 每行一个反射器IP或域名\n'
-
-def list_server_source_paths(method: str) -> List[Path]:
-    root = Path(ATTACK_RESOURCES_ROOT) / method / 'resources' / 'ip_lists'
-    if not root.exists():
-        return []
-    return sorted(path for path in root.glob('*.txt') if path.is_file())
-
-def count_server_entries_in_file(path: Path) -> int:
-    if not path.exists():
-        return 0
-    count = 0
-    with path.open('r', encoding='utf-8', errors='ignore') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#'):
-                count += 1
-    return count
+    return '# ???????????IP?????n'
 
 def list_server_sources(method: str) -> List[Dict[str, Any]]:
+    resources = list_protocol_resources(method, ATTACK_RESOURCES_ROOT)
     return [
         {
-            'name': path.name,
-            'path': str(path),
-            'entry_count': count_server_entries_in_file(path),
+            'id': item['id'],
+            'name': item['filename'],
+            'display_name': item['display_name'],
+            'path': item['path'],
+            'full_path': item['full_path'],
+            'entry_count': item['entry_count'],
             'editable': True,
+            'location_label': item.get('location_label'),
+            'protocols': item.get('protocols', []),
+            'source': item.get('source'),
+            'source_name': item.get('source_name'),
+            'type': item.get('type'),
+            'updated_at': item.get('updated_at'),
+            'legacy': item.get('legacy', False),
+            'sub_dir': item.get('sub_dir', ''),
         }
-        for path in list_server_source_paths(method)
+        for item in resources
     ]
 
+def list_server_source_paths(method: str) -> List[Path]:
+    return [Path(item['full_path']) for item in list_server_sources(method)]
+
+def count_server_entries_in_file(path: Path) -> int:
+    return count_ip_entries(path)
+
 def resolve_server_source(method: str, source: Optional[str] = None) -> Optional[Path]:
-    source_paths = list_server_source_paths(method)
-    if source:
-        source_name = Path(str(source)).name
-        for path in source_paths:
-            if path.name == source_name:
-                return path
+    resources = list_server_sources(method)
+    if not resources:
         return None
-    if source_paths:
-        return source_paths[0]
-    return None
+    if source:
+        resolved = resolve_protocol_resource_path(method, source, ATTACK_RESOURCES_ROOT)
+        if resolved is not None:
+            return resolved
+        source_name = Path(str(source)).name
+        for item in resources:
+            if item['name'] == source_name:
+                return Path(item['full_path'])
+        return None
+    return Path(resources[0]['full_path'])
 
 def resolve_server_sources(method: str, sources: Optional[List[str]] = None) -> List[Path]:
-    source_paths = list_server_source_paths(method)
-    if not source_paths:
+    resources = list_server_sources(method)
+    if not resources:
         return []
     if not sources:
-        return source_paths
+        return [Path(item['full_path']) for item in resources]
 
-    selected_names = {Path(str(source)).name for source in sources if str(source).strip()}
-    resolved = [path for path in source_paths if path.name in selected_names]
-    return resolved or source_paths
+    resolved: List[Path] = []
+    seen = set()
+    for source in sources:
+        path = resolve_server_source(method, source)
+        if path is None:
+            continue
+        if path not in seen:
+            seen.add(path)
+            resolved.append(path)
+    return resolved or [Path(item['full_path']) for item in resources]
 
 def get_effective_server_file(method: str, source: Optional[str] = None) -> str:
     resolved = resolve_server_source(method, source)
