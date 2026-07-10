@@ -158,7 +158,10 @@
                                 <div>
                                     <h2><i class="fas fa-satellite-dish"></i> 攻击资源获取</h2>
                                 </div>
-                                <span class="panel-chip">TCP 已接入</span>
+                                <div class="panel-actions">
+                                    <button type="button" id="attackResourceManageBtn" class="btn btn-outline"><i class="fas fa-database"></i>资源管理</button>
+                                    <span class="panel-chip">TCP 已接入</span>
+                                </div>
                             </div>
                             <div class="module-summary-grid compact">
                                 <div class="module-summary-card">
@@ -1246,6 +1249,146 @@ NTP 放大率测量原理：
                         <div class="action-buttons narrow">
                             <button type="button" id="serverFileSaveBtn" class="btn btn-primary" disabled><i class="fas fa-floppy-disk"></i>保存</button>
                             <button type="button" id="serverFileReloadBtn" class="btn btn-secondary" disabled><i class="fas fa-rotate"></i>重新加载</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="ipResourceModal" class="tcp-modal ip-resource-modal" hidden>
+                    <div class="tcp-modal-backdrop" data-dismiss="ip-resource-modal"></div>
+                    <div class="tcp-modal-panel ip-resource-modal-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <h2><i class="fas fa-database"></i> <span id="ipResourceModalTitle">IP 资源管理</span></h2>
+                            </div>
+                            <button type="button" id="ipResourceModalClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
+                        </div>
+                        <div class="ip-resource-modal-body">
+                            <div class="ip-resource-filters">
+                                <div class="filter-row">
+                                    <div class="filter-group">
+                                        <label>资源类型</label>
+                                        <select id="ipResourceFilterType">
+                                            <option value="">全部</option>
+                                            <option value="manual">手动创建</option>
+                                            <option value="auto">自动获取</option>
+                                        </select>
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>来源</label>
+                                        <select id="ipResourceFilterSource">
+                                            <option value="">全部</option>
+                                        </select>
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>国家</label>
+                                        <select id="ipResourceFilterCountry">
+                                            <option value="">全部</option>
+                                        </select>
+                                    </div>
+                                    <div class="filter-group">
+                                        <label>协议</label>
+                                        <select id="ipResourceFilterProtocol">
+                                            <option value="">全部</option>
+                                            <option value="tcp">TCP</option>
+                                            <option value="dns">DNS</option>
+                                            <option value="memcached">Memcached</option>
+                                            <option value="ntp">NTP</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ip-resource-actions">
+                                <button type="button" id="ipResourceRefreshBtn" class="btn btn-secondary"><i class="fas fa-rotate"></i>刷新</button>
+                                <button type="button" id="ipResourceNewBtn" class="btn btn-primary"><i class="fas fa-plus"></i>新建文件</button>
+                                <button type="button" id="ipResourceFetchBtn" class="btn btn-outline"><i class="fas fa-download"></i>自动获取</button>
+                            </div>
+                            <div id="ipResourceList" class="ip-resource-list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="ipResourceEditModal" class="tcp-modal" hidden>
+                    <div class="tcp-modal-backdrop" data-dismiss="ip-resource-edit-modal"></div>
+                    <div class="tcp-modal-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <h2><i class="fas fa-file-pen"></i> <span id="ipResourceEditTitle">编辑资源文件</span></h2>
+                            </div>
+                            <button type="button" id="ipResourceEditClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
+                        </div>
+                        <div class="ip-resource-edit-body">
+                            <div class="form-group">
+                                <label for="ipResourceEditFilename">文件名</label>
+                                <input type="text" id="ipResourceEditFilename" readonly>
+                            </div>
+                            <div class="form-group wide">
+                                <label for="ipResourceEditContent">文件内容</label>
+                                <textarea id="ipResourceEditContent" rows="15" placeholder="每行一个IP地址或IP段..."></textarea>
+                            </div>
+                            <div class="ip-resource-edit-meta">
+                                <div><span>文件路径</span><strong id="ipResourceEditPath">-</strong></div>
+                                <div><span>文件大小</span><strong id="ipResourceEditSize">-</strong></div>
+                                <div><span>非空行数</span><strong id="ipResourceEditLines">-</strong></div>
+                            </div>
+                        </div>
+                        <div class="action-buttons narrow">
+                            <button type="button" id="ipResourceDeleteBtn" class="btn btn-danger" style="display:none;"><i class="fas fa-trash-can"></i>删除文件</button>
+                            <button type="button" id="ipResourceEditCancel" class="btn btn-secondary"><i class="fas fa-xmark"></i>取消</button>
+                            <button type="button" id="ipResourceEditSave" class="btn btn-primary"><i class="fas fa-floppy-disk"></i>保存</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="ipResourceFetchModal" class="tcp-modal" hidden>
+                    <div class="tcp-modal-backdrop" data-dismiss="ip-resource-fetch-modal"></div>
+                    <div class="tcp-modal-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <h2><i class="fas fa-spider"></i> <span id="ipResourceFetchTitle">自动获取资源</span></h2>
+                            </div>
+                            <button type="button" id="ipResourceFetchClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
+                        </div>
+                        <div class="ip-resource-fetch-body">
+                            <div class="form-group">
+                                <label for="ipResourceFetchSource">选择数据源</label>
+                                <select id="ipResourceFetchSource">
+                                    <option value="ipdeny">IPdeny (国家IP段 - 免费)</option>
+                                    <option value="shodan">Shodan (需要API密钥)</option>
+                                    <option value="fofa">FOFA (需要API密钥)</option>
+                                </select>
+                            </div>
+                            <div id="ipResourceFetchParams" class="ip-resource-fetch-params"></div>
+                            <div id="ipResourceFetchStatus" class="info-text"></div>
+                        </div>
+                        <div class="action-buttons narrow">
+                            <button type="button" id="ipResourceFetchCancel" class="btn btn-secondary"><i class="fas fa-xmark"></i>取消</button>
+                            <button type="button" id="ipResourceFetchStart" class="btn btn-primary"><i class="fas fa-play"></i>开始获取</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="ipResourceNewModal" class="tcp-modal" hidden>
+                    <div class="tcp-modal-backdrop" data-dismiss="ip-resource-new-modal"></div>
+                    <div class="tcp-modal-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <h2><i class="fas fa-file-circle-plus"></i> <span id="ipResourceNewTitle">新建资源文件</span></h2>
+                            </div>
+                            <button type="button" id="ipResourceNewClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
+                        </div>
+                        <div class="ip-resource-edit-body">
+                            <div class="form-group">
+                                <label for="ipResourceNewFilename">文件名</label>
+                                <input type="text" id="ipResourceNewFilename" placeholder="例如: my_custom_ips.txt">
+                            </div>
+                            <div class="form-group wide">
+                                <label for="ipResourceNewContent">文件内容</label>
+                                <textarea id="ipResourceNewContent" rows="15" placeholder="每行一个IP地址或IP段..."></textarea>
+                            </div>
+                        </div>
+                        <div class="action-buttons narrow">
+                            <button type="button" id="ipResourceNewCancel" class="btn btn-secondary"><i class="fas fa-xmark"></i>取消</button>
+                            <button type="button" id="ipResourceNewCreate" class="btn btn-primary"><i class="fas fa-plus"></i>创建</button>
                         </div>
                     </div>
                 </div>

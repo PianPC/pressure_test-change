@@ -859,6 +859,37 @@ input:checked+.toggle-slider::before{transform:translateX(20px);background:var(-
 .server-file-switcher{display:grid;gap:6px;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--bg-overlay-hover);margin-bottom:10px}
 .server-source-modal-footer{padding:10px 14px;border-top:1px solid var(--border-subtle);margin-top:6px}
 
+/* ── IP Resource Management Modal ── */
+.ip-resource-modal-panel{width:min(900px,calc(100vw-32px))}
+.ip-resource-modal-body{display:grid;gap:14px}
+.ip-resource-filters{padding:10px 12px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--bg-overlay-hover)}
+.filter-row{display:flex;gap:16px;flex-wrap:wrap}
+.filter-group{display:flex;flex-direction:column;gap:4px;min-width:120px}
+.filter-group label{font-size:11px;color:var(--text-tertiary);font-weight:600}
+.filter-group select{padding:6px 8px;border:1px solid var(--border-default);border-radius:var(--radius-xs);background:var(--bg-raised);font-size:12px}
+.ip-resource-actions{display:flex;gap:8px}
+.ip-resource-list{display:grid;gap:12px;max-height:50vh;overflow-y:auto;padding:4px}
+.ip-resource-group{display:grid;gap:8px}
+.ip-resource-group-header{font-size:11px;color:var(--text-brand);font-weight:700;padding:4px 8px;border-bottom:1px solid var(--border-subtle)}
+.ip-resource-item{display:grid;gap:6px;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--bg-overlay-active)}
+.ip-resource-item-header{display:flex;justify-content:space-between;align-items:center}
+.ip-resource-item-name{font-weight:600;color:var(--text-primary)}
+.ip-resource-item-count{font-size:11px;color:var(--text-tertiary);background:var(--bg-overlay-hover);padding:2px 6px;border-radius:var(--radius-xs)}
+.ip-resource-item-tags{display:flex;gap:6px;flex-wrap:wrap}
+.ip-resource-item-tags .tag{font-size:10px;padding:2px 6px;border-radius:var(--radius-xs)}
+.ip-resource-item-tags .tag.country{background:rgba(56,123,255,0.15);color:var(--status-primary)}
+.ip-resource-item-tags .tag.protocol{background:rgba(51,193,146,0.15);color:var(--status-success)}
+.ip-resource-item-tags .tag.source{background:rgba(210,126,36,0.15);color:var(--status-warning)}
+.ip-resource-item-meta{display:flex;gap:12px;font-size:10px;color:var(--text-tertiary)}
+.ip-resource-item-actions{display:flex;gap:6px;margin-top:4px}
+.ip-resource-item-actions .btn-sm{padding:4px 8px;font-size:11px}
+.ip-resource-edit-body{display:grid;gap:12px}
+.ip-resource-edit-meta{display:flex;gap:16px;font-size:11px;color:var(--text-tertiary);padding:8px 10px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--bg-overlay-hover)}
+.ip-resource-edit-meta div{display:flex;gap:6px}
+.ip-resource-edit-meta strong{color:var(--text-primary)}
+.ip-resource-fetch-body{display:grid;gap:12px}
+.ip-resource-fetch-params{display:grid;gap:12px}
+
 /* ── Notification ── */
 .notification{
   position:fixed;right:18px;bottom:18px;z-index:50;

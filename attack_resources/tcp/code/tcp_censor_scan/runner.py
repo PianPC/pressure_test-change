@@ -43,6 +43,7 @@ def run_pipeline(config: ScanConfig | str | Path, run_dir: Path | None = None) -
             extract_ips(cfg, run_dir, artifacts, log)
             run_amplification_test(cfg, run_dir, artifacts, log)
             analyze_amplification_log(cfg, run_dir, artifacts, log)
+            extract_qualified_ips(cfg, run_dir, artifacts, log)
         except Exception as exc:
             metadata = read_metadata(run_dir)
             current_stage = metadata.get("current_stage")
@@ -235,6 +236,116 @@ def analyze_amplification_log(cfg: ScanConfig, run_dir: Path, artifacts: dict[st
     _save_artifacts(run_dir, artifacts)
 
 
+def extract_qualified_ips(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, Path], log) -> None:
+    update_stage(run_dir, "extract_qualified_ips", "running")
+    min_ratio = getattr(cfg, "min_amplification", 2.0)
+
+    if cfg.dry_run:
+        log("Writing mock qualified IPs")
+        ips = _read_ip_list(artifacts["ip_txt"])
+        qualified = []
+        for ip in ips[:3]:
+            qualified.append({"ip": ip, "ratio": min_ratio + 1.0, "success_rate": 100.0})
+        _write_qualified_ips(artifacts["qualified_ips"], qualified, min_ratio)
+        artifacts["qualified_log"].write_text(
+            f"dry_run: extracted {len(qualified)} qualified IPs (min_ratio={min_ratio})\n",
+            encoding="utf-8",
+        )
+        update_stage(run_dir, "extract_qualified_ips", "completed", dry_run=True)
+        _save_artifacts(run_dir, artifacts)
+        return
+
+    qualified = _parse_amplification_log_for_qualified(artifacts["amplification_log"], min_ratio)
+    _write_qualified_ips(artifacts["qualified_ips"], qualified, min_ratio)
+
+    log(f"Extracted {len(qualified)} qualified IPs with amplification ratio >= {min_ratio}")
+    artifacts["qualified_log"].write_text(
+        f"Extracted {len(qualified)} qualified IPs from amplification log\n"
+        f"Min amplification ratio: {min_ratio}\n",
+        encoding="utf-8",
+    )
+
+    update_stage(run_dir, "extract_qualified_ips", "completed")
+    _save_artifacts(run_dir, artifacts)
+
+
+def _parse_amplification_log_for_qualified(log_path: Path, min_ratio: float) -> list[dict[str, Any]]:
+    qualified = []
+    if not log_path.exists():
+        return qualified
+
+    current_ip = None
+    ratios = []
+
+    with log_path.open("r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            line = line.strip()
+            ip_match = _extract_ip_from_line(line)
+            if ip_match:
+                if current_ip and ratios:
+                    avg_ratio = sum(ratios) / len(ratios)
+                    if avg_ratio >= min_ratio:
+                        qualified.append({
+                            "ip": current_ip,
+                            "ratio": round(avg_ratio, 2),
+                            "success_rate": round(len(ratios) / 1.0 * 100, 1) if ratios else 0.0,
+                        })
+                current_ip = ip_match
+                ratios = []
+                continue
+
+            ratio_match = _extract_ratio_from_line(line)
+            if ratio_match and current_ip:
+                ratios.append(ratio_match)
+
+        if current_ip and ratios:
+            avg_ratio = sum(ratios) / len(ratios)
+            if avg_ratio >= min_ratio:
+                qualified.append({
+                    "ip": current_ip,
+                    "ratio": round(avg_ratio, 2),
+                    "success_rate": round(len(ratios) / 1.0 * 100, 1) if ratios else 0.0,
+                })
+
+    qualified.sort(key=lambda x: x["ratio"], reverse=True)
+    return qualified
+
+
+def _extract_ip_from_line(line: str) -> str | None:
+    import re
+    match = re.search(r"test_ip:\s*([\d.]+)", line)
+    if match:
+        return match.group(1)
+    match = re.search(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", line)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _extract_ratio_from_line(line: str) -> float | None:
+    import re
+    match = re.search(r"amplification_ratio:\s*([\d.]+)", line)
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            pass
+    return None
+
+
+def _write_qualified_ips(output_path: Path, qualified: list[dict[str, Any]], min_ratio: float) -> None:
+    lines = [
+        f"# TCP优质反射器IP列表（放大率 >= {min_ratio}x）",
+        f"# 生成时间: {now_iso()}",
+        f"# 优质IP数量: {len(qualified)}",
+        "",
+    ]
+    for item in qualified:
+        lines.append(f"{item['ip']}, ratio={item['ratio']}, success_rate={item['success_rate']}%")
+
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def prepare_run(cfg: ScanConfig) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id = f"{timestamp}_{cfg.ip_file.stem}_{cfg.pkt_method}_{_safe_host(cfg.target_host)}"
@@ -280,6 +391,8 @@ def _artifact_paths(cfg: ScanConfig, run_dir: Path) -> dict[str, Path]:
         "amplification_stdout": run_dir / f"magnification_test_stdout_stderr_{cfg.pkt_method}.log",
         "analysis_report": run_dir / f"amplification_analysis_report_{cfg.pkt_method}.txt",
         "analysis_stdout": run_dir / "analysis_stdout_stderr.log",
+        "qualified_ips": run_dir / "qualified_ips.txt",
+        "qualified_log": run_dir / "extract_qualified_ips.log",
     }
 
 

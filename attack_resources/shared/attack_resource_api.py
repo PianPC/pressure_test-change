@@ -95,6 +95,7 @@ TCP_STAGE_ORDER = [
     ("extract_ips", "\u63d0\u53d6 IP"),
     ("run_amplification_test", "\u6267\u884c\u653e\u5927\u6d4b\u8bd5"),
     ("analyze_amplification_log", "\u5206\u6790\u653e\u5927\u65e5\u5fd7"),
+    ("extract_qualified_ips", "\u63d0\u53d6\u4f18\u8d28IP"),
 ]
 DNS_STAGE_ORDER = [
     ("loading", "\u52a0\u8f7d IP \u5019\u9009"),
@@ -165,14 +166,24 @@ def _build_tcp_run_payload(run_id: str) -> dict[str, Any]:
         })
 
     files = summary.get("files", [])
+    qualified_ips = _tcp_get_qualified_ips(run_id)
     detail_items = [
         {"label": "\u5f53\u524d\u9636\u6bb5", "value": next((item["label"] for item in normalized_stages if item["key"] == current_stage), "-")},
         {"label": "\u5f00\u59cb\u65f6\u95f4", "value": summary.get("started_at") or "-"},
         {"label": "\u7ed3\u675f\u65f6\u95f4", "value": summary.get("ended_at") or "-"},
         {"label": "\u6a21\u62df\u8fd0\u884c", "value": "\u662f" if config.get("dry_run") else "\u5426"},
         {"label": "\u505c\u6b62\u8bf7\u6c42", "value": "\u5df2\u8bf7\u6c42" if summary.get("stop_requested") else "\u672a\u8bf7\u6c42"},
+        {"label": "\u4f18\u8d28 IP", "value": len(qualified_ips)},
         {"label": "\u5931\u8d25\u539f\u56e0", "value": runtime_error or "-"},
     ]
+
+    result_preview = {
+        "type": "list",
+        "title": "\u4f18\u8d28 IP",
+        "items": qualified_ips[:5],
+        "total": len(qualified_ips),
+        "empty_text": "\u6682\u65e0\u4f18\u8d28 IP\u3002\u5b8c\u6574\u7ed3\u679c\u53ef\u901a\u8fc7\u8f93\u51fa\u6587\u4ef6\u67e5\u770b\u3002",
+    } if qualified_ips else None
 
     return {
         "run_id": run_id,
@@ -188,11 +199,12 @@ def _build_tcp_run_payload(run_id: str) -> dict[str, Any]:
             "method": config.get("pkt_method") or "-",
             "target_host": config.get("target_host") or "-",
             "artifact_count": len(files),
+            "qualified_count": len(qualified_ips),
         },
         "detail_items": detail_items,
         "stages": normalized_stages,
         "artifacts": [_text_artifact_descriptor(file["name"], file.get("bytes", 0)) for file in files],
-        "result_preview": None,
+        "result_preview": result_preview,
         "runtime_error": runtime_error,
     }
 
@@ -595,10 +607,13 @@ class TcpAdapter(_ProtoAdapter):
 
     def get_results(self, run_id: str) -> dict[str, Any]:
         run = _build_tcp_run_payload(run_id)
+        qualified = _tcp_get_qualified_ips(run_id)
         return {
             "success": True,
             "result_preview": run.get("result_preview"),
             "artifacts": run.get("artifacts", []),
+            "qualified_ips": qualified,
+            "qualified_count": len(qualified),
         }
 
     def read_file(self, run_id: str, filename: str) -> dict[str, Any]:
@@ -1407,3 +1422,155 @@ def attack_resource_file_write(proto: str, run_id: str, filename: str):
         return jsonify({"success": False, "message": "Run file not found"}), 404
     except ValueError as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
+
+
+from attack_resources.shared.ip_resource_manager import resource_manager
+
+
+@attack_resource_bp.route("/resources", methods=["GET"])
+def ip_resources_list():
+    try:
+        filter_type = request.args.get("type")
+        filter_source = request.args.get("source")
+        filter_country = request.args.get("country")
+        filter_protocol = request.args.get("protocol")
+        result = resource_manager.list_resources(
+            filter_type=filter_type,
+            filter_source=filter_source,
+            filter_country=filter_country,
+            filter_protocol=filter_protocol,
+        )
+        return jsonify({"success": True, **result})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/resources/<path:path>", methods=["GET"])
+def ip_resource_read(path: str):
+    try:
+        result = resource_manager.read_resource(path)
+        return jsonify({"success": True, "resource": result})
+    except FileNotFoundError:
+        return jsonify({"success": False, "message": "资源文件不存在"}), 404
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/resources/<path:path>", methods=["PUT"])
+def ip_resource_write(path: str):
+    try:
+        payload = request.get_json(silent=True) or {}
+        content = str(payload.get("content", ""))
+        result = resource_manager.write_resource(path, content)
+        return jsonify({"success": True, "resource": result, "message": "文件已更新"})
+    except FileNotFoundError:
+        return jsonify({"success": False, "message": "资源文件不存在"}), 404
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/resources", methods=["POST"])
+def ip_resource_create():
+    try:
+        payload = request.get_json(silent=True) or {}
+        filename = str(payload.get("filename", ""))
+        content = str(payload.get("content", ""))
+        metadata = payload.get("metadata", {})
+        if not filename:
+            return jsonify({"success": False, "message": "文件名不能为空"}), 400
+        result = resource_manager.create_resource(filename, content, metadata)
+        return jsonify({"success": True, "resource": result, "message": "文件已创建"}), 201
+    except FileExistsError:
+        return jsonify({"success": False, "message": "文件已存在"}), 409
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/resources/<path:path>", methods=["DELETE"])
+def ip_resource_delete(path: str):
+    try:
+        deleted = resource_manager.delete_resource(path)
+        if deleted:
+            return jsonify({"success": True, "message": "文件已删除"})
+        else:
+            return jsonify({"success": False, "message": "资源文件不存在"}), 404
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/resources/fetch", methods=["POST"])
+def ip_resource_fetch():
+    try:
+        payload = request.get_json(silent=True) or {}
+        spider_name = str(payload.get("spider", ""))
+        params = payload.get("params", {})
+        if not spider_name:
+            return jsonify({"success": False, "message": "爬虫名称不能为空"}), 400
+        result = resource_manager.fetch_auto_resources(spider_name, params)
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/resources/merge", methods=["POST"])
+def ip_resource_merge():
+    try:
+        payload = request.get_json(silent=True) or {}
+        sources = payload.get("sources", [])
+        output_name = str(payload.get("output_name", ""))
+        if not sources or not output_name:
+            return jsonify({"success": False, "message": "源文件列表和输出文件名不能为空"}), 400
+        result = resource_manager.merge_resources(sources, output_name)
+        return jsonify({"success": True, **result, "message": "合并完成"}), 201
+    except FileExistsError:
+        return jsonify({"success": False, "message": "输出文件已存在"}), 409
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/resources/sources", methods=["GET"])
+def ip_resource_sources():
+    try:
+        sources = resource_manager.get_source_info()
+        return jsonify({"success": True, "sources": sources})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/resources/countries", methods=["GET"])
+def ip_resource_countries():
+    try:
+        countries = resource_manager.get_country_list()
+        return jsonify({"success": True, "countries": countries})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+def _tcp_get_qualified_ips(run_id: str) -> list[str]:
+    ip_file = TCP_OUTPUT_ROOT / run_id / "qualified_ips.txt"
+    if not ip_file.exists():
+        return []
+    return [
+        line.strip()
+        for line in ip_file.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+
+
+@attack_resource_bp.route("/tcp/runs/<run_id>/qualified-ips", methods=["GET"])
+def tcp_qualified_ips(run_id: str):
+    try:
+        qualified = _tcp_get_qualified_ips(run_id)
+        return jsonify({
+            "success": True,
+            "qualified_ips": qualified,
+            "qualified_count": len(qualified),
+        })
+    except FileNotFoundError:
+        return jsonify({"success": False, "message": "Run not found"}), 404
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500

@@ -47,6 +47,416 @@ let attackResourceTaskFrameworkInitialized = false;
 let currentAttackResourceFile = null;
 const attackResourceControllers = {};
 
+let ipResourceListCache = [];
+let ipResourceFilterCache = {};
+let currentEditingResourcePath = null;
+let ipResourceSources = [];
+let ipResourceCountries = [];
+
+const IPResourceManager = (() => {
+    function getApiUrl(endpoint) {
+        return `/api/attack-resource${endpoint}`;
+    }
+
+    async function fetchResources(filters = {}) {
+        const params = new URLSearchParams();
+        if (filters.type) params.set('type', filters.type);
+        if (filters.source) params.set('source', filters.source);
+        if (filters.country) params.set('country', filters.country);
+        if (filters.protocol) params.set('protocol', filters.protocol);
+
+        const resp = await fetch(`${getApiUrl('/resources')}?${params.toString()}`);
+        const data = await resp.json();
+        if (data.success) {
+            ipResourceListCache = data.resources;
+            ipResourceFilterCache = data.filters;
+            return data;
+        }
+        throw new Error(data.message || '获取资源失败');
+    }
+
+    async function fetchSources() {
+        const resp = await fetch(getApiUrl('/resources/sources'));
+        const data = await resp.json();
+        if (data.success) {
+            ipResourceSources = data.sources;
+            return data.sources;
+        }
+        return [];
+    }
+
+    async function fetchCountries() {
+        const resp = await fetch(getApiUrl('/resources/countries'));
+        const data = await resp.json();
+        if (data.success) {
+            ipResourceCountries = data.countries;
+            return data.countries;
+        }
+        return [];
+    }
+
+    async function readResource(path) {
+        const resp = await fetch(getApiUrl(`/resources/${encodeURIComponent(path)}`));
+        const data = await resp.json();
+        if (data.success) {
+            return data.resource;
+        }
+        throw new Error(data.message || '读取资源失败');
+    }
+
+    async function writeResource(path, content) {
+        const resp = await fetch(getApiUrl(`/resources/${encodeURIComponent(path)}`), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content })
+        });
+        const data = await resp.json();
+        if (data.success) {
+            return data.resource;
+        }
+        throw new Error(data.message || '写入资源失败');
+    }
+
+    async function createResource(filename, content) {
+        const resp = await fetch(getApiUrl('/resources'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename, content })
+        });
+        const data = await resp.json();
+        if (data.success) {
+            return data.resource;
+        }
+        throw new Error(data.message || '创建资源失败');
+    }
+
+    async function deleteResource(path) {
+        const resp = await fetch(getApiUrl(`/resources/${encodeURIComponent(path)}`), {
+            method: 'DELETE'
+        });
+        const data = await resp.json();
+        if (data.success) {
+            return true;
+        }
+        throw new Error(data.message || '删除资源失败');
+    }
+
+    async function fetchAutoResources(spiderName, params) {
+        const resp = await fetch(getApiUrl('/resources/fetch'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ spider: spiderName, params })
+        });
+        const data = await resp.json();
+        return data;
+    }
+
+    return {
+        fetchResources,
+        fetchSources,
+        fetchCountries,
+        readResource,
+        writeResource,
+        createResource,
+        deleteResource,
+        fetchAutoResources
+    };
+})();
+
+const IPResourceUi = (() => {
+    function openManageModal() {
+        document.getElementById('ipResourceModal').hidden = false;
+        loadResourceList();
+    }
+
+    function closeManageModal() {
+        document.getElementById('ipResourceModal').hidden = true;
+    }
+
+    async function loadResourceList() {
+        const filters = {
+            type: document.getElementById('ipResourceFilterType').value,
+            source: document.getElementById('ipResourceFilterSource').value,
+            country: document.getElementById('ipResourceFilterCountry').value,
+            protocol: document.getElementById('ipResourceFilterProtocol').value
+        };
+
+        try {
+            const data = await IPResourceManager.fetchResources(filters);
+            renderResourceList(data.resources);
+            updateFilterDropdowns(data.filters);
+        } catch (e) {
+            console.error('加载资源列表失败:', e);
+        }
+    }
+
+    function renderResourceList(resources) {
+        const listEl = document.getElementById('ipResourceList');
+        if (!resources.length) {
+            listEl.innerHTML = '<div class="info-text">暂无资源文件。可以点击"新建文件"或"自动获取"添加资源。</div>';
+            return;
+        }
+
+        const grouped = {};
+        resources.forEach(r => {
+            const key = r.type === 'manual' ? 'manual' : `auto_${r.source || 'other'}`;
+            if (!grouped[key]) grouped[key] = [];
+            grouped[key].push(r);
+        });
+
+        let html = '';
+        const groupLabels = {
+            manual: '手动创建',
+            auto_ipdeny: 'IPdeny (自动获取)',
+            auto_shodan: 'Shodan (自动获取)',
+            auto_fofa: 'FOFA (自动获取)',
+            auto_other: '其他自动获取'
+        };
+
+        for (const [key, items] of Object.entries(grouped)) {
+            html += `<div class="ip-resource-group"><div class="ip-resource-group-header">${groupLabels[key] || key}</div>`;
+            items.forEach(item => {
+                const tags = [];
+                if (item.country_name) tags.push(`<span class="tag country">${item.country_name}</span>`);
+                if (item.protocol_name) tags.push(`<span class="tag protocol">${item.protocol_name}</span>`);
+                if (item.source_name) tags.push(`<span class="tag source">${item.source_name}</span>`);
+
+                html += `
+                <div class="ip-resource-item" data-path="${escapeHtml(item.path)}">
+                    <div class="ip-resource-item-header">
+                        <span class="ip-resource-item-name">${escapeHtml(item.filename)}</span>
+                        <span class="ip-resource-item-count">${item.non_empty_lines} 行</span>
+                    </div>
+                    <div class="ip-resource-item-tags">${tags.join('')}</div>
+                    <div class="ip-resource-item-meta">
+                        ${item.fetch_time ? `<span>获取时间: ${formatDateTime(item.fetch_time)}</span>` : ''}
+                        ${item.size_bytes ? `<span>大小: ${formatFileSize(item.size_bytes)}</span>` : ''}
+                    </div>
+                    <div class="ip-resource-item-actions">
+                        <button type="button" class="btn btn-outline btn-sm" onclick="IPResourceUi.openEdit('${escapeHtml(item.path)}')"><i class="fas fa-pen"></i>编辑</button>
+                        ${item.type === 'manual' ? `<button type="button" class="btn btn-danger btn-sm" onclick="IPResourceUi.deleteResource('${escapeHtml(item.path)}')"><i class="fas fa-trash"></i>删除</button>` : ''}
+                    </div>
+                </div>`;
+            });
+            html += '</div>';
+        }
+
+        listEl.innerHTML = html;
+    }
+
+    function updateFilterDropdowns(filters) {
+        const sourceSelect = document.getElementById('ipResourceFilterSource');
+        const currentValue = sourceSelect.value;
+        sourceSelect.innerHTML = '<option value="">全部</option>';
+        filters.sources.forEach(s => {
+            sourceSelect.innerHTML += `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`;
+        });
+        sourceSelect.value = currentValue;
+
+        const countrySelect = document.getElementById('ipResourceFilterCountry');
+        const currentCountry = countrySelect.value;
+        countrySelect.innerHTML = '<option value="">全部</option>';
+        filters.countries.forEach(c => {
+            countrySelect.innerHTML += `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`;
+        });
+        countrySelect.value = currentCountry;
+    }
+
+    async function openEdit(path) {
+        try {
+            const resource = await IPResourceManager.readResource(path);
+            currentEditingResourcePath = path;
+
+            document.getElementById('ipResourceEditFilename').value = resource.filename;
+            document.getElementById('ipResourceEditContent').value = resource.content;
+            document.getElementById('ipResourceEditPath').textContent = resource.path;
+            document.getElementById('ipResourceEditSize').textContent = formatFileSize(resource.size_bytes);
+            document.getElementById('ipResourceEditLines').textContent = resource.non_empty_lines;
+
+            document.getElementById('ipResourceDeleteBtn').style.display = resource.type === 'manual' ? '' : 'none';
+            document.getElementById('ipResourceModal').hidden = true;
+            document.getElementById('ipResourceEditModal').hidden = false;
+        } catch (e) {
+            console.error('打开编辑失败:', e);
+        }
+    }
+
+    async function saveEdit() {
+        if (!currentEditingResourcePath) return;
+
+        const content = document.getElementById('ipResourceEditContent').value;
+        try {
+            await IPResourceManager.writeResource(currentEditingResourcePath, content);
+            closeEdit();
+            loadResourceList();
+        } catch (e) {
+            console.error('保存失败:', e);
+            alert('保存失败: ' + e.message);
+        }
+    }
+
+    function closeEdit() {
+        document.getElementById('ipResourceEditModal').hidden = true;
+        currentEditingResourcePath = null;
+    }
+
+    async function deleteResource(path) {
+        if (!confirm('确定要删除这个文件吗？')) return;
+
+        try {
+            await IPResourceManager.deleteResource(path);
+            loadResourceList();
+        } catch (e) {
+            console.error('删除失败:', e);
+            alert('删除失败: ' + e.message);
+        }
+    }
+
+    function openNewModal() {
+        document.getElementById('ipResourceNewFilename').value = '';
+        document.getElementById('ipResourceNewContent').value = '';
+        document.getElementById('ipResourceModal').hidden = true;
+        document.getElementById('ipResourceNewModal').hidden = false;
+    }
+
+    async function createNew() {
+        const filename = document.getElementById('ipResourceNewFilename').value.trim();
+        const content = document.getElementById('ipResourceNewContent').value;
+
+        if (!filename) {
+            alert('请输入文件名');
+            return;
+        }
+
+        try {
+            await IPResourceManager.createResource(filename, content);
+            closeNew();
+            loadResourceList();
+        } catch (e) {
+            console.error('创建失败:', e);
+            alert('创建失败: ' + e.message);
+        }
+    }
+
+    function closeNew() {
+        document.getElementById('ipResourceNewModal').hidden = true;
+    }
+
+    function openFetchModal() {
+        document.getElementById('ipResourceFetchStatus').textContent = '';
+        document.getElementById('ipResourceFetchParams').innerHTML = '';
+        updateFetchParams();
+        document.getElementById('ipResourceModal').hidden = true;
+        document.getElementById('ipResourceFetchModal').hidden = false;
+    }
+
+    function updateFetchParams() {
+        const source = document.getElementById('ipResourceFetchSource').value;
+        const container = document.getElementById('ipResourceFetchParams');
+
+        if (source === 'ipdeny') {
+            container.innerHTML = `
+                <div class="form-group">
+                    <label>选择国家</label>
+                    <select id="ipResourceFetchCountries" multiple size="5">
+                        ${ipResourceCountries.map(c => `<option value="${c.code}" selected>${c.name}</option>`).join('')}
+                    </select>
+                    <div class="dns-field-hint">按住 Ctrl/Cmd 可多选国家</div>
+                </div>`;
+        } else if (source === 'shodan' || source === 'fofa') {
+            container.innerHTML = `
+                <div class="form-group">
+                    <label>选择协议类型</label>
+                    <select id="ipResourceFetchProtocol">
+                        <option value="dns">DNS</option>
+                        <option value="memcached">Memcached</option>
+                        <option value="ntp">NTP</option>
+                        <option value="snmp">SNMP</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>结果数量限制</label>
+                    <input type="number" id="ipResourceFetchLimit" value="1000" min="10" max="10000">
+                </div>`;
+        }
+    }
+
+    async function startFetch() {
+        const source = document.getElementById('ipResourceFetchSource').value;
+        const statusEl = document.getElementById('ipResourceFetchStatus');
+        statusEl.textContent = '正在获取资源...';
+
+        try {
+            let params = {};
+            if (source === 'ipdeny') {
+                const countries = Array.from(document.getElementById('ipResourceFetchCountries').selectedOptions)
+                    .map(opt => opt.value);
+                params = { countries };
+            } else if (source === 'shodan' || source === 'fofa') {
+                const protocol = document.getElementById('ipResourceFetchProtocol').value;
+                const limit = parseInt(document.getElementById('ipResourceFetchLimit').value);
+                params = { queries: [protocol], limit };
+            }
+
+            const result = await IPResourceManager.fetchAutoResources(source, params);
+
+            if (result.success) {
+                const files = result.files || [];
+                const successCount = files.filter(f => !f.error).length;
+                statusEl.innerHTML = `<span style="color:green;">获取完成！成功 ${successCount}/${files.length} 个资源</span>`;
+                setTimeout(() => {
+                    closeFetch();
+                    loadResourceList();
+                }, 1500);
+            } else {
+                statusEl.innerHTML = `<span style="color:red;">获取失败: ${result.error || '未知错误'}</span>`;
+            }
+        } catch (e) {
+            statusEl.innerHTML = `<span style="color:red;">获取失败: ${e.message}</span>`;
+        }
+    }
+
+    function closeFetch() {
+        document.getElementById('ipResourceFetchModal').hidden = true;
+    }
+
+    function escapeHtml(str) {
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function formatDateTime(isoStr) {
+        try {
+            const date = new Date(isoStr);
+            return date.toLocaleString('zh-CN');
+        } catch {
+            return isoStr;
+        }
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    return {
+        openManageModal,
+        closeManageModal,
+        loadResourceList,
+        openEdit,
+        saveEdit,
+        closeEdit,
+        deleteResource,
+        openNewModal,
+        createNew,
+        closeNew,
+        openFetchModal,
+        updateFetchParams,
+        startFetch,
+        closeFetch
+    };
+})();
+
 const FormPersistence = (() => {
     const NS = "pressure_console:";
     const VERSION = 1;
@@ -468,6 +878,7 @@ document.addEventListener("DOMContentLoaded", () => {
     bindControls();
     initAttackResourceView();
     initAttackResourceTaskFramework();
+    initIpResourceManager();
     toggleMultiProtocol();
     initConsoleFormPersistence();
     initLatencyFormPersistence();
@@ -481,6 +892,53 @@ document.addEventListener("DOMContentLoaded", () => {
     setInterval(updateSystemInfo, 3000);
     setInterval(updateDetailedSystemInfo, 2000);
 });
+
+function initIpResourceManager() {
+    IPResourceManager.fetchCountries().catch(() => {});
+    IPResourceManager.fetchSources().catch(() => {});
+
+    document.getElementById('attackResourceManageBtn')?.addEventListener('click', IPResourceUi.openManageModal);
+    document.getElementById('ipResourceModalClose')?.addEventListener('click', IPResourceUi.closeManageModal);
+    document.getElementById('ipResourceRefreshBtn')?.addEventListener('click', IPResourceUi.loadResourceList);
+    document.getElementById('ipResourceNewBtn')?.addEventListener('click', IPResourceUi.openNewModal);
+    document.getElementById('ipResourceFetchBtn')?.addEventListener('click', IPResourceUi.openFetchModal);
+
+    document.getElementById('ipResourceFilterType')?.addEventListener('change', IPResourceUi.loadResourceList);
+    document.getElementById('ipResourceFilterSource')?.addEventListener('change', IPResourceUi.loadResourceList);
+    document.getElementById('ipResourceFilterCountry')?.addEventListener('change', IPResourceUi.loadResourceList);
+    document.getElementById('ipResourceFilterProtocol')?.addEventListener('change', IPResourceUi.loadResourceList);
+
+    document.getElementById('ipResourceEditClose')?.addEventListener('click', IPResourceUi.closeEdit);
+    document.getElementById('ipResourceEditCancel')?.addEventListener('click', IPResourceUi.closeEdit);
+    document.getElementById('ipResourceEditSave')?.addEventListener('click', IPResourceUi.saveEdit);
+    document.getElementById('ipResourceDeleteBtn')?.addEventListener('click', () => {
+        if (currentEditingResourcePath) {
+            IPResourceUi.deleteResource(currentEditingResourcePath);
+        }
+    });
+
+    document.getElementById('ipResourceNewClose')?.addEventListener('click', IPResourceUi.closeNew);
+    document.getElementById('ipResourceNewCancel')?.addEventListener('click', IPResourceUi.closeNew);
+    document.getElementById('ipResourceNewCreate')?.addEventListener('click', IPResourceUi.createNew);
+
+    document.getElementById('ipResourceFetchClose')?.addEventListener('click', IPResourceUi.closeFetch);
+    document.getElementById('ipResourceFetchCancel')?.addEventListener('click', IPResourceUi.closeFetch);
+    document.getElementById('ipResourceFetchStart')?.addEventListener('click', IPResourceUi.startFetch);
+    document.getElementById('ipResourceFetchSource')?.addEventListener('change', IPResourceUi.updateFetchParams);
+
+    document.querySelectorAll('[data-dismiss="ip-resource-modal"]').forEach(el => {
+        el.addEventListener('click', IPResourceUi.closeManageModal);
+    });
+    document.querySelectorAll('[data-dismiss="ip-resource-edit-modal"]').forEach(el => {
+        el.addEventListener('click', IPResourceUi.closeEdit);
+    });
+    document.querySelectorAll('[data-dismiss="ip-resource-fetch-modal"]').forEach(el => {
+        el.addEventListener('click', IPResourceUi.closeFetch);
+    });
+    document.querySelectorAll('[data-dismiss="ip-resource-new-modal"]').forEach(el => {
+        el.addEventListener('click', IPResourceUi.closeNew);
+    });
+}
 
 function localizeTcpScanView() {
     const log = document.getElementById("tcpPipelineLog");

@@ -9,34 +9,48 @@ from .config import repo_root
 
 
 def list_ip_resources(ip_root: str | Path | None = None) -> list[dict[str, Any]]:
-    roots: list[Path] = []
-    if ip_root:
-        roots.append(Path(ip_root))
-    else:
-        # 同时扫描 TCP 专用目录和共享目录
-        roots.append(repo_root() / "attack_resources" / "tcp" / "resources" / "ip_lists")
-        shared = repo_root() / "attack_resources" / "shared" / "ip_lists"
-        if shared.exists():
-            roots.append(shared)
+    try:
+        from ...shared.ip_resource_manager import IPResourceManager
+        manager = IPResourceManager()
+        result = manager.list_resources(filter_type=None, filter_source=None, filter_country=None, filter_protocol=None)
+        return [
+            {
+                "name": r["filename"].replace(".txt", ""),
+                "filename": r["filename"],
+                "path": r["path"],
+                "bytes": r.get("size_bytes", 0),
+                "non_empty_lines": r.get("non_empty_lines", 0),
+            }
+            for r in result["resources"]
+        ]
+    except ImportError:
+        roots: list[Path] = []
+        if ip_root:
+            roots.append(Path(ip_root))
+        else:
+            roots.append(repo_root() / "attack_resources" / "tcp" / "resources" / "ip_lists")
+            shared = repo_root() / "attack_resources" / "shared" / "ip_lists"
+            if shared.exists():
+                roots.append(shared)
 
-    seen: set[str] = set()
-    resources: list[dict[str, Any]] = []
-    for root in roots:
-        if not root.exists():
-            continue
-        for path in sorted(root.glob("*.txt")):
-            if path.name in seen:
+        seen: set[str] = set()
+        resources: list[dict[str, Any]] = []
+        for root in roots:
+            if not root.exists():
                 continue
-            seen.add(path.name)
-            line_count = _count_non_empty_lines(path)
-            resources.append({
-                "name": path.stem,
-                "filename": path.name,
-                "path": str(path),
-                "bytes": path.stat().st_size,
-                "non_empty_lines": line_count,
-            })
-    return resources
+            for path in sorted(root.glob("*.txt")):
+                if path.name in seen:
+                    continue
+                seen.add(path.name)
+                line_count = _count_non_empty_lines(path)
+                resources.append({
+                    "name": path.stem,
+                    "filename": path.name,
+                    "path": str(path),
+                    "bytes": path.stat().st_size,
+                    "non_empty_lines": line_count,
+                })
+        return resources
 
 
 def list_runs(output_root: str | Path | None = None) -> list[dict[str, Any]]:
