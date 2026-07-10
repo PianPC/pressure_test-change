@@ -99,14 +99,14 @@ memcached_registry = MemcachedScanRegistry()
 # ── 辅助函数 ────────────────────────────────────────────
 
 def _list_ip_files(search_dirs: Optional[List[Path]] = None) -> List[Dict[str, Any]]:
-    """列出可用的 IP 候选文件"""
+    """列出可用的 IP 候选文件（支持子目录）"""
     files: List[Dict[str, Any]] = []
     seen = set()
     dirs = search_dirs or DEFAULT_IP_SEARCH_DIRS
     for d in dirs:
         if not d.exists():
             continue
-        for p in sorted(d.glob("*.txt")):
+        for p in sorted(d.rglob("*.txt")):
             if p.name in seen:
                 continue
             seen.add(p.name)
@@ -119,10 +119,12 @@ def _list_ip_files(search_dirs: Optional[List[Path]] = None) -> List[Dict[str, A
                             count += 1
             except Exception:
                 count = 0
+            rel_path = p.relative_to(d)
             files.append({
                 "name": p.name,
                 "path": str(p),
                 "entry_count": count,
+                "sub_dir": str(rel_path.parent) if rel_path.parent != Path(".") else "",
             })
     return files
 

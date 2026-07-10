@@ -233,8 +233,8 @@ const IPResourceUi = (() => {
                         ${item.size_bytes ? `<span>大小: ${formatFileSize(item.size_bytes)}</span>` : ''}
                     </div>
                     <div class="ip-resource-item-actions">
-                        <button type="button" class="btn btn-outline btn-sm" onclick="IPResourceUi.openEdit('${escapeHtml(item.path)}')"><i class="fas fa-pen"></i>编辑</button>
-                        ${item.type === 'manual' ? `<button type="button" class="btn btn-danger btn-sm" onclick="IPResourceUi.deleteResource('${escapeHtml(item.path)}')"><i class="fas fa-trash"></i>删除</button>` : ''}
+                        <button type="button" class="btn btn-outline btn-sm ip-resource-edit-btn"><i class="fas fa-pen"></i>编辑</button>
+                        ${item.type === 'manual' ? `<button type="button" class="btn btn-danger btn-sm ip-resource-delete-btn"><i class="fas fa-trash"></i>删除</button>` : ''}
                     </div>
                 </div>`;
             });
@@ -242,6 +242,20 @@ const IPResourceUi = (() => {
         }
 
         listEl.innerHTML = html;
+
+        listEl.querySelectorAll('.ip-resource-edit-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const path = e.target.closest('.ip-resource-item').dataset.path;
+                openEdit(path);
+            });
+        });
+
+        listEl.querySelectorAll('.ip-resource-delete-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const path = e.target.closest('.ip-resource-item').dataset.path;
+                deleteResource(path);
+            });
+        });
     }
 
     function updateFilterDropdowns(filters) {
@@ -357,12 +371,47 @@ const IPResourceUi = (() => {
         if (source === 'ipdeny') {
             container.innerHTML = `
                 <div class="form-group">
-                    <label>选择国家</label>
-                    <select id="ipResourceFetchCountries" multiple size="5">
-                        ${ipResourceCountries.map(c => `<option value="${c.code}" selected>${c.name}</option>`).join('')}
-                    </select>
-                    <div class="dns-field-hint">按住 Ctrl/Cmd 可多选国家</div>
+                    <label>搜索国家</label>
+                    <input type="text" id="ipResourceCountrySearch" placeholder="输入国家名称搜索..." class="wide">
+                </div>
+                <div class="form-group">
+                    <label>选择国家（可多选）</label>
+                    <div class="country-select-container">
+                        <select id="ipResourceFetchCountries" multiple size="12" class="country-select">
+                            ${ipResourceCountries.map(c => `<option value="${c.code}" selected>${c.name} (${c.code.toUpperCase()})</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-top: 8px;">
+                        <button type="button" id="ipResourceSelectAll" class="btn btn-outline btn-sm">全选</button>
+                        <button type="button" id="ipResourceDeselectAll" class="btn btn-outline btn-sm">取消全选</button>
+                    </div>
+                    <div class="dns-field-hint">按住 Ctrl/Cmd 可多选，Shift 可选择范围</div>
                 </div>`;
+
+            const searchInput = document.getElementById('ipResourceCountrySearch');
+            const selectEl = document.getElementById('ipResourceFetchCountries');
+            const selectAllBtn = document.getElementById('ipResourceSelectAll');
+            const deselectAllBtn = document.getElementById('ipResourceDeselectAll');
+
+            searchInput?.addEventListener('input', (e) => {
+                const keyword = e.target.value.toLowerCase();
+                Array.from(selectEl.options).forEach(opt => {
+                    const visible = opt.text.toLowerCase().includes(keyword);
+                    opt.style.display = visible ? '' : 'none';
+                });
+            });
+
+            selectAllBtn?.addEventListener('click', () => {
+                Array.from(selectEl.options).forEach(opt => {
+                    opt.selected = opt.style.display !== 'none';
+                });
+            });
+
+            deselectAllBtn?.addEventListener('click', () => {
+                Array.from(selectEl.options).forEach(opt => {
+                    opt.selected = false;
+                });
+            });
         } else if (source === 'shodan' || source === 'fofa') {
             container.innerHTML = `
                 <div class="form-group">
@@ -1596,17 +1645,37 @@ async function loadTcpResources() {
     const select = document.getElementById("tcpIpFile");
     if (!select) return;
     try {
-        const response = await fetch("/api/tcp-scan/resources");
+        const response = await fetch("/api/attack-resource/resources");
         const data = await response.json();
         if (!data.success) throw new Error(data.message || "TCP 资源加载失败");
+        
         select.innerHTML = "";
-        (data.resources || []).forEach((resource) => {
+        const resources = data.resources || [];
+        
+        const grouped = { manual: [], auto: [] };
+        resources.forEach(r => {
+            const key = r.type === 'manual' ? 'manual' : 'auto';
+            grouped[key].push(r);
+        });
+
+        grouped.manual.forEach(resource => {
             const option = document.createElement("option");
             option.value = resource.path || resource.filename;
-            option.textContent = `${resource.filename} (${resource.non_empty_lines || 0})`;
+            option.textContent = `[手动] ${resource.filename} (${resource.non_empty_lines || 0}行)`;
             if (resource.filename === "test.txt") option.selected = true;
             select.appendChild(option);
         });
+
+        grouped.auto.forEach(resource => {
+            const option = document.createElement("option");
+            option.value = resource.path || resource.filename;
+            const source = resource.source_name || resource.source || 'auto';
+            const country = resource.country_name ? ` ${resource.country_name}` : '';
+            const protocol = resource.protocol_name ? ` ${resource.protocol_name}` : '';
+            option.textContent = `[${source}] ${resource.filename} (${resource.non_empty_lines || 0}行)${country}${protocol}`;
+            select.appendChild(option);
+        });
+
         updateWorkflowIndicators();
     } catch (error) {
         showNotification(`TCP 资源加载失败：${error.message}`, "error");
@@ -3865,10 +3934,11 @@ async function loadDnsIpFiles() {
             return;
         }
         select.innerHTML = resources.map((f) => {
-            const location = (f.path || "").includes("attack_resources\\shared\\ip_lists")
+            const location = (f.path || "").includes("attack_resources/shared/ip_lists") || (f.path || "").includes("attack_resources\\shared\\ip_lists")
                 ? "共享目录"
                 : "DNS 目录";
-            return `<option value="${escapeHtml(f.path)}">${escapeHtml(f.name)} · ${f.entry_count} 条 · ${location}</option>`;
+            const subDir = f.sub_dir ? ` · ${f.sub_dir}` : "";
+            return `<option value="${escapeHtml(f.path)}">${escapeHtml(f.name)} · ${f.entry_count} 条 · ${location}${subDir}</option>`;
         }).join("");
         updateDnsIpFileSummary(resources);
     } catch (e) { /* ignore */ }
@@ -4924,8 +4994,9 @@ function renderUnifiedNtpResources(resources = []) {
         return;
     }
     select.innerHTML = resources.map((file) => {
-        const location = (file.path || "").includes("attack_resources\\shared\\ip_lists") ? "共享目录" : "NTP 目录";
-        return `<option value="${escapeHtml(file.path || "")}">${escapeHtml(file.name)} · ${file.entry_count || 0} 条 · ${location}</option>`;
+        const location = (file.path || "").includes("attack_resources/shared/ip_lists") || (file.path || "").includes("attack_resources\\shared\\ip_lists") ? "共享目录" : "NTP 目录";
+        const subDir = file.sub_dir ? ` · ${file.sub_dir}` : "";
+        return `<option value="${escapeHtml(file.path || "")}">${escapeHtml(file.name)} · ${file.entry_count || 0} 条 · ${location}${subDir}</option>`;
     }).join("");
     updateNtpIpFileSummary(resources);
 }
@@ -4962,8 +5033,9 @@ function renderUnifiedMemcachedResources(resources = []) {
         return;
     }
     select.innerHTML = resources.map((file) => {
-        const location = (file.path || "").includes("attack_resources\\shared\\ip_lists") ? "共享目录" : "Memcached 目录";
-        return `<option value="${escapeHtml(file.path || "")}">${escapeHtml(file.name)} · ${file.entry_count || 0} 条 · ${location}</option>`;
+        const location = (file.path || "").includes("attack_resources/shared/ip_lists") || (file.path || "").includes("attack_resources\\shared\\ip_lists") ? "共享目录" : "Memcached 目录";
+        const subDir = file.sub_dir ? ` · ${file.sub_dir}` : "";
+        return `<option value="${escapeHtml(file.path || "")}">${escapeHtml(file.name)} · ${file.entry_count || 0} 条 · ${location}${subDir}</option>`;
     }).join("");
     updateMemcachedIpFileSummary(resources);
 }
