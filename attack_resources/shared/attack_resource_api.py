@@ -67,31 +67,47 @@ from attack_resources.ntp.code.routes import (
     ntp_registry,
     ScanConfig as NtpScanConfig,
 )
-
+from attack_resources.memcached.code.memcached_resource_scanner import (
+    MEMCACHED_CMD_TYPES,
+    MemcachedResourceScanner,
+)
+from attack_resources.memcached.code.routes import (
+    MEMCACHED_OUTPUT_ROOT,
+    _build_config_dict as memcached_build_config_dict,
+    _float_or as memcached_float_or,
+    _generate_run_id as memcached_generate_run_id,
+    _int_or as memcached_int_or,
+    _list_ip_files as memcached_list_ip_files,
+    _list_run_dirs as memcached_list_run_dirs,
+    _read_run_file as memcached_read_run_file,
+    _read_run_log as memcached_read_run_log,
+    memcached_registry,
+    ScanConfig as MemcachedScanConfig,
+)
 
 attack_resource_bp = Blueprint("attack_resource", __name__, url_prefix="/api/attack-resource")
 
 EDITABLE_TEXT_SUFFIXES = {".log", ".txt", ".csv", ".json"}
 TCP_STAGE_ORDER = [
-    ("prepare_zmap", "准备 ZMap"),
-    ("run_zmap_scan", "执行 ZMap 扫描"),
-    ("process_scan_csv", "处理扫描 CSV"),
-    ("extract_ips", "提取 IP"),
-    ("run_amplification_test", "执行放大测试"),
-    ("analyze_amplification_log", "分析放大日志"),
+    ("prepare_zmap", "\u51c6\u5907 ZMap"),
+    ("run_zmap_scan", "\u6267\u884c ZMap \u626b\u63cf"),
+    ("process_scan_csv", "\u5904\u7406\u626b\u63cf CSV"),
+    ("extract_ips", "\u63d0\u53d6 IP"),
+    ("run_amplification_test", "\u6267\u884c\u653e\u5927\u6d4b\u8bd5"),
+    ("analyze_amplification_log", "\u5206\u6790\u653e\u5927\u65e5\u5fd7"),
 ]
 DNS_STAGE_ORDER = [
-    ("loading", "加载候选 IP"),
-    ("scanning", "放大率测量"),
-    ("filtering", "按阈值筛选"),
-    ("saving", "保存结果"),
+    ("loading", "\u52a0\u8f7d IP \u5019\u9009"),
+    ("scanning", "\u653e\u5927\u7387\u6d4b\u91cf"),
+    ("filtering", "\u6309\u9608\u503c\u7b5b\u9009"),
+    ("saving", "\u4fdd\u5b58\u7ed3\u679c"),
 ]
 
 NTP_STAGE_ORDER = [
-    ("loading", "加载候选 IP"),
-    ("scanning", "执行 NTP 探测"),
-    ("filtering", "筛选高倍率目标"),
-    ("saving", "保存结果"),
+    ("loading", "\u52a0\u8f7d IP \u5019\u9009"),
+    ("scanning", "\u6267\u884c NTP \u63a2\u6d4b"),
+    ("filtering", "\u7b5b\u9009\u9ad8\u500d\u7387\u76ee\u6807"),
+    ("saving", "\u4fdd\u5b58\u7ed3\u679c"),
 ]
 
 
@@ -143,12 +159,12 @@ def _build_tcp_run_payload(run_id: str) -> dict[str, Any]:
 
     files = summary.get("files", [])
     detail_items = [
-        {"label": "当前阶段", "value": next((item["label"] for item in normalized_stages if item["key"] == current_stage), "-")},
-        {"label": "开始时间", "value": summary.get("started_at") or "-"},
-        {"label": "结束时间", "value": summary.get("ended_at") or "-"},
-        {"label": "模拟运行", "value": "是" if config.get("dry_run") else "否"},
-        {"label": "停止请求", "value": "已请求" if summary.get("stop_requested") else "未请求"},
-        {"label": "失败原因", "value": runtime_error or "-"},
+        {"label": "\u5f53\u524d\u9636\u6bb5", "value": next((item["label"] for item in normalized_stages if item["key"] == current_stage), "-")},
+        {"label": "\u5f00\u59cb\u65f6\u95f4", "value": summary.get("started_at") or "-"},
+        {"label": "\u7ed3\u675f\u65f6\u95f4", "value": summary.get("ended_at") or "-"},
+        {"label": "\u6a21\u62df\u8fd0\u884c", "value": "\u662f" if config.get("dry_run") else "\u5426"},
+        {"label": "\u505c\u6b62\u8bf7\u6c42", "value": "\u5df2\u8bf7\u6c42" if summary.get("stop_requested") else "\u672a\u8bf7\u6c42"},
+        {"label": "\u5931\u8d25\u539f\u56e0", "value": runtime_error or "-"},
     ]
 
     return {
@@ -203,7 +219,7 @@ def _tcp_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
         if not config.dry_run:
             report = tcp_preflight_check(config)
             if not report["ok"]:
-                return {"success": False, "message": "预检未通过", "report": report}, 400
+                return {"success": False, "message": "\u9884\u68c0\u672a\u901a\u8fc7", "report": report}, 400
 
     for config in configs:
         metadata = tcp_prepare_run_metadata(config)
@@ -222,7 +238,7 @@ def _tcp_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
 
     return {
         "success": True,
-        "message": "TCP 资源获取任务已创建",
+        "message": "TCP \u8d44\u6e90\u83b7\u53d6\u4efb\u52a1\u5df2\u521b\u5efa",
         "run_ids": [item["run_id"] for item in created],
         "runs": created,
     }, 200
@@ -244,7 +260,7 @@ def _tcp_clear() -> dict[str, Any]:
     tcp_scan_registry.forget(deleted)
     return {
         "success": True,
-        "message": f"已清除 {len(deleted)} 条历史记录",
+        "message": f"\u5df2\u6e05\u7406 {len(deleted)} \u6761\u5386\u53f2\u8bb0\u5f55",
         "deleted": deleted,
         "skipped": skipped,
     }
@@ -314,14 +330,14 @@ def _build_dns_run_payload(run_id: str) -> dict[str, Any]:
 
     qualified_ips = _dns_get_qualified_ips(run_id, scanner)
     detail_items = [
-        {"label": "当前阶段", "value": _dns_stage_status_label(stats.get("stage"), is_running)},
-        {"label": "查询类型", "value": config_dict.get("query_type") or "-"},
-        {"label": "DNSSEC", "value": "开启" if config_dict.get("use_dnssec") is True else ("关闭" if config_dict.get("use_dnssec") is False else "-")},
-        {"label": "并发数", "value": config_dict.get("concurrency", "-")},
-        {"label": "最小放大率", "value": config_dict.get("min_amplification", "-")},
-        {"label": "最小可靠性", "value": config_dict.get("min_reliability", "-")},
-        {"label": "优质 IP", "value": len(qualified_ips)},
-        {"label": "失败原因", "value": runtime_error or "-"},
+        {"label": "\u5f53\u524d\u9636\u6bb5", "value": _dns_stage_status_label(stats.get("stage"), is_running)},
+        {"label": "\u67e5\u8be2\u7c7b\u578b", "value": config_dict.get("query_type") or "-"},
+        {"label": "DNSSEC", "value": "\u5f00\u542f" if config_dict.get("use_dnssec") is True else ("\u5173\u95ed" if config_dict.get("use_dnssec") is False else "-")},
+        {"label": "\u5e76\u53d1\u6570", "value": config_dict.get("concurrency", "-")},
+        {"label": "\u6700\u5c0f\u653e\u5927\u7387", "value": config_dict.get("min_amplification", "-")},
+        {"label": "\u6700\u5c0f\u53ef\u9760\u6027", "value": config_dict.get("min_reliability", "-")},
+        {"label": "\u4f18\u8d28 IP", "value": len(qualified_ips)},
+        {"label": "\u5931\u8d25\u539f\u56e0", "value": runtime_error or "-"},
     ]
 
     return {
@@ -344,10 +360,10 @@ def _build_dns_run_payload(run_id: str) -> dict[str, Any]:
         "artifacts": artifacts,
         "result_preview": {
             "type": "list",
-            "title": "优质 IP",
+            "title": "\u4f18\u8d28 IP",
             "items": qualified_ips[:5],
             "total": len(qualified_ips),
-            "empty_text": "暂无优质 IP。完整结果可通过输出文件查看。",
+            "empty_text": "\u6682\u65e0\u4f18\u8d28 IP\u3002\u5b8c\u6574\u7ed3\u679c\u53ef\u901a\u8fc7\u8f93\u51fa\u6587\u4ef6\u67e5\u770b\u3002",
         },
         "runtime_error": runtime_error,
     }
@@ -355,20 +371,20 @@ def _build_dns_run_payload(run_id: str) -> dict[str, Any]:
 
 def _dns_stage_status_label(stage: str | None, is_running: bool) -> str:
     if stage == "done":
-        return "已完成"
+        return "\u5df2\u5b8c\u6210"
     if stage == "error":
-        return "失败"
+        return "\u5931\u8d25"
     if stage == "stopped":
-        return "已停止"
+        return "\u5df2\u505c\u6b62"
     if stage == "saving":
-        return "保存中" if is_running else "已保存"
+        return "\u4fdd\u5b58\u4e2d" if is_running else "\u5df2\u4fdd\u5b58"
     if stage == "filtering":
-        return "筛选中" if is_running else "已筛选"
+        return "\u7b5b\u9009\u4e2d" if is_running else "\u5df2\u7b5b\u9009"
     if stage == "scanning":
-        return "测量中" if is_running else "已测量"
+        return "\u6d4b\u91cf\u4e2d" if is_running else "\u5df2\u6d4b\u91cf"
     if stage == "loading":
-        return "加载中" if is_running else "已加载"
-    return "运行中" if is_running else "空闲"
+        return "\u52a0\u8f7d\u4e2d" if is_running else "\u5df2\u52a0\u8f7d"
+    return "\u8fd0\u884c\u4e2d" if is_running else "\u7a7a\u95f2"
 
 
 def _normalize_dns_stage_status(stage_status: str | None, final_stage: str | None, current_stage: str | None, stage_key: str) -> str:
@@ -406,7 +422,7 @@ def _build_dns_runs_list() -> dict[str, Any]:
             "status": run.get("status", "idle"),
             "is_running": dns_registry.is_running(run_id),
             "primary_text": run_id,
-            "secondary_text": f"优质: {run.get('qualified_count', 0)} IPs",
+            "secondary_text": f"\u4f18\u8d28: {run.get('qualified_count', 0)} IPs",
             "badge_text": (run.get("stage") or run.get("status") or "-").upper(),
         })
     active_run_ids = dns_registry.active_run_ids()
@@ -418,10 +434,10 @@ def _dns_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     if not ip_file:
         available = dns_list_ip_files()
         if not available:
-            return {"success": False, "message": "没有可用的 IP 候选文件"}, 400
+            return {"success": False, "message": "\u6ca1\u6709\u53ef\u7528\u7684 IP \u5019\u9009\u6587\u4ef6"}, 400
         ip_file = available[0]["path"]
     if not Path(ip_file).exists():
-        return {"success": False, "message": f"IP 文件不存在: {ip_file}"}, 400
+        return {"success": False, "message": f"IP \u6587\u4ef6\u4e0d\u5b58\u5728: {ip_file}"}, 400
 
     domains_str = str(payload.get("test_domains", "")).strip()
     if domains_str:
@@ -442,7 +458,7 @@ def _dns_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
         max_ips=dns_int_or(payload.get("max_ips"), 0),
     )
     if config.query_type not in DNS_TYPE_MAP:
-        return {"success": False, "message": f"不支持的查询类型: {config.query_type}"}, 400
+        return {"success": False, "message": f"\u4e0d\u652f\u6301\u7684\u67e5\u8be2\u7c7b\u578b: {config.query_type}"}, 400
 
     run_id = Path(config.output_dir).name
     os.makedirs(config.output_dir, exist_ok=True)
@@ -473,7 +489,7 @@ def _dns_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     thread.start()
     return {
         "success": True,
-        "message": "DNS 资源获取任务已创建",
+        "message": "DNS \u8d44\u6e90\u83b7\u53d6\u4efb\u52a1\u5df2\u521b\u5efa",
         "run_ids": [run_id],
         "runs": [{"run_id": run_id}],
     }, 200
@@ -499,7 +515,7 @@ def _dns_clear() -> dict[str, Any]:
     dns_registry.forget(deleted)
     return {
         "success": True,
-        "message": f"已清除 {len(deleted)} 条历史记录",
+        "message": f"\u5df2\u6e05\u7406 {len(deleted)} \u6761\u5386\u53f2\u8bb0\u5f55",
         "deleted": deleted,
         "skipped": skipped,
     }
@@ -567,8 +583,8 @@ class TcpAdapter(_ProtoAdapter):
         stopped = tcp_stop_run(run_id, TCP_OUTPUT_ROOT, cleanup=cleanup)
         if not stopped and cleanup:
             cleaned = tcp_cleanup_run_artifacts(run_id, TCP_OUTPUT_ROOT)
-            return {"success": cleaned, "message": "已清理任务产物" if cleaned else "No running process found"}
-        return {"success": stopped, "message": "Stopping TCP scan" if stopped else "No running process found"}
+            return {"success": cleaned, "message": "已清理任务产物" if cleaned else "\u672a\u627e\u5230\u6b63\u5728\u8fd0\u884c\u7684\u8fdb\u7a0b"}
+        return {"success": stopped, "message": "\u6b63\u5728\u505c\u6b62 TCP \u626b\u63cf" if stopped else "\u672a\u627e\u5230\u6b63\u5728\u8fd0\u884c\u7684\u8fdb\u7a0b"}
 
     def get_results(self, run_id: str) -> dict[str, Any]:
         run = _build_tcp_run_payload(run_id)
@@ -640,6 +656,317 @@ class DnsAdapter(_ProtoAdapter):
             "type": "text",
             "editable": False,
             "content": dns_read_run_file(run_id, filename),
+        }
+
+    def write_file(self, run_id: str, filename: str, content: str) -> dict[str, Any]:
+        raise ValueError("File type is not editable")
+
+
+def _build_memcached_run_payload(run_id: str) -> dict[str, Any]:
+    scanner = memcached_registry.get_scanner(run_id)
+    run_dir = MEMCACHED_OUTPUT_ROOT / run_id
+    stats: dict[str, Any] = {}
+    if scanner:
+        stats = scanner.get_stats()
+        is_running = memcached_registry.is_running(run_id)
+    else:
+        stats_path = run_dir / "final_stats.json"
+        summary_path = run_dir / "scan_summary.json"
+        if stats_path.exists():
+            try:
+                stats = json.loads(stats_path.read_text(encoding="utf-8"))
+            except Exception:
+                stats = {}
+        if summary_path.exists():
+            try:
+                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                stats.update(summary)
+            except Exception:
+                pass
+        if run_dir.exists():
+            log_path = run_dir / "pipeline.log"
+            if log_path.exists():
+                try:
+                    lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+                    if lines:
+                        stats.setdefault("log_tail", "\n".join(lines[-200:]))
+                except Exception:
+                    pass
+        is_running = False
+
+    runtime_error = memcached_registry.get_error(run_id) or str(stats.get("error") or "")
+    config = memcached_registry.get_config(run_id)
+    if config:
+        config_dict = memcached_build_config_dict(config)
+    else:
+        config_dict = stats.get("config") if isinstance(stats.get("config"), dict) else None
+    config_dict = config_dict or {}
+
+    current_stage = stats.get("current_stage") or stats.get("stage")
+    normalized_stages = []
+    stage_states = stats.get("stages", {})
+    final_stage = stats.get("stage")
+    for stage_key, stage_label in MEMCACHED_STAGE_ORDER:
+        stage_status = stage_states.get(stage_key, {}).get("status")
+        if not stage_status and is_running and current_stage == stage_key:
+            stage_status = "running"
+        if not stage_status and final_stage == "done":
+            stage_status = "completed"
+        normalized_stages.append({
+            "key": stage_key,
+            "label": stage_label,
+            "status": _normalize_memcached_stage_status(stage_status, final_stage, current_stage, stage_key),
+        })
+
+    artifacts = []
+    if run_dir.exists():
+        for file in sorted(run_dir.iterdir()):
+            if file.is_file():
+                artifacts.append(_text_artifact_descriptor(file.name, file.stat().st_size, editable=False))
+
+    qualified_ips = _memcached_get_qualified_ips(run_id, scanner)
+    detail_items = [
+        {"label": "\u5f53\u524d\u9636\u6bb5", "value": _memcached_stage_status_label(stats.get("stage"), is_running)},
+        {"label": "\u547d\u4ee4\u7c7b\u578b", "value": config_dict.get("cmd_type") or "-"},
+        {"label": "\u6570\u636e\u5927\u5c0f(KB)", "value": config_dict.get("data_size_kb", "-")},
+        {"label": "\u5e76\u53d1\u6570", "value": config_dict.get("concurrency", "-")},
+        {"label": "\u6700\u5c0f\u653e\u5927\u7387", "value": config_dict.get("min_amplification", "-")},
+        {"label": "\u6700\u5c0f\u53ef\u9760\u6027", "value": config_dict.get("min_reliability", "-")},
+        {"label": "\u4f18\u8d28 IP", "value": len(qualified_ips)},
+        {"label": "\u5931\u8d25\u539f\u56e0", "value": runtime_error or "-"},
+    ]
+
+    return {
+        "run_id": run_id,
+        "proto": "memcached",
+        "status": stats.get("status", "idle"),
+        "is_running": is_running,
+        "started_at": stats.get("started_at"),
+        "ended_at": stats.get("ended_at"),
+        "current_stage": current_stage,
+        "progress": _build_progress(stats.get("tested"), stats.get("total_tasks") or stats.get("total_ips")),
+        "config": config_dict,
+        "summary_stats": {
+            "stage": (stats.get("stage") or "-").upper(),
+            "qualified_count": len(qualified_ips),
+            "tested": stats.get("tested", 0),
+        },
+        "detail_items": detail_items,
+        "stages": normalized_stages,
+        "artifacts": artifacts,
+        "result_preview": {
+            "type": "list",
+            "title": "\u4f18\u8d28 IP",
+            "items": qualified_ips[:5],
+            "total": len(qualified_ips),
+            "empty_text": "\u6682\u65e0\u4f18\u8d28 IP\u3002\u5b8c\u6574\u7ed3\u679c\u53ef\u901a\u8fc7\u8f93\u51fa\u6587\u4ef6\u67e5\u770b\u3002",
+        },
+        "runtime_error": runtime_error,
+    }
+
+
+def _memcached_stage_status_label(stage: str | None, is_running: bool) -> str:
+    if stage == "done":
+        return "\u5df2\u5b8c\u6210"
+    if stage == "error":
+        return "\u5931\u8d25"
+    if stage == "stopped":
+        return "\u5df2\u505c\u6b62"
+    if stage == "saving":
+        return "\u4fdd\u5b58\u4e2d" if is_running else "\u5df2\u4fdd\u5b58"
+    if stage == "filtering":
+        return "\u7b5b\u9009\u4e2d" if is_running else "\u5df2\u7b5b\u9009"
+    if stage == "scanning":
+        return "\u63a2\u6d4b\u4e2d" if is_running else "\u5df2\u63a2\u6d4b"
+    if stage == "loading":
+        return "\u52a0\u8f7d\u4e2d" if is_running else "\u5df2\u52a0\u8f7d"
+    return "\u8fd0\u884c\u4e2d" if is_running else "\u7a7a\u95f2"
+
+
+def _normalize_memcached_stage_status(stage_status: str | None, final_stage: str | None, current_stage: str | None, stage_key: str) -> str:
+    if stage_status in {"completed", "failed", "stopped", "running"}:
+        return stage_status
+    if final_stage == "done":
+        return "completed"
+    if final_stage == "error" and current_stage == stage_key:
+        return "failed"
+    if final_stage == "stopped" and current_stage == stage_key:
+        return "stopped"
+    return "pending"
+
+
+def _memcached_get_qualified_ips(run_id: str, scanner: MemcachedResourceScanner | None) -> list[str]:
+    if scanner:
+        return scanner.get_qualified_ips()
+    ip_file = MEMCACHED_OUTPUT_ROOT / run_id / "qualified_ips.txt"
+    if not ip_file.exists():
+        return []
+    return [
+        line.strip()
+        for line in ip_file.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+
+
+def _build_memcached_runs_list() -> dict[str, Any]:
+    runs = []
+    for run in memcached_list_run_dirs():
+        run_id = run["run_id"]
+        runs.append({
+            "run_id": run_id,
+            "proto": "memcached",
+            "status": run.get("status", "idle"),
+            "is_running": memcached_registry.is_running(run_id),
+            "primary_text": run_id,
+            "secondary_text": f"\u4f18\u8d28: {run.get('qualified_count', 0)} IPs",
+            "badge_text": (run.get("stage") or run.get("status") or "-").upper(),
+        })
+    active_run_ids = memcached_registry.active_run_ids()
+    return {"runs": runs, "active_run_ids": active_run_ids, "running_count": len(active_run_ids)}
+
+
+def _memcached_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    ip_file = str(payload.get("ip_file") or "")
+    if not ip_file:
+        available = memcached_list_ip_files()
+        if not available:
+            return {"success": False, "message": "\u6ca1\u6709\u53ef\u7528\u7684 IP \u5019\u9009\u6587\u4ef6"}, 400
+        ip_file = available[0]["path"]
+    if not Path(ip_file).exists():
+        return {"success": False, "message": f"IP \u6587\u4ef6\u4e0d\u5b58\u5728: {ip_file}"}, 400
+
+    config = MemcachedScanConfig(
+        ip_file=ip_file,
+        output_dir=str(MEMCACHED_OUTPUT_ROOT / memcached_generate_run_id()),
+        cmd_type=str(payload.get("cmd_type", "get")).lower(),
+        data_size_kb=memcached_int_or(payload.get("data_size_kb"), 300),
+        timeout_sec=memcached_float_or(payload.get("timeout_sec"), 3.0),
+        concurrency=memcached_int_or(payload.get("concurrency"), 50),
+        min_amplification=memcached_float_or(payload.get("min_amplification"), 10.0),
+        min_reliability=memcached_float_or(payload.get("min_reliability"), 50.0),
+        max_ips=memcached_int_or(payload.get("max_ips"), 0),
+        memcached_port=memcached_int_or(payload.get("memcached_port"), 11211),
+    )
+
+    if config.cmd_type not in MEMCACHED_CMD_TYPES:
+        return {"success": False, "message": f"\u4e0d\u652f\u6301\u7684\u547d\u4ee4\u7c7b\u578b: {config.cmd_type}"}, 400
+
+    run_id = Path(config.output_dir).name
+    os.makedirs(config.output_dir, exist_ok=True)
+    log_path = Path(config.output_dir) / "pipeline.log"
+    config_dict = memcached_build_config_dict(config)
+    scanner = MemcachedResourceScanner()
+
+    def log_persister(message: str) -> None:
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(message + "\n")
+
+    def scan_worker() -> None:
+        try:
+            scanner.run_scan(config, log_callback=log_persister)
+        except Exception as exc:
+            memcached_registry.set_error(run_id, f"{exc}\n{traceback.format_exc()}")
+        finally:
+            stats_file = Path(config.output_dir) / "final_stats.json"
+            try:
+                final_stats = scanner.get_stats()
+                final_stats.setdefault("config", config_dict)
+                stats_file.write_text(json.dumps(final_stats, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+
+    thread = Thread(target=scan_worker, daemon=True)
+    memcached_registry.register(run_id, scanner, thread, config)
+    thread.start()
+    return {
+        "success": True,
+        "message": "Memcached \u8d44\u6e90\u626b\u63cf\u5df2\u542f\u52a8",
+        "run_ids": [run_id],
+        "runs": [{"run_id": run_id}],
+    }, 200
+
+
+def _memcached_clear() -> dict[str, Any]:
+    active = set(memcached_registry.active_run_ids())
+    deleted: list[str] = []
+    skipped: list[str] = []
+    if MEMCACHED_OUTPUT_ROOT.exists():
+        for directory in sorted(MEMCACHED_OUTPUT_ROOT.iterdir()):
+            if not directory.is_dir():
+                continue
+            run_id = directory.name
+            if run_id in active:
+                skipped.append(run_id)
+                continue
+            try:
+                shutil.rmtree(str(directory))
+                deleted.append(run_id)
+            except Exception:
+                pass
+    memcached_registry.forget(deleted)
+    return {
+        "success": True,
+        "message": f"\u5df2\u6e05\u7406 {len(deleted)} \u6761\u5386\u53f2\u8bb0\u5f55",
+        "deleted": deleted,
+        "skipped": skipped,
+    }
+
+
+class MemcachedAdapter(_ProtoAdapter):
+    def __init__(self) -> None:
+        super().__init__("memcached")
+
+    def list_resources(self) -> list[dict[str, Any]]:
+        return memcached_list_ip_files()
+
+    def list_runs(self) -> dict[str, Any]:
+        return _build_memcached_runs_list()
+
+    def start_run(self, payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        return _memcached_start(payload)
+
+    def clear_runs(self) -> dict[str, Any]:
+        return _memcached_clear()
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        return _build_memcached_run_payload(run_id)
+
+    def get_logs(self, run_id: str, tail: int) -> str:
+        return memcached_read_run_log(run_id, tail)
+
+    def stop_run(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        scanner = memcached_registry.get_scanner(run_id)
+        if scanner and scanner.is_running:
+            scanner.stop()
+            return {"success": True, "message": "\u6b63\u5728\u505c\u6b62 Memcached \u8d44\u6e90\u626b\u63cf..."}
+        return {"success": False, "message": "\u6ca1\u6709\u6b63\u5728\u8fd0\u884c\u7684\u626b\u63cf\u4efb\u52a1"}
+
+    def get_results(self, run_id: str) -> dict[str, Any]:
+        scanner = memcached_registry.get_scanner(run_id)
+        qualified = _memcached_get_qualified_ips(run_id, scanner)
+        if scanner:
+            results = scanner.get_results(limit=500)
+        else:
+            csv_file = MEMCACHED_OUTPUT_ROOT / run_id / "scan_results.csv"
+            results = []
+            if csv_file.exists():
+                with csv_file.open("r", encoding="utf-8") as handle:
+                    reader = csv.DictReader(handle)
+                    results = [row for row in reader]
+        return {
+            "success": True,
+            "qualified_ips": qualified,
+            "qualified_count": len(qualified),
+            "results": results,
+        }
+
+    def read_file(self, run_id: str, filename: str) -> dict[str, Any]:
+        return {
+            "name": filename,
+            "path": str(MEMCACHED_OUTPUT_ROOT / run_id / filename),
+            "type": "text",
+            "editable": False,
+            "content": memcached_read_run_file(run_id, filename),
         }
 
     def write_file(self, run_id: str, filename: str, content: str) -> dict[str, Any]:
@@ -750,20 +1077,20 @@ def _build_ntp_run_payload(run_id: str) -> dict[str, Any]:
 
 def _ntp_stage_status_label(stage: str | None, is_running: bool) -> str:
     if stage == "done":
-        return "已完成"
+        return "\u5df2\u5b8c\u6210"
     if stage == "error":
-        return "失败"
+        return "\u5931\u8d25"
     if stage == "stopped":
-        return "已停止"
+        return "\u5df2\u505c\u6b62"
     if stage == "saving":
-        return "保存中" if is_running else "已保存"
+        return "\u4fdd\u5b58\u4e2d" if is_running else "\u5df2\u4fdd\u5b58"
     if stage == "filtering":
-        return "筛选中" if is_running else "已筛选"
+        return "\u7b5b\u9009\u4e2d" if is_running else "\u5df2\u7b5b\u9009"
     if stage == "scanning":
-        return "探测中" if is_running else "已探测"
+        return "\u63a2\u6d4b\u4e2d" if is_running else "\u5df2\u63a2\u6d4b"
     if stage == "loading":
-        return "加载中" if is_running else "已加载"
-    return "运行中" if is_running else "空闲"
+        return "\u52a0\u8f7d\u4e2d" if is_running else "\u5df2\u52a0\u8f7d"
+    return "\u8fd0\u884c\u4e2d" if is_running else "\u7a7a\u95f2"
 
 
 def _normalize_ntp_stage_status(stage_status: str | None, final_stage: str | None, current_stage: str | None, stage_key: str) -> str:
@@ -960,6 +1287,7 @@ ADAPTERS: dict[str, _ProtoAdapter] = {
     "tcp": TcpAdapter(),
     "dns": DnsAdapter(),
     "ntp": NtpAdapter(),
+    "memcached": MemcachedAdapter(),
 }
 
 
