@@ -110,6 +110,13 @@ NTP_STAGE_ORDER = [
     ("saving", "\u4fdd\u5b58\u7ed3\u679c"),
 ]
 
+MEMCACHED_STAGE_ORDER = [
+    ("loading", "\u52a0\u8f7d IP \u5019\u9009"),
+    ("scanning", "\u6267\u884c Memcached \u63a2\u6d4b"),
+    ("filtering", "\u7b5b\u9009\u9ad8\u653e\u5927\u7387\u76ee\u6807"),
+    ("saving", "\u4fdd\u5b58\u7ed3\u679c"),
+]
+
 
 def _text_artifact_descriptor(name: str, size: int, editable: bool | None = None) -> dict[str, Any]:
     suffix = Path(name).suffix.lower()
