@@ -32,6 +32,40 @@ install_deps() {
         libunistring-dev
 }
 
+# ---------- 修复源码兼容性问题 ----------
+fix_source() {
+    local dir=$1
+    local name=$2
+
+    print_info "修复 $name 源码兼容性..."
+
+    # 1. 修复硬编码的绝对路径 #include（原开发者机器残留）
+    local fixed=0
+    for f in "$dir"/src/*opt.c "$dir"/src/*opt_compat.c; do
+        [ -f "$f" ] || continue
+        if grep -q '#include "/home/weaponizing-censors' "$f"; then
+            sed -i 's|#include "/home/weaponizing-censors/[^"]*/src/\([^"]*\)"|#include "\1"|' "$f"
+            fixed=$((fixed + 1))
+        fi
+    done
+    if [ "$fixed" -gt 0 ]; then
+        print_info "  已修复 $fixed 个文件的硬编码 #include 路径"
+    fi
+
+    # 2. 修复 state.c 中 source_ip_addresses = NULL（GCC 15 严格检查）
+    local state_file="$dir/src/state.c"
+    if [ -f "$state_file" ] && grep -q 'source_ip_addresses = NULL' "$state_file"; then
+        sed -i 's/source_ip_addresses = NULL/source_ip_addresses = {0}/' "$state_file"
+        print_info "  已修复 state.c 的空指针初始化问题"
+    fi
+
+    # 3. 清理旧构建产物中的硬编码路径
+    if [ -d "$dir/src/CMakeFiles" ]; then
+        rm -rf "$dir/src/CMakeFiles"
+        print_info "  已清理旧的 CMakeFiles 缓存"
+    fi
+}
+
 # ---------- 修复 json-c 问题 ----------
 fix_json_c() {
     local cmake_file="$1"
@@ -100,10 +134,12 @@ install_deps
 fix_json_c "${ZMAP_SINGLE}/CMakeLists.txt"
 fix_json_c "${ZMAP_MULTI}/CMakeLists.txt"
 
-# 编译 single probe
+# 修复源码并编译 single probe
+fix_source "$ZMAP_SINGLE" "ZMap (single_probe)"
 build_zmap "$ZMAP_SINGLE" "ZMap (single_probe)"
 
-# 编译 multiple probes
+# 修复源码并编译 multiple probes
+fix_source "$ZMAP_MULTI" "ZMap (multiple_probes)"
 build_zmap "$ZMAP_MULTI" "ZMap (multiple_probes)"
 
 print_info ""
