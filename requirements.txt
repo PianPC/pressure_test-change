@@ -6,3 +6,5 @@ scapy==2.5.0
 gunicorn==20.1.0
 geoip2==5.1.0
 numpy==2.3.4
+flask_session
+requests==2.34.2
