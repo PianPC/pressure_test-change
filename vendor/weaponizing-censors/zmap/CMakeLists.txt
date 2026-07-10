@@ -69,6 +69,7 @@ set(CMAKE_C_FLAGS "${GCCWARNINGS} ${CMAKE_C_FLAGS}")
 
 include(FindPkgConfig)
 pkg_check_modules(JSON json-c)
+string(REPLACE ";" " " JSON_CFLAGS "${JSON_CFLAGS}")
 if(JSON_FOUND)
     include_directories(${JSON_INCLUDE_DIRS})
 else()
@@ -165,3 +166,4 @@ set(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${VERSION}_${CPACK_DEBIAN_ARC
 set(CPACK_COMPONENTS_ALL Libraries ApplicationData)
 
 include(CPack)
+

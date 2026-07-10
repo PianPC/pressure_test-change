@@ -25,7 +25,7 @@ sudo apt update
 sudo apt install -y build-essential cmake libgmp3-dev libpcap-dev libjson-c-dev byacc flex
 
 # 清理旧 build 目录（如果之前有残留）
-rm -rf vendor/weaponizing-censors/zmap/build vendor/weaponizing-censors/zmap_multiple_probes/build
+rm -rf vendor/weaponizing-censors/zmap/{build,CMakeCache.txt,CMakeFiles} vendor/weaponizing-censors/zmap_multiple_probes/{build,CMakeCache.txt,CMakeFiles}
 
 # 再次编译
 sudo ./build_zmap.sh
