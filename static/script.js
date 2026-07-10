@@ -47,6 +47,267 @@ let attackResourceTaskFrameworkInitialized = false;
 let currentAttackResourceFile = null;
 const attackResourceControllers = {};
 
+const FormPersistence = (() => {
+    const NS = "pressure_console:";
+    const VERSION = 1;
+
+    function getStorage(type) {
+        try {
+            return type === "session" ? sessionStorage : localStorage;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function save(key, data, type = "session") {
+        const storage = getStorage(type);
+        if (!storage) return false;
+        try {
+            const payload = { v: VERSION, ts: Date.now(), data };
+            storage.setItem(NS + key, JSON.stringify(payload));
+            return true;
+        } catch (e) {
+            console.warn("FormPersistence save failed:", e);
+            return false;
+        }
+    }
+
+    function load(key, type = "session") {
+        const storage = getStorage(type);
+        if (!storage) return null;
+        try {
+            const raw = storage.getItem(NS + key);
+            if (!raw) return null;
+            const payload = JSON.parse(raw);
+            if (payload.v !== VERSION) return null;
+            return payload.data;
+        } catch (e) {
+            console.warn("FormPersistence load failed:", e);
+            return null;
+        }
+    }
+
+    function clear(key, type = "session") {
+        const storage = getStorage(type);
+        if (!storage) return;
+        try {
+            storage.removeItem(NS + key);
+        } catch (e) {
+            console.warn("FormPersistence clear failed:", e);
+        }
+    }
+
+    function readFormFields(formSelector, fieldMap) {
+        const result = {};
+        const form = document.querySelector(formSelector);
+        if (!form) return result;
+        for (const [key, selector] of Object.entries(fieldMap)) {
+            const el = form.querySelector(selector);
+            if (!el) continue;
+            if (el.type === "checkbox") {
+                result[key] = el.checked;
+            } else if (el.type === "radio") {
+                const checked = form.querySelector(`${selector}:checked`);
+                result[key] = checked ? checked.value : "";
+            } else {
+                result[key] = el.value;
+            }
+        }
+        return result;
+    }
+
+    function writeFormFields(formSelector, fieldMap, data) {
+        if (!data) return false;
+        const form = document.querySelector(formSelector);
+        if (!form) return false;
+        let applied = false;
+        for (const [key, selector] of Object.entries(fieldMap)) {
+            if (!(key in data)) continue;
+            const el = form.querySelector(selector);
+            if (!el) continue;
+            if (el.type === "checkbox") {
+                el.checked = Boolean(data[key]);
+            } else if (el.type === "radio") {
+                const radio = form.querySelector(`${selector}[value="${CSS.escape(data[key])}"]`);
+                if (radio) radio.checked = true;
+            } else {
+                el.value = data[key];
+            }
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            applied = true;
+        }
+        return applied;
+    }
+
+    function readCheckboxGroup(containerSelector, checkboxSelector = 'input[type="checkbox"]') {
+        const container = document.querySelector(containerSelector);
+        if (!container) return [];
+        return Array.from(container.querySelectorAll(`${checkboxSelector}:checked`)).map((cb) => cb.value);
+    }
+
+    function writeCheckboxGroup(containerSelector, values, checkboxSelector = 'input[type="checkbox"]') {
+        const container = document.querySelector(containerSelector);
+        if (!container || !Array.isArray(values)) return;
+        const valueSet = new Set(values);
+        container.querySelectorAll(checkboxSelector).forEach((cb) => {
+            cb.checked = valueSet.has(cb.value);
+        });
+    }
+
+    return { save, load, clear, readFormFields, writeFormFields, readCheckboxGroup, writeCheckboxGroup };
+})();
+
+const CONSOLE_FIELD_MAP = {
+    target_ip: "#target_ip",
+    target_port: "#target_port",
+    duration: "#duration",
+    threads: "#threads",
+    target_pps: "#target_pps",
+    multi_protocol: "#multi_protocol",
+    method: "#method"
+};
+
+const ATTACK_RESOURCE_FIELD_MAPS = {
+    tcp: {
+        ip_file: "#tcpIpFile",
+        target_host: "#tcpTargetHost",
+        pkt_method: "#tcpPktMethod",
+        scan_rate: "#tcpScanRate",
+        ttl: "#tcpTtl",
+        scan_count: "#tcpScanCount",
+        result_limit: "#tcpResultLimit",
+        length_threshold: "#tcpLengthThreshold",
+        network_interface: "#tcpNetworkInterface",
+        dry_run: "#tcpDryRun"
+    },
+    dns: {
+        ip_file: "#dnsIpFile",
+        test_domains: "#dnsTestDomains",
+        query_type: "#dnsQueryType",
+        use_dnssec: "#dnsUseDnssec",
+        concurrency: "#dnsConcurrency",
+        timeout_sec: "#dnsTimeout",
+        min_amplification: "#dnsMinAmplification",
+        min_reliability: "#dnsMinReliability"
+    },
+    ntp: {
+        ip_file: "#ntpIpFile",
+        probe_action: "#ntpProbeAction",
+        concurrency: "#ntpConcurrency",
+        timeout_sec: "#ntpTimeout",
+        min_amplification: "#ntpMinAmplification",
+        min_availability: "#ntpMinAvailability"
+    },
+    memcached: {
+        ip_file: "#memcachedIpFile",
+        cmd_type: "#memcachedCmdType",
+        data_size_kb: "#memcachedDataSizeKb",
+        concurrency: "#memcachedConcurrency",
+        timeout_sec: "#memcachedTimeout",
+        min_amplification: "#memcachedMinAmplification",
+        min_reliability: "#memcachedMinReliability"
+    }
+};
+
+const LATENCY_FIELD_MAP = {
+    target_ip: "#latencyTargetIp",
+    port: "#latencyPort"
+};
+
+function saveUiState() {
+    const state = {
+        currentView: currentView,
+        currentAttackResourceProto: currentAttackResourceProto,
+        lastVisitedWorkflowStep: lastVisitedWorkflowStep
+    };
+    const collapsibleSections = [];
+    document.querySelectorAll(".collapsible-section.open").forEach((section, idx) => {
+        const trigger = section.querySelector(".collapsible-trigger span");
+        if (trigger) collapsibleSections.push(trigger.textContent.trim() || idx);
+    });
+    if (collapsibleSections.length) state.openCollapsibles = collapsibleSections;
+    FormPersistence.save("session:ui_state", state, "session");
+}
+
+function restoreUiState() {
+    const state = FormPersistence.load("session:ui_state", "session");
+    if (!state) return false;
+    if (state.currentView && document.getElementById(`view-${state.currentView}`)) {
+        currentView = state.currentView;
+    }
+    if (state.currentAttackResourceProto) {
+        currentAttackResourceProto = state.currentAttackResourceProto;
+    }
+    if (state.lastVisitedWorkflowStep) {
+        lastVisitedWorkflowStep = state.lastVisitedWorkflowStep;
+    }
+    if (Array.isArray(state.openCollapsibles) && state.openCollapsibles.length) {
+        document.querySelectorAll(".collapsible-section").forEach((section) => {
+            const trigger = section.querySelector(".collapsible-trigger span");
+            const label = trigger ? trigger.textContent.trim() : "";
+            if (state.openCollapsibles.includes(label)) {
+                section.classList.add("open");
+                const trig = section.querySelector(".collapsible-trigger");
+                if (trig) trig.setAttribute("aria-expanded", "true");
+            }
+        });
+    }
+    return true;
+}
+
+function initUiStatePersistence() {
+    const state = FormPersistence.load("session:ui_state", "session");
+    if (state) {
+        if (state.currentAttackResourceProto) {
+            currentAttackResourceProto = state.currentAttackResourceProto;
+        }
+        if (state.lastVisitedWorkflowStep) {
+            lastVisitedWorkflowStep = state.lastVisitedWorkflowStep;
+        }
+        if (Array.isArray(state.openCollapsibles) && state.openCollapsibles.length) {
+            document.querySelectorAll(".collapsible-section").forEach((section) => {
+                const trigger = section.querySelector(".collapsible-trigger span");
+                const label = trigger ? trigger.textContent.trim() : "";
+                if (state.openCollapsibles.includes(label)) {
+                    section.classList.add("open");
+                    const trig = section.querySelector(".collapsible-trigger");
+                    if (trig) trig.setAttribute("aria-expanded", "true");
+                }
+            });
+        }
+    }
+
+    const origNavigateToView = window.navigateToView;
+    if (typeof origNavigateToView === "function") {
+        window.navigateToView = function(view) {
+            const result = origNavigateToView.apply(this, arguments);
+            saveUiState();
+            return result;
+        };
+    }
+
+    const origSwitchAttackResourceProto = window.switchAttackResourceProto;
+    if (typeof origSwitchAttackResourceProto === "function") {
+        window.switchAttackResourceProto = function(proto) {
+            const result = origSwitchAttackResourceProto.apply(this, arguments);
+            saveUiState();
+            return result;
+        };
+    }
+
+    document.addEventListener("click", (e) => {
+        const trigger = e.target.closest(".collapsible-trigger");
+        if (trigger) {
+            setTimeout(saveUiState, 0);
+        }
+    });
+
+    if (state && state.currentView && document.getElementById(`view-${state.currentView}`)) {
+        setTimeout(() => navigateToView(state.currentView), 0);
+    }
+}
+
 const WORKFLOW_STEP_ORDER = ["resource", "pool", "console", "latency"];
 const VIEW_TO_WORKFLOW_STEP = {
     "attack-resources": "resource",
@@ -201,12 +462,15 @@ document.addEventListener("DOMContentLoaded", () => {
     initLatencyChart();
     initServerGlobe();
     setupNavigation();
+    initUiStatePersistence();
     initProtocolCheckboxes();
     initProtoSourceButtons();
     bindControls();
     initAttackResourceView();
     initAttackResourceTaskFramework();
     toggleMultiProtocol();
+    initConsoleFormPersistence();
+    initLatencyFormPersistence();
     loadAllServerCounts();
     loadServerGeoMap();
     pollStatus();
@@ -652,6 +916,7 @@ async function applyMultiProtoSourceSelection(proto) {
     multiProtoSelectedSources[proto] = selected;
     closeServerSourceModal();
     updateProtoSourceButtonLabel(proto);
+    saveConsoleFormSession();
     // 刷新资源计数
     loadReflectorCount(selectedProtocols.length ? selectedProtocols : [proto]);
 }
@@ -806,6 +1071,7 @@ function applySingleProtoSourceSelection(proto) {
     singleSelectedSources = selected;
     closeServerSourceModal();
     updateSingleSourceLabel();
+    saveConsoleFormSession();
     showNotification(`已选择 ${selected.length} 个源文件`, "success");
 }
 
@@ -2360,6 +2626,122 @@ function updateProtocolSelection() {
     updateWorkflowIndicators();
 }
 
+function saveConsoleFormSession() {
+    const fields = FormPersistence.readFormFields("#testForm", CONSOLE_FIELD_MAP);
+    fields.tcp_pkt_methods = FormPersistence.readCheckboxGroup("#tcpPktMethodSection");
+    fields.multi_proto_selected = selectedProtocols.slice();
+    fields.single_selected_sources = singleSelectedSources.slice();
+    fields.multi_proto_sources = JSON.parse(JSON.stringify(multiProtoSelectedSources));
+    fields.is_multi_protocol = isMultiProtocol;
+    FormPersistence.save("session:console_form", fields, "session");
+}
+
+function restoreConsoleFormSession() {
+    const data = FormPersistence.load("session:console_form", "session");
+    if (!data) return false;
+    FormPersistence.writeFormFields("#testForm", CONSOLE_FIELD_MAP, data);
+    if (Array.isArray(data.tcp_pkt_methods)) {
+        FormPersistence.writeCheckboxGroup("#tcpPktMethodSection", data.tcp_pkt_methods);
+    }
+    if (typeof data.is_multi_protocol === "boolean") {
+        isMultiProtocol = data.is_multi_protocol;
+        const toggle = document.getElementById("multi_protocol");
+        if (toggle) toggle.checked = isMultiProtocol;
+        const singleGroup = document.getElementById("singleMethodGroup");
+        const multiSection = document.getElementById("multiProtocolSection");
+        if (singleGroup) singleGroup.style.display = isMultiProtocol ? "none" : "block";
+        if (multiSection) multiSection.style.display = isMultiProtocol ? "block" : "none";
+    }
+    if (Array.isArray(data.multi_proto_selected)) {
+        selectedProtocols = data.multi_proto_selected;
+        FormPersistence.writeCheckboxGroup("#multiProtocolSection", selectedProtocols);
+    }
+    if (Array.isArray(data.single_selected_sources)) {
+        singleSelectedSources = data.single_selected_sources;
+        updateSingleSourceLabel();
+    }
+    if (data.multi_proto_sources && typeof data.multi_proto_sources === "object") {
+        multiProtoSelectedSources = data.multi_proto_sources;
+        Object.entries(multiProtoSelectedSources).forEach(([proto, sources]) => {
+            updateMultiProtoSourceLabel(proto, sources);
+        });
+    }
+    updateProtocolSelection();
+    updateMethodSettings();
+    updateWorkflowIndicators();
+    return true;
+}
+
+function saveConsoleFormPersist() {
+    const fields = FormPersistence.readFormFields("#testForm", CONSOLE_FIELD_MAP);
+    fields.tcp_pkt_methods = FormPersistence.readCheckboxGroup("#tcpPktMethodSection");
+    fields.multi_proto_selected = selectedProtocols.slice();
+    fields.single_selected_sources = singleSelectedSources.slice();
+    fields.multi_proto_sources = JSON.parse(JSON.stringify(multiProtoSelectedSources));
+    fields.is_multi_protocol = isMultiProtocol;
+    FormPersistence.save("persist:last_successful:console", fields, "local");
+}
+
+function restoreConsoleFormPersist() {
+    const data = FormPersistence.load("persist:last_successful:console", "local");
+    if (!data) return false;
+    FormPersistence.writeFormFields("#testForm", CONSOLE_FIELD_MAP, data);
+    if (Array.isArray(data.tcp_pkt_methods)) {
+        FormPersistence.writeCheckboxGroup("#tcpPktMethodSection", data.tcp_pkt_methods);
+    }
+    if (typeof data.is_multi_protocol === "boolean") {
+        isMultiProtocol = data.is_multi_protocol;
+        const toggle = document.getElementById("multi_protocol");
+        if (toggle) toggle.checked = isMultiProtocol;
+        const singleGroup = document.getElementById("singleMethodGroup");
+        const multiSection = document.getElementById("multiProtocolSection");
+        if (singleGroup) singleGroup.style.display = isMultiProtocol ? "none" : "block";
+        if (multiSection) multiSection.style.display = isMultiProtocol ? "block" : "none";
+    }
+    if (Array.isArray(data.multi_proto_selected)) {
+        selectedProtocols = data.multi_proto_selected;
+        FormPersistence.writeCheckboxGroup("#multiProtocolSection", selectedProtocols);
+    }
+    if (Array.isArray(data.single_selected_sources)) {
+        singleSelectedSources = data.single_selected_sources;
+        updateSingleSourceLabel();
+    }
+    if (data.multi_proto_sources && typeof data.multi_proto_sources === "object") {
+        multiProtoSelectedSources = data.multi_proto_sources;
+        Object.entries(multiProtoSelectedSources).forEach(([proto, sources]) => {
+            updateMultiProtoSourceLabel(proto, sources);
+        });
+    }
+    updateProtocolSelection();
+    updateMethodSettings();
+    updateWorkflowIndicators();
+    return true;
+}
+
+function clearConsoleFormSession() {
+    FormPersistence.clear("session:console_form", "session");
+}
+
+function initConsoleFormPersistence() {
+    const form = document.getElementById("testForm");
+    if (!form) return;
+
+    let hasSession = restoreConsoleFormSession();
+    if (!hasSession) {
+        const restored = restoreConsoleFormPersist();
+        if (restored) {
+            setTimeout(() => {
+                showNotification("已自动填充上次成功配置", "info");
+            }, 500);
+        }
+    }
+
+    form.querySelectorAll("input, select, textarea").forEach((el) => {
+        el.addEventListener("input", saveConsoleFormSession);
+        el.addEventListener("change", saveConsoleFormSession);
+    });
+}
+
 async function loadReflectorCount(protocols) {
     const countEl = document.getElementById("reflectors_count");
     if (!countEl || !protocols.length) {
@@ -2454,6 +2836,7 @@ async function startTest() {
     try {
         const result = await postJson("/api/test/start", data);
         if (!result.success) throw new Error(result.message || "启动失败");
+        saveConsoleFormPersist();
         showNotification("测试已启动", "success");
         setStatusTag("running", "运行中");
         updateWorkflowIndicators();
@@ -2508,6 +2891,7 @@ async function resetTest() {
     const protocolStats = document.getElementById("protocolStatsSection");
     if (protocolStats) protocolStats.style.display = "none";
     latestStatusSnapshot = null;
+    clearConsoleFormSession();
     updateWorkflowIndicators();
 }
 
@@ -2666,6 +3050,7 @@ async function startLatencyMonitoring() {
 
     sampleLatencyOnce();
     latencyMonitorInterval = setInterval(sampleLatencyOnce, 1000);
+    saveLatencyFormPersist();
     updateWorkflowIndicators();
 }
 
@@ -2694,6 +3079,65 @@ function syncLatencyTarget(ip, port) {
     const latencyPort = document.getElementById("latencyPort");
     if (latencyTarget) latencyTarget.value = ip;
     if (latencyPort) latencyPort.value = port;
+    saveLatencyFormSession();
+}
+
+function saveLatencyFormSession() {
+    const fields = {};
+    const ipEl = document.getElementById("latencyTargetIp");
+    const portEl = document.getElementById("latencyPort");
+    if (ipEl) fields.target_ip = ipEl.value;
+    if (portEl) fields.port = portEl.value;
+    FormPersistence.save("session:latency_form", fields, "session");
+}
+
+function restoreLatencyFormSession() {
+    const data = FormPersistence.load("session:latency_form", "session");
+    if (!data) return false;
+    const ipEl = document.getElementById("latencyTargetIp");
+    const portEl = document.getElementById("latencyPort");
+    if (ipEl && data.target_ip !== undefined) ipEl.value = data.target_ip;
+    if (portEl && data.port !== undefined) portEl.value = data.port;
+    return true;
+}
+
+function saveLatencyFormPersist() {
+    const fields = {};
+    const ipEl = document.getElementById("latencyTargetIp");
+    const portEl = document.getElementById("latencyPort");
+    if (ipEl) fields.target_ip = ipEl.value;
+    if (portEl) fields.port = portEl.value;
+    FormPersistence.save("persist:last_successful:latency", fields, "local");
+}
+
+function restoreLatencyFormPersist() {
+    const data = FormPersistence.load("persist:last_successful:latency", "local");
+    if (!data) return false;
+    const ipEl = document.getElementById("latencyTargetIp");
+    const portEl = document.getElementById("latencyPort");
+    if (ipEl && data.target_ip !== undefined) ipEl.value = data.target_ip;
+    if (portEl && data.port !== undefined) portEl.value = data.port;
+    return true;
+}
+
+function initLatencyFormPersistence() {
+    const ipEl = document.getElementById("latencyTargetIp");
+    const portEl = document.getElementById("latencyPort");
+    if (!ipEl && !portEl) return;
+
+    const hasSession = restoreLatencyFormSession();
+    if (!hasSession) {
+        restoreLatencyFormPersist();
+    }
+
+    if (ipEl) {
+        ipEl.addEventListener("input", saveLatencyFormSession);
+        ipEl.addEventListener("change", saveLatencyFormSession);
+    }
+    if (portEl) {
+        portEl.addEventListener("input", saveLatencyFormSession);
+        portEl.addEventListener("change", saveLatencyFormSession);
+    }
 }
 
 function updateLatencyDisplay(latency, isTimeout = false) {
@@ -3482,10 +3926,133 @@ class AttackResourceTaskController {
             const data = await response.json();
             if (!data.success) throw new Error(data.message || `${this.config.displayName} 资源加载失败`);
             this.config.renderResources?.(data.resources || []);
+            this.restoreFormState();
+            this.bindFormPersistence();
             updateWorkflowIndicators();
         } catch (error) {
             showNotification(`${this.config.displayName} 资源加载失败：${error.message}`, "error");
         }
+    }
+
+    getSessionKey() {
+        return `session:attack_resource:${this.proto}`;
+    }
+
+    getPersistKey() {
+        return `persist:last_successful:attack_resource:${this.proto}`;
+    }
+
+    saveFormSession() {
+        const fieldMap = ATTACK_RESOURCE_FIELD_MAPS[this.proto];
+        if (!fieldMap) return;
+        const panel = this.getPanel();
+        if (!panel) return;
+        const fields = {};
+        for (const [key, selector] of Object.entries(fieldMap)) {
+            const el = panel.querySelector(selector);
+            if (!el) continue;
+            if (el.type === "checkbox") {
+                fields[key] = el.checked;
+            } else {
+                fields[key] = el.value;
+            }
+        }
+        if (this.proto === "tcp") {
+            fields.pkt_methods = FormPersistence.readCheckboxGroup("#tcpMethodChecks");
+        }
+        FormPersistence.save(this.getSessionKey(), fields, "session");
+    }
+
+    restoreFormSession() {
+        const fieldMap = ATTACK_RESOURCE_FIELD_MAPS[this.proto];
+        if (!fieldMap) return false;
+        const data = FormPersistence.load(this.getSessionKey(), "session");
+        if (!data) return false;
+        const panel = this.getPanel();
+        if (!panel) return false;
+        for (const [key, selector] of Object.entries(fieldMap)) {
+            if (!(key in data)) continue;
+            const el = panel.querySelector(selector);
+            if (!el) continue;
+            if (el.type === "checkbox") {
+                el.checked = Boolean(data[key]);
+            } else {
+                el.value = data[key];
+            }
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        if (this.proto === "tcp" && Array.isArray(data.pkt_methods)) {
+            FormPersistence.writeCheckboxGroup("#tcpMethodChecks", data.pkt_methods);
+        }
+        return true;
+    }
+
+    saveFormPersist() {
+        const fieldMap = ATTACK_RESOURCE_FIELD_MAPS[this.proto];
+        if (!fieldMap) return;
+        const panel = this.getPanel();
+        if (!panel) return;
+        const fields = {};
+        for (const [key, selector] of Object.entries(fieldMap)) {
+            const el = panel.querySelector(selector);
+            if (!el) continue;
+            if (el.type === "checkbox") {
+                fields[key] = el.checked;
+            } else {
+                fields[key] = el.value;
+            }
+        }
+        if (this.proto === "tcp") {
+            fields.pkt_methods = FormPersistence.readCheckboxGroup("#tcpMethodChecks");
+        }
+        FormPersistence.save(this.getPersistKey(), fields, "local");
+    }
+
+    restoreFormPersist() {
+        const fieldMap = ATTACK_RESOURCE_FIELD_MAPS[this.proto];
+        if (!fieldMap) return false;
+        const data = FormPersistence.load(this.getPersistKey(), "local");
+        if (!data) return false;
+        const panel = this.getPanel();
+        if (!panel) return false;
+        for (const [key, selector] of Object.entries(fieldMap)) {
+            if (!(key in data)) continue;
+            const el = panel.querySelector(selector);
+            if (!el) continue;
+            if (el.type === "checkbox") {
+                el.checked = Boolean(data[key]);
+            } else {
+                el.value = data[key];
+            }
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        if (this.proto === "tcp" && Array.isArray(data.pkt_methods)) {
+            FormPersistence.writeCheckboxGroup("#tcpMethodChecks", data.pkt_methods);
+        }
+        return true;
+    }
+
+    clearFormSession() {
+        FormPersistence.clear(this.getSessionKey(), "session");
+    }
+
+    restoreFormState() {
+        const hasSession = this.restoreFormSession();
+        if (!hasSession) {
+            this.restoreFormPersist();
+        }
+    }
+
+    bindFormPersistence() {
+        const panel = this.getPanel();
+        if (!panel || panel.dataset.persistenceBound) return;
+        panel.dataset.persistenceBound = "1";
+        panel.querySelectorAll("input, select, textarea").forEach((el) => {
+            el.addEventListener("input", () => this.saveFormSession());
+            el.addEventListener("change", () => this.saveFormSession());
+        });
     }
 
     async start() {
@@ -3505,6 +4072,7 @@ class AttackResourceTaskController {
             }
             const runIds = data.run_ids || [];
             if (runIds.length) this.currentRunId = runIds[0];
+            this.saveFormPersist();
             showNotification(data.message || `${this.config.displayName} 资源获取任务已创建`, "success");
             this.startPolling();
             await this.refresh();
