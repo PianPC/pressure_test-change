@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-RED='[0;31m'
-GREEN='[0;32m'
-YELLOW='[1;33m'
-NC='[0m'
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
 print_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 print_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
@@ -37,7 +37,17 @@ require_dir() {
 install_deps() {
     print_info "Installing build dependencies..."
     sudo apt update -qq
-    sudo apt install -y         build-essential         cmake         pkg-config         libjson-c-dev         libpcap-dev         libgmp-dev         libunistring-dev         gengetopt         flex         byacc
+    sudo apt install -y \
+        build-essential \
+        cmake \
+        pkg-config \
+        libjson-c-dev \
+        libpcap-dev \
+        libgmp-dev \
+        libunistring-dev \
+        gengetopt \
+        flex \
+        byacc
 }
 
 fix_json_c() {
@@ -55,11 +65,9 @@ path = Path(sys.argv[1])
 text = path.read_text(encoding='utf-8')
 marker = 'pkg_check_modules(JSON REQUIRED json-c)'
 if marker in text and 'string(REPLACE ";" " " JSON_C_CFLAGS' not in text:
-    text = text.replace(marker, marker + '
-    string(REPLACE ";" " " JSON_C_CFLAGS "${JSON_C_CFLAGS}")')
+    text = text.replace(marker, marker + '\n    string(REPLACE ";" " " JSON_C_CFLAGS "${JSON_C_CFLAGS}")')
 if 'include_directories(${JSON_C_INCLUDE_DIRS})' not in text and marker in text:
-    text = text.replace(marker, marker + '
-    include_directories(${JSON_C_INCLUDE_DIRS})')
+    text = text.replace(marker, marker + '\n    include_directories(${JSON_C_INCLUDE_DIRS})')
 path.write_text(text, encoding='utf-8')
 PY
         print_info "Patched json-c flags in $cmake_file"
@@ -71,17 +79,26 @@ fix_source_tree() {
     local label="$2"
     print_info "Applying compatibility fixes for $label"
 
+    # 修复 *opt.c 中的错误包含路径
     find "$dir/src" -maxdepth 1 \( -name '*opt.c' -o -name '*opt_compat.c' \) -type f | while read -r file; do
         if grep -q '#include "/home/weaponizing-censors' "$file"; then
-            sed -i 's|#include "/home/weaponizing-censors/[^"]*/src/\([^"]*\)"|#include ""|' "$file"
+            sed -i 's|#include "/home/weaponizing-censors/[^"]*/src/\([^"]*\)"|#include "\1"|' "$file"
             print_info "  fixed include path in $(basename "$file")"
         fi
     done
 
+    # 修复 GCC 15 初始值问题
     local state_file="$dir/src/state.c"
     if [ -f "$state_file" ] && grep -q 'source_ip_addresses = NULL' "$state_file"; then
         sed -i 's/source_ip_addresses = NULL/source_ip_addresses = {0}/' "$state_file"
         print_info "  fixed GCC 15 initializer in state.c"
+    fi
+
+    # 修复 send.c 中的指针赋值错误 (multiple_probes 特有)
+    local send_file="$dir/src/send.c"
+    if [ -f "$send_file" ] && grep -q '\*p = mac_buf2;' "$send_file"; then
+        sed -i 's/\*p = mac_buf2;/memcpy(p, mac_buf2, 6);/' "$send_file"
+        print_info "  fixed mac_buf2 assignment in send.c"
     fi
 }
 
