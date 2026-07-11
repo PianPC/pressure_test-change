@@ -771,7 +771,7 @@ function initUiStatePersistence() {
     }
 }
 
-const WORKFLOW_STEP_ORDER = ["resource", "pool", "console", "latency"];
+const WORKFLOW_STEP_ORDER = ["pool", "resource", "console", "latency"];
 const VIEW_TO_WORKFLOW_STEP = {
     "attack-resources": "resource",
     servers: "pool",

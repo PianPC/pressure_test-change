@@ -31,13 +31,13 @@
                     <span class="nav-step-indicator"><i class="fas fa-compass" style="font-size:10px"></i></span>
                     <span class="nav-item-label">流程总览</span>
                 </a>
-                <a href="#" class="nav-item workflow-nav-item" data-view="attack-resources" data-workflow-step="resource" title="攻击资源获取">
-                    <span class="nav-step-indicator">1</span>
-                    <span class="nav-item-label">攻击资源获取</span>
-                </a>
                 <a href="#" class="nav-item workflow-nav-item" data-view="servers" data-workflow-step="pool" title="资源池">
-                    <span class="nav-step-indicator">2</span>
+                    <span class="nav-step-indicator">1</span>
                     <span class="nav-item-label">资源池</span>
+                </a>
+                <a href="#" class="nav-item workflow-nav-item" data-view="attack-resources" data-workflow-step="resource" title="攻击资源获取">
+                    <span class="nav-step-indicator">2</span>
+                    <span class="nav-item-label">攻击资源获取</span>
                 </a>
                 <a href="#" class="nav-item workflow-nav-item" data-view="console" data-workflow-step="console" title="控制台">
                     <span class="nav-step-indicator">3</span>
@@ -99,21 +99,21 @@
                         </section>
 
                         <section class="workflow-progress-bar" id="workflowStepGrid">
-                            <div class="workflow-progress-step" data-workflow-card="resource">
-                                <span class="workflow-progress-num">01</span>
-                                <div class="workflow-progress-body">
-                                    <strong>攻击资源获取</strong>
-                                    <span id="workflowSummaryResourceTask">暂无任务</span>
-                                </div>
-                                <span class="workflow-step-state" id="workflowBadge-resource">未开始</span>
-                            </div>
                             <div class="workflow-progress-step" data-workflow-card="pool">
-                                <span class="workflow-progress-num">02</span>
+                                <span class="workflow-progress-num">01</span>
                                 <div class="workflow-progress-body">
                                     <strong>资源池确认</strong>
                                     <span id="workflowSummaryPoolTotal">0 个资源</span>
                                 </div>
                                 <span class="workflow-step-state" id="workflowBadge-pool">未开始</span>
+                            </div>
+                            <div class="workflow-progress-step" data-workflow-card="resource">
+                                <span class="workflow-progress-num">02</span>
+                                <div class="workflow-progress-body">
+                                    <strong>攻击资源获取</strong>
+                                    <span id="workflowSummaryResourceTask">暂无任务</span>
+                                </div>
+                                <span class="workflow-step-state" id="workflowBadge-resource">未开始</span>
                             </div>
                             <div class="workflow-progress-step" data-workflow-card="console">
                                 <span class="workflow-progress-num">03</span>
