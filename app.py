@@ -40,10 +40,9 @@ from multi_protocol_test import MultiProtocolTester
 from attack_resources.shared.attack_resource_api import attack_resource_bp
 from attack_resources.shared.ip_resource_catalog import (
     count_ip_entries,
-    list_protocol_resources,
-    resolve_protocol_resource_path,
+    list_protocol_local_resources,
+    resolve_protocol_local_resource_path,
 )
-from attack_resources.shared.qualified_pool import list_qualified_pool_ips
 from attack_resources.tcp.code.routes import tcp_censor_bp
 from attack_resources.dns.code.routes import dns_scan_bp
 from attack_resources.memcached.code.routes import memcached_scan_bp
@@ -396,7 +395,7 @@ def get_default_server_file_content(method: str) -> str:
 
 def _list_server_file_sources(method: str) -> List[Dict[str, Any]]:
     """返回协议 IP 列表文件的元信息（供文件管理路由使用）。"""
-    resources = list_protocol_resources(method, ATTACK_RESOURCES_ROOT)
+    resources = list_protocol_local_resources(method, ATTACK_RESOURCES_ROOT)
     return [
         {
             'id': item['id'],
@@ -419,14 +418,22 @@ def _list_server_file_sources(method: str) -> List[Dict[str, Any]]:
     ]
 
 def list_server_sources(method: str) -> Dict[str, Any]:
-    """读取协议独立的质量 IP 池，返回 IP 列表、总数与地理分布统计。
+    """读取协议本地 resources/ip_lists/ 下的 IP 文件，返回 IP 列表、总数与地理分布统计。
 
-    数据源为 ``attack_resources/{proto}/qualified_pool/qualified_pool.txt``，
-    空池时返回友好空状态（``ips: [], total: 0``），不报错。
+    数据源为 ``attack_resources/{proto}/resources/ip_lists/`` 下的所有 .txt 文件，
+    空目录时返回友好空状态（``ips: [], total: 0``），不报错。
     """
-    pool_info = list_qualified_pool_ips(method)
-    ips = pool_info.get('ips', [])
-    total = pool_info.get('total', 0)
+    sources = _list_server_file_sources(method)
+    ips: List[str] = []
+    seen: set = set()
+    for item in sources:
+        full_path = item.get('full_path', '')
+        if not full_path:
+            continue
+        for ip in read_server_entries_from_file(Path(full_path)):
+            if ip not in seen:
+                seen.add(ip)
+                ips.append(ip)
 
     if not ips:
         return {
@@ -435,19 +442,15 @@ def list_server_sources(method: str) -> Dict[str, Any]:
             'geo_distribution': [],
             'located_count': 0,
             'unresolved_count': 0,
-            'pool_path': pool_info.get('pool_path', ''),
-            'exists': pool_info.get('exists', False),
         }
 
     geo_result = build_geo_points(method, entries=ips)
     return {
         'ips': ips,
-        'total': total,
+        'total': len(ips),
         'geo_distribution': geo_result.get('areas', []),
         'located_count': geo_result.get('located_count', 0),
         'unresolved_count': geo_result.get('unresolved_count', 0),
-        'pool_path': pool_info.get('pool_path', ''),
-        'exists': pool_info.get('exists', True),
     }
 
 def list_server_source_paths(method: str) -> List[Path]:
@@ -461,7 +464,7 @@ def resolve_server_source(method: str, source: Optional[str] = None) -> Optional
     if not resources:
         return None
     if source:
-        resolved = resolve_protocol_resource_path(method, source, ATTACK_RESOURCES_ROOT)
+        resolved = resolve_protocol_local_resource_path(method, source, ATTACK_RESOURCES_ROOT)
         if resolved is not None:
             return resolved
         source_name = Path(str(source)).name

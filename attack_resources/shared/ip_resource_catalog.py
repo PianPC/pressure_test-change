@@ -220,6 +220,31 @@ def list_protocol_resources(protocol: str, attack_resources_root: str | Path) ->
     return resources
 
 
+def list_protocol_local_resources(protocol: str, attack_resources_root: str | Path) -> list[dict[str, Any]]:
+    """列出协议本地 resources/ip_lists/ 目录下的 IP 文件元信息。"""
+    root = Path(attack_resources_root)
+    local_root = root / protocol / "resources" / "ip_lists"
+    shared_root = shared_ip_root(root)
+    seen: set[Path] = set()
+    resources: list[dict[str, Any]] = []
+
+    for file_path in _iter_text_files(local_root):
+        resolved = file_path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        resources.append(
+            build_resource_record(
+                file_path,
+                root,
+                shared_root=shared_root,
+                owning_protocol=protocol,
+                root_base=local_root,
+            )
+        )
+    return resources
+
+
 def resolve_shared_resource_path(identifier: str, shared_root: str | Path) -> Path | None:
     root = Path(shared_root)
     attack_root = _attack_resources_root_from_shared_root(root)
@@ -240,6 +265,21 @@ def resolve_protocol_resource_path(
         identifier,
         root,
         search_roots=[shared_ip_root(root), *legacy_resource_roots(protocol, root)],
+    )
+
+
+def resolve_protocol_local_resource_path(
+    protocol: str,
+    identifier: str,
+    attack_resources_root: str | Path,
+) -> Path | None:
+    """仅在协议本地 resources/ip_lists/ 目录中解析文件标识符为路径。"""
+    root = Path(attack_resources_root)
+    local_root = root / protocol / "resources" / "ip_lists"
+    return _resolve_resource_path(
+        identifier,
+        root,
+        search_roots=[local_root],
     )
 
 

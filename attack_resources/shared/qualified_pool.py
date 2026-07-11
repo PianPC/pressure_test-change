@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,7 @@ def aggregate_quality_ips(proto: str, task_qualified_ips_path: str) -> Dict[str,
             "added_count": 0,
             "total_count": 0,
             "pool_path": pool_path,
+            "synced_path": "",
             "error": "task file not found",
         }
 
@@ -117,10 +119,26 @@ def aggregate_quality_ips(proto: str, task_qualified_ips_path: str) -> Dict[str,
         len(merged),
     )
 
+    # Sync to protocol-local display directory
+    sync_target = os.path.join(
+        ATTACK_RESOURCES_ROOT, proto, "resources", "ip_lists", QUALIFIED_POOL_FILENAME
+    )
+    synced_path = ""
+    try:
+        sync_dir = os.path.dirname(sync_target)
+        if sync_dir:
+            os.makedirs(sync_dir, exist_ok=True)
+        shutil.copy2(pool_path, sync_target)
+        synced_path = os.path.abspath(sync_target)
+        logger.info("synced qualified pool to %s", synced_path)
+    except Exception as sync_err:
+        logger.warning("failed to sync qualified pool to %s: %s", sync_target, sync_err)
+
     return {
         "added_count": added_count,
         "total_count": len(merged),
         "pool_path": pool_path,
+        "synced_path": synced_path,
     }
 
 
