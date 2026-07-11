@@ -1158,7 +1158,6 @@ function renderWorkflowOverview() {
             item.classList.toggle("is-current", workflow.currentStep === step);
             item.classList.toggle("is-complete", state.uiState === "completed");
             item.classList.toggle("is-optional", state.uiState === "optional");
-            item.classList.toggle("is-active", state.uiState === "in_progress");
         });
     });
 }
