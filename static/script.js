@@ -21,6 +21,7 @@ let serverMap2dZoomTransform = null;
 let isGeoMapLoading = false;
 let serverResourceItems = [];
 let serverUnresolvedItems = [];
+let serverUnresolvedCount = 0;
 let selectedAreaCode = "";
 let selectedIp = "";
 let serverListFilterMode = "all";
@@ -2284,6 +2285,31 @@ function resetServerSelectionState() {
     serverListFilterMode = "all";
 }
 
+function buildGeoPointsFromPool(ips, areas) {
+    const areaByIp = new Map();
+    (Array.isArray(areas) ? areas : []).forEach((area) => {
+        (Array.isArray(area.ips) ? area.ips : []).forEach((ip) => {
+            if (!areaByIp.has(ip)) areaByIp.set(ip, area);
+        });
+    });
+    return (Array.isArray(ips) ? ips : []).map((ip) => {
+        const area = areaByIp.get(ip) || {};
+        return {
+            ip,
+            entries: [ip],
+            country: area.country || "",
+            country_code: area.country_code || "",
+            region: area.region || "",
+            region_code: area.region_code || "",
+            city: "",
+            isp: "",
+            lat: undefined,
+            lon: undefined,
+            stale: false
+        };
+    });
+}
+
 function buildServerResourceItems(points) {
     return points.map((point) => {
         const entries = Array.isArray(point.entries) && point.entries.length ? point.entries : [point.ip];
@@ -2379,7 +2405,8 @@ function focusServerArea(area, item = null) {
         if (targetLat !== null && targetLon !== null) {
             serverGlobe.pointOfView({ lat: targetLat, lng: targetLon, altitude: 1.3 }, 900);
         } else {
-            const firstAreaPoint = lastGeoPoints.find((point) => area.ips.includes(point.ip));
+            const firstAreaPoint = lastGeoPoints.find((point) => area.ips.includes(point.ip)
+                && Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lon)));
             if (firstAreaPoint) {
                 serverGlobe.pointOfView({ lat: firstAreaPoint.lat, lng: firstAreaPoint.lon, altitude: 1.7 }, 900);
             }
@@ -2499,7 +2526,10 @@ function renderServerUnresolvedItems() {
     const container = document.getElementById("serverUnresolvedList");
     if (!container) return;
     if (!serverUnresolvedItems.length) {
-        container.innerHTML = `<div class="info-text">当前没有未定位条目。</div>`;
+        const emptyText = serverUnresolvedCount > 0
+            ? `另有 ${serverUnresolvedCount} 个未定位 IP（质量 IP 池仅提供数量统计）。`
+            : "当前没有未定位条目。";
+        container.innerHTML = `<div class="info-text">${emptyText}</div>`;
         return;
     }
     container.innerHTML = serverUnresolvedItems.map((item) => `
@@ -2770,15 +2800,24 @@ async function loadServerGeoMap() {
     setMapStatus("正在定位资源池 IP...", true);
     try {
         await ensureServerSourceSelection(currentProto);
-        const response = await fetch(`/api/servers/${currentProto}/geo${buildServerGeoQuery(currentProto)}`);
+        const response = await fetch(`/api/servers/${currentProto}`);
         const data = await response.json();
-        if (!data.success) throw new Error(data.message || "定位失败");
-        updateGeoStats(data);
-        renderGeoUnresolved(data.unresolved || []);
-        lastGeoPoints = normalizeGeoPoints(data.points || []);
-        lastGeoAreas = normalizeGeoAreas(data.areas || []);
+        if (data && data.success === false) throw new Error(data.message || "定位失败");
+        const geoAreas = Array.isArray(data.geo_distribution) ? data.geo_distribution : [];
+        const ips = Array.isArray(data.ips) ? data.ips : [];
+        const isEmpty = !data || data.total === 0 || data.exists === false;
+        updateGeoStats({
+            total: data.total || 0,
+            located_count: data.located_count || 0,
+            unresolved_count: data.unresolved_count || 0,
+            area_count: geoAreas.length
+        });
+        renderGeoUnresolved([]);
+        lastGeoAreas = normalizeGeoAreas(geoAreas);
+        lastGeoPoints = buildGeoPointsFromPool(ips, lastGeoAreas);
         serverResourceItems = buildServerResourceItems(lastGeoPoints);
-        serverUnresolvedItems = buildServerUnresolvedItems(data.unresolved || []);
+        serverUnresolvedItems = [];
+        serverUnresolvedCount = Number(data.unresolved_count) || 0;
         if (serverListFilterMode === "area" && !getSelectedArea()) {
             resetServerSelectionState();
         }
@@ -2787,10 +2826,10 @@ async function loadServerGeoMap() {
         }
         await ensureServerMapShapes();
         renderServerWorkspace();
-        if (!window.Globe) {
+        if (isEmpty) {
+            setMapStatus(data.message || "暂无该协议的质量 IP，请先执行扫描任务", false);
+        } else if (!window.Globe) {
             setMapStatus("3D 地图库加载失败，已保留资源区域统计。", false);
-        } else if (data.geo_api_degraded) {
-            setMapStatus("GeoIP 服务暂不可用，地图已使用可用缓存和已解析数据。", false);
         } else if (!lastGeoAreas.length) {
             setMapStatus("当前资源池没有可显示的国家或省份区域。", false);
         } else {
@@ -2801,6 +2840,7 @@ async function loadServerGeoMap() {
         renderGeoUnresolved([]);
         serverResourceItems = [];
         serverUnresolvedItems = [];
+        serverUnresolvedCount = 0;
         resetServerSelectionState();
         renderServerWorkspace();
         setMapStatus(`地图定位失败：${error.message}`, false);
@@ -2874,7 +2914,8 @@ function renderServerMap3d(features) {
         return;
     }
     if (activeArea) {
-        const areaPoint = lastGeoPoints.find((point) => activeArea.ips.includes(point.ip));
+        const areaPoint = lastGeoPoints.find((point) => activeArea.ips.includes(point.ip)
+            && Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lon)));
         if (areaPoint) {
             serverGlobe.pointOfView({ lat: areaPoint.lat, lng: areaPoint.lon, altitude: 1.7 }, 700);
             return;

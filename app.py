@@ -43,6 +43,7 @@ from attack_resources.shared.ip_resource_catalog import (
     list_protocol_resources,
     resolve_protocol_resource_path,
 )
+from attack_resources.shared.qualified_pool import list_qualified_pool_ips
 from attack_resources.tcp.code.routes import tcp_censor_bp
 from attack_resources.dns.code.routes import dns_scan_bp
 from attack_resources.memcached.code.routes import memcached_scan_bp
@@ -393,7 +394,8 @@ def get_server_file(method: str) -> str:
 def get_default_server_file_content(method: str) -> str:
     return '# ???????????IP?????n'
 
-def list_server_sources(method: str) -> List[Dict[str, Any]]:
+def _list_server_file_sources(method: str) -> List[Dict[str, Any]]:
+    """返回协议 IP 列表文件的元信息（供文件管理路由使用）。"""
     resources = list_protocol_resources(method, ATTACK_RESOURCES_ROOT)
     return [
         {
@@ -416,14 +418,46 @@ def list_server_sources(method: str) -> List[Dict[str, Any]]:
         for item in resources
     ]
 
+def list_server_sources(method: str) -> Dict[str, Any]:
+    """读取协议独立的质量 IP 池，返回 IP 列表、总数与地理分布统计。
+
+    数据源为 ``attack_resources/{proto}/qualified_pool/qualified_pool.txt``，
+    空池时返回友好空状态（``ips: [], total: 0``），不报错。
+    """
+    pool_info = list_qualified_pool_ips(method)
+    ips = pool_info.get('ips', [])
+    total = pool_info.get('total', 0)
+
+    if not ips:
+        return {
+            'ips': [],
+            'total': 0,
+            'geo_distribution': [],
+            'located_count': 0,
+            'unresolved_count': 0,
+            'pool_path': pool_info.get('pool_path', ''),
+            'exists': pool_info.get('exists', False),
+        }
+
+    geo_result = build_geo_points(method, entries=ips)
+    return {
+        'ips': ips,
+        'total': total,
+        'geo_distribution': geo_result.get('areas', []),
+        'located_count': geo_result.get('located_count', 0),
+        'unresolved_count': geo_result.get('unresolved_count', 0),
+        'pool_path': pool_info.get('pool_path', ''),
+        'exists': pool_info.get('exists', True),
+    }
+
 def list_server_source_paths(method: str) -> List[Path]:
-    return [Path(item['full_path']) for item in list_server_sources(method)]
+    return [Path(item['full_path']) for item in _list_server_file_sources(method)]
 
 def count_server_entries_in_file(path: Path) -> int:
     return count_ip_entries(path)
 
 def resolve_server_source(method: str, source: Optional[str] = None) -> Optional[Path]:
-    resources = list_server_sources(method)
+    resources = _list_server_file_sources(method)
     if not resources:
         return None
     if source:
@@ -438,7 +472,7 @@ def resolve_server_source(method: str, source: Optional[str] = None) -> Optional
     return Path(resources[0]['full_path'])
 
 def resolve_server_sources(method: str, sources: Optional[List[str]] = None) -> List[Path]:
-    resources = list_server_sources(method)
+    resources = _list_server_file_sources(method)
     if not resources:
         return []
     if not sources:
@@ -672,8 +706,9 @@ def build_geo_areas(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         key=lambda item: (-int(item.get('resource_count') or 0), item.get('country') or '', item.get('region') or '')
     )
 
-def build_geo_points(method: str, source_files: Optional[List[Path]] = None) -> Dict[str, Any]:
-    entries = read_server_entries(method, source_files=source_files)
+def build_geo_points(method: str, source_files: Optional[List[Path]] = None, entries: Optional[List[str]] = None) -> Dict[str, Any]:
+    if entries is None:
+        entries = read_server_entries(method, source_files=source_files)
     cache = load_geoip_cache()
     now = time.time()
     unresolved = []
@@ -864,18 +899,11 @@ def reset_test():
 def get_servers(method):
     try:
         if not is_valid_server_method(method):
-            return jsonify({'success': False, 'message': '不支持的方法'})
-        source_files = resolve_server_sources(method, request.args.getlist('files'))
-        servers = read_server_entries(method, source_files=source_files)
-        if not servers:
-            defaults = {
-                'memcached': ['127.0.0.1'],
-                'dns': ['8.8.8.8', '1.1.1.1', '9.9.9.9'],
-                'ntp': ['pool.ntp.org', 'time.google.com'],
-                'tcp': []
-            }
-            servers = defaults.get(method, [])
-        return jsonify({'success': True, 'servers': servers, 'count': len(servers)})
+            return jsonify({'success': False, 'message': '不支持的方法'}), 400
+        result = list_server_sources(method)
+        if result.get('total', 0) == 0:
+            result['message'] = '暂无该协议的质量 IP，请先执行扫描任务'
+        return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
@@ -891,7 +919,7 @@ def get_server_list(method):
 def get_server_sources(method):
     if not is_valid_server_method(method):
         return jsonify({'success': False, 'message': 'Unsupported method'})
-    return jsonify({'success': True, 'files': list_server_sources(method)})
+    return jsonify({'success': True, 'files': _list_server_file_sources(method)})
 
 @app.route('/api/servers/<method>/file', methods=['GET'])
 def get_server_file_content(method):

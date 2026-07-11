@@ -797,7 +797,7 @@ NTP 放大率测量原理：
                     <div class="panel servers-panel">
                         <div class="panel-heading">
                             <div>
-                                <h2><i class="fas fa-database"></i> 资源池管理</h2>
+                                <h2><i class="fas fa-database"></i> 资源池管理 <small>按协议隔离的质量 IP 结果池</small></h2>
                             </div>
                         </div>
                         <div class="module-summary-grid compact">
@@ -820,7 +820,7 @@ NTP 放大率测量原理：
                         </div>
                         <div class="monitor-note">
                             <i class="fas fa-circle-info"></i>
-                            <span>资源池用于维护 Memcached、DNS、NTP 的资源列表。这里适合确认当前协议资源是否足够，也可以在不修改资源的情况下直接跳过此步，进入控制台发起测试。</span>
+                            <span>此处展示各协议扫描产出的质量 IP，是按协议隔离的质量 IP 结果池（TCP / Memcached / DNS / NTP 各自独立）。切换上方协议标签可查看对应协议的质量 IP 及其地理分布；执行扫描任务后，优质 IP 会自动聚合到对应协议的池中。若当前协议暂无质量 IP，请先执行扫描任务。</span>
                         </div>
 
                         <div class="protocol-tabs">

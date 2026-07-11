@@ -11,6 +11,7 @@ Memcached 攻击资源获取 - Flask Blueprint
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 import traceback
@@ -22,6 +23,7 @@ from typing import Any, Dict, List, Optional
 from flask import Blueprint, jsonify, request
 
 from attack_resources.shared.ip_resource_catalog import list_protocol_resources, resolve_protocol_resource_path
+from attack_resources.shared.qualified_pool import aggregate_quality_ips
 
 from attack_resources.memcached.code.memcached_resource_scanner import (
     MemcachedResourceScanner,
@@ -30,6 +32,8 @@ from attack_resources.memcached.code.memcached_resource_scanner import (
 )
 
 memcached_scan_bp = Blueprint("memcached_scan", __name__, url_prefix="/api/memcached-scan")
+
+logger = logging.getLogger(__name__)
 
 # 路径常量
 REPO_ROOT = Path(__file__).resolve().parents[3]  # pressure_test-change/
@@ -303,6 +307,16 @@ def start_scan():
     def scan_worker():
         try:
             scanner.run_scan(config, log_callback=log_persister)
+            try:
+                task_qualified_ips_path = os.path.join(output_dir, "qualified_ips.txt")
+                agg_result = aggregate_quality_ips("memcached", task_qualified_ips_path)
+                logger.info(
+                    "已聚合 %d 个优质 IP 到 memcached 质量池，总计 %d 个",
+                    agg_result.get("added_count", 0),
+                    agg_result.get("total_count", 0),
+                )
+            except Exception as agg_exc:
+                logger.error("聚合优质 IP 到 memcached 质量池失败: %s", agg_exc)
         except Exception as exc:
             memcached_registry.set_error(run_id, f"{exc}\n{traceback.format_exc()}")
         finally:

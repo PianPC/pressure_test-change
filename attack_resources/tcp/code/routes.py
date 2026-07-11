@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import replace
 from pathlib import Path
 from threading import Lock, Thread
@@ -9,6 +11,7 @@ import traceback
 from flask import Blueprint, jsonify, request
 
 from attack_resources.shared.ip_resource_catalog import resolve_protocol_resource_path
+from attack_resources.shared.qualified_pool import aggregate_quality_ips
 from attack_resources.tcp.code.tcp_censor_scan import (
     cleanup_run_artifacts,
     load_config,
@@ -27,6 +30,8 @@ from attack_resources.tcp.code.tcp_censor_scan.config import ConfigError, ScanCo
 
 
 tcp_censor_bp = Blueprint("tcp_censor_scan", __name__, url_prefix="/api/tcp-scan")
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH = repo_root() / "attack_resources" / "tcp" / "config" / "scan.example.toml"
 TCP_OUTPUT_ROOT = repo_root() / "attack_resources" / "tcp" / "runs" / "tcp_censor_scan"
@@ -158,6 +163,18 @@ def tcp_scan_start():
         def worker(cfg: ScanConfig = config, current_run_id: str = run_id) -> None:
             try:
                 run_pipeline(cfg, run_dir=TCP_OUTPUT_ROOT / current_run_id)
+                try:
+                    task_qualified_ips_path = os.path.join(
+                        str(TCP_OUTPUT_ROOT / current_run_id), "qualified_ips.txt"
+                    )
+                    agg_result = aggregate_quality_ips("tcp", task_qualified_ips_path)
+                    logger.info(
+                        "已聚合 %d 个优质 IP 到 tcp 质量池，总计 %d 个",
+                        agg_result.get("added_count", 0),
+                        agg_result.get("total_count", 0),
+                    )
+                except Exception as agg_exc:
+                    logger.error("聚合优质 IP 到 tcp 质量池失败: %s", agg_exc)
             except Exception as exc:
                 tcp_scan_registry.set_error(current_run_id, f"{exc}\n{traceback.format_exc()}")
 

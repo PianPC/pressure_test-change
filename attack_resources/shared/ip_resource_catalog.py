@@ -217,22 +217,6 @@ def list_protocol_resources(protocol: str, attack_resources_root: str | Path) ->
             seen.add(resolved)
             resources.append(record)
 
-    for legacy_root in legacy_resource_roots(protocol, root):
-        for file_path in _iter_text_files(legacy_root):
-            resolved = file_path.resolve()
-            if resolved in seen:
-                continue
-            seen.add(resolved)
-            resources.append(
-                build_resource_record(
-                    file_path,
-                    root,
-                    shared_root=shared_root,
-                    owning_protocol=protocol,
-                    root_base=legacy_root,
-                )
-            )
-
     return resources
 
 
