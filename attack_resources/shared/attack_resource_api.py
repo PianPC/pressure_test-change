@@ -119,7 +119,7 @@ MEMCACHED_STAGE_ORDER = [
     ("saving", "\u4fdd\u5b58\u7ed3\u679c"),
 ]
 
-ATTACK_RESOURCES_ROOT = Path(__file__).resolve().parents[2]
+ATTACK_RESOURCES_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _normalize_protocol_resource(proto: str, resource: dict[str, Any]) -> dict[str, Any]:
