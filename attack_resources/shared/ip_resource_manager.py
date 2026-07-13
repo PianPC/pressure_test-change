@@ -324,6 +324,13 @@ class IPResourceManager:
         return sources
 
     def get_country_list(self) -> List[Dict[str, Any]]:
+        try:
+            from .spiders.ipdeny_spider import IPDenySpider
+            countries = IPDenySpider().get_available_countries()
+            if countries:
+                return countries
+        except Exception:
+            pass
         return [{"code": code, "name": name} for code, name in COUNTRY_CODES.items()]
 
 
