@@ -238,7 +238,8 @@ def analyze_amplification_log(cfg: ScanConfig, run_dir: Path, artifacts: dict[st
 
 def extract_qualified_ips(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, Path], log) -> None:
     update_stage(run_dir, "extract_qualified_ips", "running")
-    min_ratio = getattr(cfg, "min_amplification", 2.0)
+    min_ratio = cfg.min_amplification
+    min_success_rate = cfg.min_success_rate
 
     if cfg.dry_run:
         log("Writing mock qualified IPs")
@@ -246,22 +247,28 @@ def extract_qualified_ips(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, P
         qualified = []
         for ip in ips[:3]:
             qualified.append({"ip": ip, "ratio": min_ratio + 1.0, "success_rate": 100.0})
-        _write_qualified_ips(artifacts["qualified_ips"], qualified, min_ratio)
+        _write_qualified_ips(artifacts["qualified_ips"], qualified, min_ratio, min_success_rate)
         artifacts["qualified_log"].write_text(
-            f"dry_run: extracted {len(qualified)} qualified IPs (min_ratio={min_ratio})\n",
+            f"dry_run: extracted {len(qualified)} qualified IPs (min_ratio={min_ratio}, min_success_rate={min_success_rate})\n",
             encoding="utf-8",
         )
         update_stage(run_dir, "extract_qualified_ips", "completed", dry_run=True)
         _save_artifacts(run_dir, artifacts)
         return
 
-    qualified = _parse_amplification_log_for_qualified(artifacts["amplification_log"], min_ratio)
-    _write_qualified_ips(artifacts["qualified_ips"], qualified, min_ratio)
+    qualified = _parse_amplification_log_for_qualified(
+        artifacts["amplification_log"],
+        min_ratio=min_ratio,
+        min_success_rate=min_success_rate,
+        scan_count=cfg.scan_count,
+    )
+    _write_qualified_ips(artifacts["qualified_ips"], qualified, min_ratio, min_success_rate)
 
-    log(f"Extracted {len(qualified)} qualified IPs with amplification ratio >= {min_ratio}")
+    log(f"Extracted {len(qualified)} qualified IPs with amplification ratio >= {min_ratio} and success_rate >= {min_success_rate}%")
     artifacts["qualified_log"].write_text(
         f"Extracted {len(qualified)} qualified IPs from amplification log\n"
-        f"Min amplification ratio: {min_ratio}\n",
+        f"Min amplification ratio: {min_ratio}\n"
+        f"Min success rate: {min_success_rate}%\n",
         encoding="utf-8",
     )
 
@@ -269,13 +276,20 @@ def extract_qualified_ips(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, P
     _save_artifacts(run_dir, artifacts)
 
 
-def _parse_amplification_log_for_qualified(log_path: Path, min_ratio: float) -> list[dict[str, Any]]:
+def _parse_amplification_log_for_qualified(
+    log_path: Path,
+    min_ratio: float,
+    min_success_rate: float,
+    scan_count: int,
+) -> list[dict[str, Any]]:
     qualified = []
     if not log_path.exists():
         return qualified
 
     current_ip = None
     ratios = []
+    # success_rate 归一化分母，避免 scan_count 为 0 时除零
+    norm_count = max(scan_count, 1)
 
     with log_path.open("r", encoding="utf-8", errors="replace") as fh:
         for line in fh:
@@ -284,11 +298,13 @@ def _parse_amplification_log_for_qualified(log_path: Path, min_ratio: float) -> 
             if ip_match:
                 if current_ip and ratios:
                     avg_ratio = sum(ratios) / len(ratios)
-                    if avg_ratio >= min_ratio:
+                    success_rate = round(len(ratios) / norm_count * 100, 1)
+                    # 双阈值筛选：放大率与成功率均需达标
+                    if avg_ratio >= min_ratio and success_rate >= min_success_rate:
                         qualified.append({
                             "ip": current_ip,
                             "ratio": round(avg_ratio, 2),
-                            "success_rate": round(len(ratios) / 1.0 * 100, 1) if ratios else 0.0,
+                            "success_rate": success_rate,
                         })
                 current_ip = ip_match
                 ratios = []
@@ -300,13 +316,15 @@ def _parse_amplification_log_for_qualified(log_path: Path, min_ratio: float) -> 
 
         if current_ip and ratios:
             avg_ratio = sum(ratios) / len(ratios)
-            if avg_ratio >= min_ratio:
+            success_rate = round(len(ratios) / norm_count * 100, 1)
+            if avg_ratio >= min_ratio and success_rate >= min_success_rate:
                 qualified.append({
                     "ip": current_ip,
                     "ratio": round(avg_ratio, 2),
-                    "success_rate": round(len(ratios) / 1.0 * 100, 1) if ratios else 0.0,
+                    "success_rate": success_rate,
                 })
 
+    # 按放大率降序排序
     qualified.sort(key=lambda x: x["ratio"], reverse=True)
     return qualified
 
@@ -333,15 +351,21 @@ def _extract_ratio_from_line(line: str) -> float | None:
     return None
 
 
-def _write_qualified_ips(output_path: Path, qualified: list[dict[str, Any]], min_ratio: float) -> None:
+def _write_qualified_ips(
+    output_path: Path,
+    qualified: list[dict[str, Any]],
+    min_ratio: float,
+    min_success_rate: float,
+) -> None:
     lines = [
-        f"# TCP优质反射器IP列表（放大率 >= {min_ratio}x）",
+        f"# TCP优质反射器IP列表（放大率 >= {min_ratio}x，成功率 >= {min_success_rate}%）",
         f"# 生成时间: {now_iso()}",
         f"# 优质IP数量: {len(qualified)}",
         "",
     ]
     for item in qualified:
-        lines.append(f"{item['ip']}, ratio={item['ratio']}, success_rate={item['success_rate']}%")
+        # 每行只写纯 IP，与 DNS/NTP/Memcached 对齐
+        lines.append(item["ip"])
 
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

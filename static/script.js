@@ -641,6 +641,8 @@ const ATTACK_RESOURCE_FIELD_MAPS = {
         scan_count: "#tcpScanCount",
         result_limit: "#tcpResultLimit",
         length_threshold: "#tcpLengthThreshold",
+        min_amplification: "#tcpMinAmplification",
+        min_success_rate: "#tcpMinSuccessRate",
         network_interface: "#tcpNetworkInterface",
         dry_run: "#tcpDryRun"
     },
@@ -1901,6 +1903,8 @@ function renderTcpMeta(summary) {
         ["开始时间", summary.started_at || "-"],
         ["结束时间", summary.ended_at || "-"],
         ["模拟运行", summary.config?.dry_run ? "是" : "否"],
+        ["最小放大率", summary.config?.min_amplification ?? "-"],
+        ["最小成功率", summary.config?.min_success_rate ?? "-"],
         ["停止请求", summary.stop_requested ? "已请求" : "未请求"],
         ["失败原因", summary.error || summary.runtime_error || "-"]
     ];
@@ -4939,6 +4943,8 @@ function readUnifiedTcpForm() {
         scan_count: readNumber("tcpScanCount", 10),
         result_limit: readNumberAllowZero("tcpResultLimit", 30),
         length_threshold: readNumberAllowZero("tcpLengthThreshold", 2000),
+        min_amplification: parseFloat(document.getElementById("tcpMinAmplification")?.value) || 2.0,
+        min_success_rate: parseFloat(document.getElementById("tcpMinSuccessRate")?.value) || 50.0,
         network_interface: document.getElementById("tcpNetworkInterface")?.value.trim() || "eth0",
         dry_run: Boolean(document.getElementById("tcpDryRun")?.checked)
     };
