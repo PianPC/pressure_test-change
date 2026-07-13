@@ -331,10 +331,9 @@ def _parse_amplification_log_for_qualified(
 
 def _extract_ip_from_line(line: str) -> str | None:
     import re
-    match = re.search(r"test_ip:\s*([\d.]+)", line)
-    if match:
-        return match.group(1)
-    match = re.search(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", line)
+    # 匹配 magnification_test_1.py 输出的 "==== ... 测试IP：1.2.3.4（国家） ===="
+    # 必须带 ==== 前缀，避免误匹配 traceroute 路径中的 IP
+    match = re.search(r"====.*?测试IP：([\d.]+)", line)
     if match:
         return match.group(1)
     return None
@@ -342,7 +341,8 @@ def _extract_ip_from_line(line: str) -> str | None:
 
 def _extract_ratio_from_line(line: str) -> float | None:
     import re
-    match = re.search(r"amplification_ratio:\s*([\d.]+)", line)
+    # 匹配 magnification_test_1.py 输出的 "📊 放大比率：1.23（接收/发送）"
+    match = re.search(r"放大比率：([\d.]+)", line)
     if match:
         try:
             return float(match.group(1))
@@ -688,21 +688,25 @@ def _read_ip_list(path: Path) -> list[str]:
 
 
 def _write_mock_amplification_log(cfg: ScanConfig, path: Path, ips: list[str]) -> None:
+    # 模拟 magnification_test_1.py 的真实中文日志格式，确保 dry_run 能测试解析逻辑
+    from datetime import datetime
     lines = [
-        "dry_run amplification log",
-        f"pkt_method: {cfg.pkt_method}",
-        f"target_host: {cfg.target_host}",
-        f"ttl: {cfg.ttl}",
-        f"scan_count: {cfg.scan_count}",
+        f"dry_run 模拟日志 | pkt_method={cfg.pkt_method} | target={cfg.target_host} | ttl={cfg.ttl} | scan_count={cfg.scan_count}",
         "",
     ]
     if not ips:
-        lines.append("no candidate IPs found")
+        lines.append("无候选 IP")
     for ip in ips:
-        lines.extend([
-            f"=== dry_run | test_ip: {ip} (Example) | scan_count: {cfg.scan_count} ===",
-            "amplification_ratio: 1.00 (received=1 sent=1)",
-        ])
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 模拟 scan_count 次扫描，每次都有响应（放大率 4.64 与真实样本一致）
+        lines.append(f"==== {ts} | 测试IP：{ip}（Example） | 扫描次数：{cfg.scan_count} ====")
+        for i in range(cfg.scan_count):
+            lines.append(f"--- 第{i+1}/{cfg.scan_count}次扫描 ---")
+            lines.append(f"📤 发送数据包：1个 | 总发送大小：130 bytes")
+            lines.append(f"📥 收到响应：1个 | 总接收大小：603 bytes")
+            lines.append(f"📊 放大比率：4.64（接收/发送）")
+        lines.append(f"--- 该IP扫描完成 | 成功响应：{cfg.scan_count}/{cfg.scan_count}次 ---")
+        lines.append("")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

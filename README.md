@@ -55,3 +55,23 @@ git reset --hard origin/trae/ui-simplify
 
 git pull origin trae/ui-simplify
 ```
+
+让AI合并分支时提示词
+```bash
+请将 feature/xxx 分支合并到 main 分支，要求：
+1. 使用 --no-ff 模式合并（非快进合并）
+2. 必须创建合并提交（merge commit），保留分支图形结构
+3. 不要使用 fast-forward、squash 或 rebase 方式合并
+4. 合并提交信息写清楚合并的分支名和功能概述
+
+或
+
+合并 feature/xxx 到 main，用 --no-ff，保留分支线，创建 merge commit，不要 ff/squash/rebase。
+```
+
+命令对照
+```bash
+git checkout main
+git merge --no-ff feature/你的分支名
+git push
+```
