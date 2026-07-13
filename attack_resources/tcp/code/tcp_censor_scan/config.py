@@ -43,6 +43,8 @@ class ScanConfig:
     zmap_multiple_probes_root: Path = field(default_factory=lambda: repo_root() / "vendor" / "weaponizing-censors" / "zmap_multiple_probes")
     dry_run: bool = False
     python_bin: str = "python3"
+    min_amplification: float = 2.0
+    min_success_rate: float = 50.0
 
     @property
     def zmap_variant(self) -> str:
@@ -89,6 +91,8 @@ def load_config(path: str | Path) -> ScanConfig:
         geoip_db_path=_path(amplify.get("geoip_db_path", repo_root() / "attack_resources" / "tcp" / "resources" / "geoip" / "GeoLite2-City.mmdb")),
         scan_count=_int(amplify.get("scan_count", 1), "scan_count", minimum=1, maximum=100),
         ttl=_int(amplify.get("ttl", 64), "ttl", minimum=1, maximum=255),
+        min_amplification=_float(amplify.get("min_amplification", 2.0), "min_amplification", minimum=0.0),
+        min_success_rate=_float(amplify.get("min_success_rate", 50.0), "min_success_rate", minimum=0.0, maximum=100.0),
         network_interface=_string(scan.get("network_interface", "eth0"), "network_interface"),
         output_root=_path(paths.get("output_root", repo_root() / "attack_resources" / "tcp" / "runs" / "tcp_censor_scan")),
         process_py=_path(scripts.get("process_py", repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "process_test_3.py")),
@@ -187,6 +191,18 @@ def _int(value: Any, name: str, minimum: int | None = None, maximum: int | None 
         number = int(value)
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"{name} must be an integer") from exc
+    if minimum is not None and number < minimum:
+        raise ConfigError(f"{name} must be >= {minimum}")
+    if maximum is not None and number > maximum:
+        raise ConfigError(f"{name} must be <= {maximum}")
+    return number
+
+
+def _float(value: Any, name: str, minimum: float | None = None, maximum: float | None = None) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{name} must be a number") from exc
     if minimum is not None and number < minimum:
         raise ConfigError(f"{name} must be >= {minimum}")
     if maximum is not None and number > maximum:

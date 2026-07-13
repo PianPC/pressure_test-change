@@ -16,6 +16,9 @@ network_interface = "eth0"
 geoip_db_path = "attack_resources/tcp/resources/geoip/GeoLite2-City.mmdb"
 scan_count = 10
 ttl = 255
+# 优质 IP 筛选阈值
+min_amplification = 2.0      # 最小放大率，低于此值的 IP 不纳入优质池
+min_success_rate = 50.0      # 最小成功率（0-100），低于此值的 IP 不纳入优质池
 
 [scripts]
 process_py = "attack_resources/tcp/code/tcp_censor_scan/legacy_scripts/process_test_3.py"

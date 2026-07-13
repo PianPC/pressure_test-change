@@ -271,6 +271,8 @@ def _config_from_request(data: dict[str, Any]) -> ScanConfig:
         geoip_db_path=Path(data.get("geoip_db_path") or base.geoip_db_path),
         scan_count=_int(data.get("scan_count", base.scan_count), "scan_count", 1, 100),
         ttl=_int(data.get("ttl", base.ttl), "ttl", 1, 255),
+        min_amplification=_float_or(data.get("min_amplification"), 2.0),
+        min_success_rate=_float_or(data.get("min_success_rate"), 50.0),
         network_interface=str(data.get("network_interface") or base.network_interface).strip(),
         output_root=TCP_OUTPUT_ROOT,
         dry_run=_bool(data.get("dry_run", base.dry_run)),
@@ -319,3 +321,12 @@ def _bool(value: Any) -> bool:
     if isinstance(value, str):
         return value.lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def _float_or(value, default: float) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default

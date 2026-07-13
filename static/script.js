@@ -641,6 +641,8 @@ const ATTACK_RESOURCE_FIELD_MAPS = {
         scan_count: "#tcpScanCount",
         result_limit: "#tcpResultLimit",
         length_threshold: "#tcpLengthThreshold",
+        min_amplification: "#tcpMinAmplification",
+        min_success_rate: "#tcpMinSuccessRate",
         network_interface: "#tcpNetworkInterface",
         dry_run: "#tcpDryRun"
     },
@@ -677,6 +679,93 @@ const LATENCY_FIELD_MAP = {
     target_ip: "#latencyTargetIp",
     port: "#latencyPort"
 };
+
+// 输出文件作用描述字典
+// TCP 文件名含动态 stem 和 pkt_method，用前缀/后缀模式匹配
+// DNS/NTP/Memcached 文件名固定，用精确匹配
+const OUTPUT_FILE_DESCRIPTIONS = {
+    // === TCP 12 个文件 ===
+    // 精确匹配
+    "qualified_ips.txt": "优质反射器 IP 列表（放大率与成功率均达标），每行一个纯 IP，可直接用于攻击",
+    "extract_qualified_ips.log": "优质 IP 提取阶段的日志，记录筛选阈值与入选/淘汰情况",
+    "process_csv.log": "CSV 处理阶段日志，记录从 ZMap 原始结果清洗 IP 的过程",
+    "extract_ips.log": "IP 提取阶段日志，记录从处理后的 CSV 提取 IP 列表的过程",
+    "analysis_stdout_stderr.log": "放大分析脚本（analyze_amplify_log.py）的 stdout/stderr 输出",
+    // 后缀匹配（key 以 * 开头表示后缀匹配）
+    "*_processed.csv": "处理后的扫描结果 CSV，清洗并格式化 ZMap 原始输出",
+    "*-IPs.txt": "从扫描结果提取的候选 IP 列表，用于后续放大测试",
+    "*_zmap_scan_details.log": "ZMap 扫描过程详细日志，记录发包与响应统计",
+    // 前缀匹配（key 以 * 结尾表示前缀匹配）
+    "amplification_test_*.log": "放大测试阶段日志，记录每个 IP 每次扫描的发送/接收字节数与放大比率",
+    "magnification_test_stdout_stderr_*.log": "放大测试子进程（magnification_test.py）的 stdout/stderr 输出",
+    "amplification_analysis_report_*.txt": "放大分析报告，含 IP 综合得分、放大率、稳定性、成功率排名",
+};
+
+// DNS/NTP/Memcached 共用的 3 个固定文件（文件名相同，描述按协议微调）
+const PROTOCOL_FILE_DESCRIPTIONS = {
+    dns: {
+        "qualified_ips.txt": "DNS 优质反射器 IP 列表（放大率 ≥ 阈值），每行一个纯 IP",
+        "scan_results.csv": "完整扫描结果 CSV，含 IP、域名、查询类型、响应字节数、放大率、延迟、错误等",
+        "scan_summary.json": "JSON 汇总，含总 IP 数、响应数、优质数、平均/最大放大率、Top10 排名",
+    },
+    ntp: {
+        "qualified_ips.txt": "NTP 优质反射器 IP 列表（放大率 ≥ 阈值），每行一个纯 IP",
+        "scan_results.csv": "完整扫描结果 CSV，含 IP、动作、响应字节数、放大率、响应包数、延迟、错误等",
+        "scan_summary.json": "JSON 汇总，含总 IP 数、响应数、优质数、平均/最大放大率、Top10 排名",
+    },
+    memcached: {
+        "qualified_ips.txt": "Memcached 优质反射器 IP 列表（放大率 ≥ 阈值），每行一个纯 IP",
+        "scan_results.csv": "完整扫描结果 CSV，含 IP、命令类型、可用性、响应字节数、放大率、数据大小、延迟等",
+        "scan_summary.json": "JSON 汇总，含总 IP 数、响应数、优质数、平均/最大放大率、Top10 排名",
+    },
+};
+
+// 按文件名和协议获取描述
+function getFileDescription(fileName, protocol) {
+    // 1. 先查协议专属字典（DNS/NTP/Memcached 精确匹配）
+    if (protocol && PROTOCOL_FILE_DESCRIPTIONS[protocol]) {
+        const desc = PROTOCOL_FILE_DESCRIPTIONS[protocol][fileName];
+        if (desc) return desc;
+    }
+    // 2. 再查通用字典（TCP 精确 + 前缀/后缀）
+    if (OUTPUT_FILE_DESCRIPTIONS[fileName]) {
+        return OUTPUT_FILE_DESCRIPTIONS[fileName];
+    }
+    // 3. 后缀匹配（key 以 * 开头）
+    for (const key of Object.keys(OUTPUT_FILE_DESCRIPTIONS)) {
+        if (key.startsWith("*") && !key.endsWith("*")) {
+            const suffix = key.slice(1);
+            if (fileName.endsWith(suffix) && OUTPUT_FILE_DESCRIPTIONS[key]) {
+                return OUTPUT_FILE_DESCRIPTIONS[key];
+            }
+        }
+    }
+    // 4. 前缀匹配（key 以 * 结尾）
+    for (const key of Object.keys(OUTPUT_FILE_DESCRIPTIONS)) {
+        if (key.endsWith("*") && !key.startsWith("*")) {
+            const prefix = key.slice(0, -1);
+            if (fileName.startsWith(prefix) && OUTPUT_FILE_DESCRIPTIONS[key]) {
+                return OUTPUT_FILE_DESCRIPTIONS[key];
+            }
+        }
+    }
+    // 4.5 中间 * 匹配（如 amplification_test_*.log，按 * 拆成 prefix+suffix）
+    for (const key of Object.keys(OUTPUT_FILE_DESCRIPTIONS)) {
+        const starIdx = key.indexOf("*");
+        if (starIdx > 0 && starIdx < key.length - 1) {
+            const prefix = key.slice(0, starIdx);
+            const suffix = key.slice(starIdx + 1);
+            if (fileName.startsWith(prefix) && fileName.endsWith(suffix) && OUTPUT_FILE_DESCRIPTIONS[key]) {
+                return OUTPUT_FILE_DESCRIPTIONS[key];
+            }
+        }
+    }
+    // 5. TCP 的 raw_csv 兜底：*.csv 但不是 _processed.csv
+    if (protocol === "tcp" && fileName.endsWith(".csv") && !fileName.endsWith("_processed.csv")) {
+        return "ZMap 原始扫描结果 CSV，包含响应 IP 及其元数据";
+    }
+    return "";
+}
 
 function saveUiState() {
     const state = {
@@ -1905,6 +1994,8 @@ function renderTcpMeta(summary) {
         ["开始时间", summary.started_at || "-"],
         ["结束时间", summary.ended_at || "-"],
         ["模拟运行", summary.config?.dry_run ? "是" : "否"],
+        ["最小放大率", summary.config?.min_amplification ?? "-"],
+        ["最小成功率", summary.config?.min_success_rate ?? "-"],
         ["停止请求", summary.stop_requested ? "已请求" : "未请求"],
         ["失败原因", summary.error || summary.runtime_error || "-"]
     ];
@@ -1923,14 +2014,21 @@ function renderTcpArtifacts(files) {
         container.innerHTML = `<div class="info-text">暂无输出文件。</div>`;
         return;
     }
-    container.innerHTML = files.map((file) => `
-        <button type="button" class="tcp-artifact-item tcp-file-button" data-file-name="${escapeHtml(file.name)}">
-            <span>${escapeHtml(file.name)}</span>
+    container.innerHTML = files.map((file) => {
+        const desc = getFileDescription(file.name, "tcp");
+        const infoIcon = desc
+            ? `<span class="file-info-icon" data-tooltip="${escapeHtml(desc)}" title="">ℹ️</span>`
+            : "";
+        return `<button type="button" class="tcp-artifact-item tcp-file-button" data-file-name="${escapeHtml(file.name)}">
+            <span>${escapeHtml(file.name)}</span>${infoIcon}
             <strong>${formatBytes(file.bytes || 0)}</strong>
-        </button>
-    `).join("");
+        </button>`;
+    }).join("");
     container.querySelectorAll("[data-file-name]").forEach((item) => {
         item.addEventListener("click", () => openTcpFileModal(item.getAttribute("data-file-name")));
+    });
+    container.querySelectorAll(".file-info-icon").forEach((icon) => {
+        icon.addEventListener("click", (e) => e.stopPropagation());
     });
 }
 
@@ -4238,11 +4336,21 @@ async function loadDnsRunDetail(runId) {
 
         // 产物
         const artifacts = data.artifacts || [];
-        document.getElementById("dnsArtifacts").innerHTML = artifacts.length
-            ? artifacts.map((a) => `<button type="button" class="tcp-artifact-item tcp-file-button" data-dns-file-name="${escapeHtml(a.name)}"><span>${escapeHtml(a.name)}</span><strong>${formatBytes(a.size)}</strong></button>`).join("")
+        const dnsArtifactsEl = document.getElementById("dnsArtifacts");
+        dnsArtifactsEl.innerHTML = artifacts.length
+            ? artifacts.map((a) => {
+                const desc = getFileDescription(a.name, "dns");
+                const infoIcon = desc
+                    ? `<span class="file-info-icon" data-tooltip="${escapeHtml(desc)}" title="">ℹ️</span>`
+                    : "";
+                return `<button type="button" class="tcp-artifact-item tcp-file-button" data-dns-file-name="${escapeHtml(a.name)}"><span>${escapeHtml(a.name)}</span>${infoIcon}<strong>${formatBytes(a.size)}</strong></button>`;
+            }).join("")
             : `<div class="info-text">暂无输出文件</div>`;
         document.querySelectorAll("[data-dns-file-name]").forEach((item) => {
             item.addEventListener("click", () => openDnsFileModal(item.getAttribute("data-dns-file-name")));
+        });
+        dnsArtifactsEl.querySelectorAll(".file-info-icon").forEach((icon) => {
+            icon.addEventListener("click", (e) => e.stopPropagation());
         });
 
         document.getElementById("dnsRuntimeError").textContent = data.runtime_error ? `失败原因：${data.runtime_error}` : "";
@@ -4839,14 +4947,21 @@ class AttackResourceTaskController {
             container.innerHTML = `<div class="info-text">暂无输出文件。</div>`;
             return;
         }
-        container.innerHTML = artifacts.map((artifact) => `
-            <button type="button" class="tcp-artifact-item tcp-file-button" data-file-name="${escapeHtml(artifact.name)}">
-                <span>${escapeHtml(artifact.name)}</span>
+        container.innerHTML = artifacts.map((artifact) => {
+            const desc = getFileDescription(artifact.name, this.proto);
+            const infoIcon = desc
+                ? `<span class="file-info-icon" data-tooltip="${escapeHtml(desc)}" title="">ℹ️</span>`
+                : "";
+            return `<button type="button" class="tcp-artifact-item tcp-file-button" data-file-name="${escapeHtml(artifact.name)}">
+                <span>${escapeHtml(artifact.name)}</span>${infoIcon}
                 <strong>${formatBytes(artifact.size || 0)}</strong>
-            </button>
-        `).join("");
+            </button>`;
+        }).join("");
         container.querySelectorAll("[data-file-name]").forEach((item) => {
             item.addEventListener("click", () => this.openFile(item.getAttribute("data-file-name")));
+        });
+        container.querySelectorAll(".file-info-icon").forEach((icon) => {
+            icon.addEventListener("click", (e) => e.stopPropagation());
         });
     }
 
@@ -4943,6 +5058,8 @@ function readUnifiedTcpForm() {
         scan_count: readNumber("tcpScanCount", 10),
         result_limit: readNumberAllowZero("tcpResultLimit", 30),
         length_threshold: readNumberAllowZero("tcpLengthThreshold", 2000),
+        min_amplification: parseFloat(document.getElementById("tcpMinAmplification")?.value) || 2.0,
+        min_success_rate: parseFloat(document.getElementById("tcpMinSuccessRate")?.value) || 50.0,
         network_interface: document.getElementById("tcpNetworkInterface")?.value.trim() || "eth0",
         dry_run: Boolean(document.getElementById("tcpDryRun")?.checked)
     };
