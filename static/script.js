@@ -382,7 +382,7 @@ const IPResourceUi = (() => {
                     <label>选择国家（可多选）</label>
                     <div class="country-select-container">
                         <select id="ipResourceFetchCountries" multiple size="12" class="country-select">
-                            ${ipResourceCountries.map(c => `<option value="${c.code}" selected>${c.name} (${c.code.toUpperCase()})</option>`).join('')}
+                            ${ipResourceCountries.map(c => `<option value="${c.code}">${c.name} (${c.code.toUpperCase()})</option>`).join('')}
                         </select>
                     </div>
                     <div class="form-group" style="margin-top: 8px;">

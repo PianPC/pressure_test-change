@@ -22,6 +22,7 @@ SPIDER_CONFIG = {
             "es": "西班牙",
             "nl": "荷兰",
         },
+        "country_list_cache_ttl": 86400,
         "update_interval_hours": 24,
         "request_timeout": 30,
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
