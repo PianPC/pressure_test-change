@@ -38,6 +38,7 @@ from attack_resources.ntp.code.tester import NTPTester
 from attack_resources.tcp.code.tester import TcpTester
 from multi_protocol_test import MultiProtocolTester
 from attack_resources.shared.attack_resource_api import attack_resource_bp
+from attack_resources.shared.file_system_api import file_system_bp
 from attack_resources.shared.ip_resource_catalog import (
     count_ip_entries,
     list_protocol_local_resources,
