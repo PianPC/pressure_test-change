@@ -828,11 +828,11 @@ input:checked+.toggle-slider::before{transform:translateX(20px);background:var(-
     color: var(--text-brand, #3b82f6);
 }
 
-/* tooltip 用纯 CSS ::after 实现，hover 触发 */
+/* tooltip 用纯 CSS ::after 实现，hover 触发（向下展开，避免被容器顶部 overflow 裁剪） */
 .file-info-icon[data-tooltip]:hover::after {
     content: attr(data-tooltip);
     position: absolute;
-    bottom: calc(100% + 6px);
+    top: calc(100% + 6px);
     left: 50%;
     transform: translateX(-50%);
     background: var(--bg-surface, #222427);
@@ -851,15 +851,15 @@ input:checked+.toggle-slider::before{transform:translateX(20px);background:var(-
     text-align: left;
 }
 
-/* tooltip 小箭头 */
+/* tooltip 小箭头（向下） */
 .file-info-icon[data-tooltip]:hover::before {
     content: "";
     position: absolute;
-    bottom: 100%;
+    top: 100%;
     left: 50%;
     transform: translateX(-50%);
     border: 4px solid transparent;
-    border-top-color: var(--bg-surface, #222427);
+    border-bottom-color: var(--bg-surface, #222427);
     z-index: 100;
     pointer-events: none;
 }
