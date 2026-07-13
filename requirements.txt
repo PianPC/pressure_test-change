@@ -8,3 +8,5 @@ geoip2==5.1.0
 numpy==2.3.4
 flask_session
 requests==2.34.2
+browser_cookie3==0.16.2
+beautifulsoup4==4.12.3

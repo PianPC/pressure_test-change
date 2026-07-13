@@ -1599,12 +1599,23 @@ def _is_fofa_configured(creds):
     return bool(creds and creds.get("email") and creds.get("key"))
 
 
+def _is_cookies_configured(creds):
+    cookies = (creds or {}).get("cookies")
+    return bool(cookies and isinstance(cookies, dict) and cookies)
+
+
 def _credential_status(source, creds):
     if source == "shodan":
-        configured = _is_shodan_configured(creds)
+        api_key_configured = _is_shodan_configured(creds)
     else:
-        configured = _is_fofa_configured(creds)
-    return {"configured": configured, "updated_at": (creds or {}).get("updated_at")}
+        api_key_configured = _is_fofa_configured(creds)
+    cookies_configured = _is_cookies_configured(creds)
+    return {
+        "configured": api_key_configured or cookies_configured,
+        "api_key_configured": api_key_configured,
+        "cookies_configured": cookies_configured,
+        "updated_at": (creds or {}).get("updated_at"),
+    }
 
 
 def _validate_cred_payload(source, payload):
@@ -1697,6 +1708,140 @@ def test_credentials_route(source: str):
             "user": check_result.get("user"),
             "error": check_result.get("error"),
         })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ---------- Cookie 管理（方式二/三） ----------
+
+_COOKIE_DOMAINS = {
+    "shodan": ".shodan.io",
+    "fofa": ".fofa.info",
+}
+
+
+def _parse_cookie_string(cookie_string: str) -> dict:
+    """将 'key1=val1; key2=val2' 解析为 dict。"""
+    cookies = {}
+    for pair in cookie_string.split(";"):
+        pair = pair.strip()
+        if not pair or "=" not in pair:
+            continue
+        key, _, val = pair.partition("=")
+        key = key.strip()
+        if key:
+            cookies[key] = val.strip()
+    return cookies
+
+
+@attack_resource_bp.route("/credentials/<source>/cookies", methods=["GET"])
+def get_cookies_route(source: str):
+    try:
+        if source not in _VALID_CRED_SOURCES:
+            return jsonify({"success": False, "message": f"未知的数据源: {source}"}), 400
+        cookies = credential_store.get_cookies(source)
+        creds = credential_store.get_credentials(source) or {}
+        return jsonify({
+            "success": True,
+            "configured": bool(cookies),
+            "updated_at": creds.get("updated_at"),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/credentials/<source>/cookies", methods=["POST"])
+def save_cookies_route(source: str):
+    try:
+        if source not in _VALID_CRED_SOURCES:
+            return jsonify({"success": False, "message": f"未知的数据源: {source}"}), 400
+
+        payload = request.get_json(silent=True) or {}
+        cookie_string = (payload.get("cookie_string") or "").strip()
+        if not cookie_string:
+            return jsonify({"success": False, "message": "缺少 cookie_string 字段"}), 400
+
+        cookies_dict = _parse_cookie_string(cookie_string)
+        if not cookies_dict:
+            return jsonify({"success": False, "message": "cookie 字符串解析失败，请检查格式（应为 key1=val1; key2=val2）"}), 400
+
+        credential_store.save_cookies(source, cookies_dict)
+        display_name = source.capitalize() if source == "shodan" else "FOFA"
+        return jsonify({"success": True, "message": f"{display_name} Cookie 已保存（{len(cookies_dict)} 项）"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/credentials/<source>/cookies/auto", methods=["POST"])
+def auto_extract_cookies_route(source: str):
+    try:
+        if source not in _VALID_CRED_SOURCES:
+            return jsonify({"success": False, "message": f"未知的数据源: {source}"}), 400
+
+        domain = _COOKIE_DOMAINS[source]
+        cookies_dict = None
+        errors = []
+
+        for browser_name, load_fn_name in [
+            ("chrome", "chrome"),
+            ("firefox", "firefox"),
+            ("edge", "edge"),
+        ]:
+            try:
+                import browser_cookie3
+                load_fn = getattr(browser_cookie3, load_fn_name, None)
+                if load_fn is None:
+                    continue
+                cj = load_fn(domain_name=domain)
+                cookies_dict = {c.name: c.value for c in cj if domain in (c.domain or "")}
+                if cookies_dict:
+                    break
+            except Exception as e:
+                errors.append(f"{browser_name}: {e}")
+                continue
+
+        if not cookies_dict:
+            return jsonify({
+                "success": False,
+                "message": f"未能从浏览器自动获取 {source} cookie。请确保已在浏览器中登录 {domain}。详情: {'; '.join(errors) or '无可用浏览器'}",
+            })
+
+        credential_store.save_cookies(source, cookies_dict)
+        return jsonify({"success": True, "count": len(cookies_dict)})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/credentials/<source>/cookies/test", methods=["POST"])
+def test_cookies_route(source: str):
+    try:
+        if source not in _VALID_CRED_SOURCES:
+            return jsonify({"success": False, "message": f"未知的数据源: {source}"}), 400
+
+        if source == "shodan":
+            check_result = ShodanSpider().check_web_cookies()
+        else:
+            check_result = FOFASpider().check_web_cookies()
+
+        return jsonify({
+            "success": True,
+            "valid": bool(check_result.get("valid")),
+            "ip_count": check_result.get("ip_count", 0),
+            "error": check_result.get("error"),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/credentials/<source>/cookies", methods=["DELETE"])
+def clear_cookies_route(source: str):
+    try:
+        if source not in _VALID_CRED_SOURCES:
+            return jsonify({"success": False, "message": f"未知的数据源: {source}"}), 400
+
+        credential_store.clear_cookies(source)
+        display_name = source.capitalize() if source == "shodan" else "FOFA"
+        return jsonify({"success": True, "message": f"{display_name} Cookie 已清除"})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
