@@ -167,7 +167,273 @@ const IPResourceManager = (() => {
     };
 })();
 
+const ApiCredentialManager = (() => {
+    function getApiUrl(endpoint) {
+        return `/api/attack-resource${endpoint}`;
+    }
+
+    async function getCredentialsStatus() {
+        try {
+            const resp = await fetch(getApiUrl('/credentials'));
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async function saveCredentials(source, data) {
+        try {
+            const resp = await fetch(getApiUrl(`/credentials/${encodeURIComponent(source)}`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async function testCredentials(source, data) {
+        try {
+            const resp = await fetch(getApiUrl(`/credentials/${encodeURIComponent(source)}/test`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async function clearCredentials(source) {
+        try {
+            const resp = await fetch(getApiUrl(`/credentials/${encodeURIComponent(source)}`), {
+                method: 'DELETE'
+            });
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    return { getCredentialsStatus, saveCredentials, testCredentials, clearCredentials };
+})();
+
+const ApiCredentialUi = (() => {
+    const SHODAN_GUIDE = [
+        '注册账号：访问 <a href="https://account.shodan.io/register" target="_blank" rel="noopener noreferrer">https://account.shodan.io/register</a>（外链按钮），完成注册',
+        '登录后访问 <a href="https://account.shodan.io" target="_blank" rel="noopener noreferrer">https://account.shodan.io</a> 页面',
+        '在「API Key」区域复制您的 API Key',
+        '粘贴到下方「API Key」输入框',
+        '点击「测试连接」验证密钥可用',
+        '点击「保存」完成配置'
+    ];
+    const FOFA_GUIDE = [
+        '注册账号：访问 <a href="https://fofa.info/" target="_blank" rel="noopener noreferrer">https://fofa.info/</a>（外链按钮），完成注册并登录',
+        '访问 <a href="https://fofa.info/userInfo" target="_blank" rel="noopener noreferrer">https://fofa.info/userInfo</a> 个人中心',
+        '在「个人资料」中找到「Email」和「API Key」',
+        '分别填入下方对应输入框',
+        '点击「测试连接」',
+        '点击「保存」'
+    ];
+
+    function getStatusEl() {
+        return document.getElementById('apiCredentialStatus');
+    }
+
+    function getSource() {
+        return document.getElementById('apiCredentialSource').value;
+    }
+
+    function renderGuide() {
+        const guideEl = document.getElementById('apiCredentialGuide');
+        const source = getSource();
+        const steps = source === 'fofa' ? FOFA_GUIDE : SHODAN_GUIDE;
+        guideEl.innerHTML = `<div class="form-group"><label>配置步骤</label><ol style="margin:0;padding-left:20px;">${steps.map(s => `<li style="margin:4px 0;">${s}</li>`).join('')}</ol></div>`;
+    }
+
+    function renderForm() {
+        const formEl = document.getElementById('apiCredentialForm');
+        const source = getSource();
+        if (source === 'fofa') {
+            formEl.innerHTML = `
+                <div class="form-group">
+                    <label for="credFofaEmail">Email</label>
+                    <input type="text" id="credFofaEmail" placeholder="FOFA 账号 Email" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="credFofaKey">API Key</label>
+                    <div style="display:flex;gap:4px;align-items:center;">
+                        <input type="password" id="credFofaKey" placeholder="FOFA API Key" autocomplete="off" style="flex:1;">
+                        <button type="button" class="btn btn-secondary cred-toggle" data-target="credFofaKey" style="min-width:32px;padding:0 8px;"><i class="fas fa-eye"></i></button>
+                    </div>
+                </div>`;
+        } else {
+            formEl.innerHTML = `
+                <div class="form-group">
+                    <label for="credShodanApiKey">API Key</label>
+                    <div style="display:flex;gap:4px;align-items:center;">
+                        <input type="password" id="credShodanApiKey" placeholder="Shodan API Key" autocomplete="off" style="flex:1;">
+                        <button type="button" class="btn btn-secondary cred-toggle" data-target="credShodanApiKey" style="min-width:32px;padding:0 8px;"><i class="fas fa-eye"></i></button>
+                    </div>
+                </div>`;
+        }
+        formEl.querySelectorAll('.cred-toggle').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const input = document.getElementById(btn.dataset.target);
+                if (!input) return;
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    btn.innerHTML = '<i class="fas fa-eye-slash"></i>';
+                } else {
+                    input.type = 'password';
+                    btn.innerHTML = '<i class="fas fa-eye"></i>';
+                }
+            });
+        });
+    }
+
+    function getFormValues() {
+        const source = getSource();
+        if (source === 'fofa') {
+            const email = document.getElementById('credFofaEmail')?.value || '';
+            const key = document.getElementById('credFofaKey')?.value || '';
+            return { email, key };
+        }
+        const api_key = document.getElementById('credShodanApiKey')?.value || '';
+        return { api_key };
+    }
+
+    function setFormValues(values) {
+        if (!values) return;
+        const source = getSource();
+        if (source === 'fofa') {
+            const emailEl = document.getElementById('credFofaEmail');
+            const keyEl = document.getElementById('credFofaKey');
+            if (emailEl && values.email !== undefined) emailEl.value = values.email;
+            if (keyEl && values.key !== undefined) keyEl.value = values.key;
+        } else {
+            const keyEl = document.getElementById('credShodanApiKey');
+            if (keyEl && values.api_key !== undefined) keyEl.value = values.api_key;
+        }
+    }
+
+    function setStatus(html, color) {
+        const el = getStatusEl();
+        el.innerHTML = `<span style="color:${color};">${html}</span>`;
+    }
+
+    function sourceLabel(source) {
+        return source === 'fofa' ? 'FOFA' : 'Shodan';
+    }
+
+    async function refreshClearButton() {
+        const source = getSource();
+        const clearBtn = document.getElementById('apiCredentialClear');
+        try {
+            const data = await ApiCredentialManager.getCredentialsStatus();
+            if (data.success && data.credentials && data.credentials[source]) {
+                clearBtn.hidden = !data.credentials[source].configured;
+            } else {
+                clearBtn.hidden = true;
+            }
+        } catch {
+            clearBtn.hidden = true;
+        }
+    }
+
+    async function open(source) {
+        const sourceSel = document.getElementById('apiCredentialSource');
+        sourceSel.value = source === 'fofa' ? 'fofa' : 'shodan';
+        getStatusEl().innerHTML = '';
+        renderGuide();
+        renderForm();
+        document.getElementById('apiCredentialModal').hidden = false;
+        await refreshClearButton();
+    }
+
+    function close() {
+        document.getElementById('apiCredentialModal').hidden = true;
+    }
+
+    async function testConnection() {
+        const source = getSource();
+        const statusEl = getStatusEl();
+        statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在测试连接...</span>';
+        const result = await ApiCredentialManager.testCredentials(source, getFormValues());
+        if (result.success && result.valid) {
+            statusEl.innerHTML = `<span style="color:green;">连接成功，账号: ${escapeHtml(result.user || '')}</span>`;
+        } else if (result.success && !result.valid) {
+            statusEl.innerHTML = `<span style="color:red;">连接失败: ${escapeHtml(result.error || '凭据无效')}</span>`;
+        } else {
+            statusEl.innerHTML = `<span style="color:red;">请求失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
+        }
+    }
+
+    async function save() {
+        const source = getSource();
+        const label = sourceLabel(source);
+        const statusEl = getStatusEl();
+        statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在保存...</span>';
+        const result = await ApiCredentialManager.saveCredentials(source, getFormValues());
+        if (!result.success) {
+            statusEl.innerHTML = `<span style="color:red;">保存失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
+            return;
+        }
+        if (result.valid) {
+            statusEl.innerHTML = `<span style="color:green;">${label} 凭据已保存</span>`;
+        } else {
+            statusEl.innerHTML = `<span style="color:orange;">凭据已保存，但测试失败: ${escapeHtml(result.error || '未知错误')}。可稍后重试或修改。</span>`;
+        }
+        if (typeof IPResourceUi !== 'undefined' && IPResourceUi.refreshCredentialBadges) {
+            await IPResourceUi.refreshCredentialBadges();
+            // If Fetch Modal is open and currently showing this source, re-render params (hide alert + enable start)
+            const fetchModal = document.getElementById('ipResourceFetchModal');
+            if (fetchModal && !fetchModal.hidden && typeof IPResourceUi.updateFetchParams === 'function') {
+                IPResourceUi.updateFetchParams();
+            }
+        }
+        await refreshClearButton();
+        if (result.success) {
+            setTimeout(() => { close(); }, 800);
+        }
+    }
+
+    async function clear() {
+        const source = getSource();
+        const label = sourceLabel(source);
+        if (!confirm(`确定要清除已保存的 ${label} 凭据吗？`)) return;
+        const statusEl = getStatusEl();
+        statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在清除...</span>';
+        const result = await ApiCredentialManager.clearCredentials(source);
+        if (result.success) {
+            statusEl.innerHTML = `<span style="color:green;">${label} 凭据已清除</span>`;
+            setFormValues({ api_key: '', email: '', key: '' });
+        } else {
+            statusEl.innerHTML = `<span style="color:red;">清除失败: ${escapeHtml(result.message || '未知错误')}</span>`;
+        }
+        if (typeof IPResourceUi !== 'undefined' && IPResourceUi.refreshCredentialBadges) {
+            await IPResourceUi.refreshCredentialBadges();
+            const fetchModal = document.getElementById('ipResourceFetchModal');
+            if (fetchModal && !fetchModal.hidden && typeof IPResourceUi.updateFetchParams === 'function') {
+                IPResourceUi.updateFetchParams();
+            }
+        }
+        await refreshClearButton();
+    }
+
+    function escapeHtml(str) {
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    return { open, close, renderGuide, renderForm, getFormValues, setFormValues, testConnection, save, clear };
+})();
+
 const IPResourceUi = (() => {
+    let credentialStatus = null;
+
     function openManageModal() {
         document.getElementById('ipResourceModal').hidden = false;
         loadResourceList();
@@ -175,6 +441,41 @@ const IPResourceUi = (() => {
 
     function closeManageModal() {
         document.getElementById('ipResourceModal').hidden = true;
+    }
+
+    function isSourceConfigured(source) {
+        if (!credentialStatus || !credentialStatus.credentials) return false;
+        const entry = credentialStatus.credentials[source];
+        return !!(entry && entry.configured);
+    }
+
+    async function refreshCredentialBadges() {
+        const data = await ApiCredentialManager.getCredentialsStatus();
+        if (data.success) {
+            credentialStatus = data;
+        }
+        const shodanOpt = document.querySelector('#ipResourceFetchSource option[value="shodan"]');
+        const fofaOpt = document.querySelector('#ipResourceFetchSource option[value="fofa"]');
+        if (shodanOpt) {
+            shodanOpt.textContent = isSourceConfigured('shodan') ? 'Shodan (已配置)' : 'Shodan (未配置)';
+        }
+        if (fofaOpt) {
+            fofaOpt.textContent = isSourceConfigured('fofa') ? 'FOFA (已配置)' : 'FOFA (未配置)';
+        }
+        return credentialStatus;
+    }
+
+    function setStartButtonEnabled(enabled) {
+        const startBtn = document.getElementById('ipResourceFetchStart');
+        if (!startBtn) return;
+        startBtn.disabled = !enabled;
+        if (enabled) {
+            startBtn.style.opacity = '';
+            startBtn.style.cursor = '';
+        } else {
+            startBtn.style.opacity = '0.5';
+            startBtn.style.cursor = 'not-allowed';
+        }
     }
 
     async function loadResourceList() {
@@ -360,12 +661,20 @@ const IPResourceUi = (() => {
         document.getElementById('ipResourceNewModal').hidden = true;
     }
 
-    function openFetchModal() {
+    async function openFetchModal() {
         document.getElementById('ipResourceFetchStatus').textContent = '';
         document.getElementById('ipResourceFetchParams').innerHTML = '';
-        updateFetchParams();
         document.getElementById('ipResourceModal').hidden = true;
         document.getElementById('ipResourceFetchModal').hidden = false;
+        await refreshCredentialBadges();
+        // Task 7: onboarding tip — show only when both sources unconfigured and not dismissed this session
+        const tipEl = document.getElementById('ipResourceFetchOnboardingTip');
+        if (tipEl) {
+            const dismissed = sessionStorage.getItem('onboardingTipDismissed') === '1';
+            const bothUnconfigured = !isSourceConfigured('shodan') && !isSourceConfigured('fofa');
+            tipEl.hidden = !(bothUnconfigured && !dismissed);
+        }
+        updateFetchParams();
     }
 
     function updateFetchParams() {
@@ -416,21 +725,40 @@ const IPResourceUi = (() => {
                     opt.selected = false;
                 });
             });
+
+            setStartButtonEnabled(true);
         } else if (source === 'shodan' || source === 'fofa') {
-            container.innerHTML = `
-                <div class="form-group">
-                    <label>选择协议类型</label>
-                    <select id="ipResourceFetchProtocol">
-                        <option value="dns">DNS</option>
-                        <option value="memcached">Memcached</option>
-                        <option value="ntp">NTP</option>
-                        <option value="snmp">SNMP</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>结果数量限制</label>
-                    <input type="number" id="ipResourceFetchLimit" value="1000" min="10" max="10000">
-                </div>`;
+            const configured = isSourceConfigured(source);
+            if (!configured) {
+                container.innerHTML = `
+                    <div class="form-group" style="background:rgba(255,80,80,0.12);border:1px solid rgba(255,80,80,0.5);padding:8px 12px;border-radius:4px;color:#ff6b6b;">
+                        <div>该数据源需要 API 密钥，当前未配置。</div>
+                        <button type="button" id="ipResourceFetchConfigBtn" class="btn btn-primary" style="margin-top:6px;">立即配置</button>
+                    </div>`;
+                setStartButtonEnabled(false);
+                const configBtn = document.getElementById('ipResourceFetchConfigBtn');
+                if (configBtn) {
+                    configBtn.addEventListener('click', () => {
+                        ApiCredentialUi.open(source);
+                    });
+                }
+            } else {
+                container.innerHTML = `
+                    <div class="form-group">
+                        <label>选择协议类型</label>
+                        <select id="ipResourceFetchProtocol">
+                            <option value="dns">DNS</option>
+                            <option value="memcached">Memcached</option>
+                            <option value="ntp">NTP</option>
+                            <option value="snmp">SNMP</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>结果数量限制</label>
+                        <input type="number" id="ipResourceFetchLimit" value="1000" min="10" max="10000">
+                    </div>`;
+                setStartButtonEnabled(true);
+            }
         }
     }
 
@@ -506,7 +834,8 @@ const IPResourceUi = (() => {
         openFetchModal,
         updateFetchParams,
         startFetch,
-        closeFetch
+        closeFetch,
+        refreshCredentialBadges
     };
 })();
 
@@ -1080,6 +1409,44 @@ function initIpResourceManager() {
     });
     document.querySelectorAll('[data-dismiss="ip-resource-new-modal"]').forEach(el => {
         el.addEventListener('click', IPResourceUi.closeNew);
+    });
+
+    // API credential modal wiring (Task 4/5/7)
+    document.getElementById('apiCredentialClose')?.addEventListener('click', () => ApiCredentialUi.close());
+    document.getElementById('apiCredentialCancel')?.addEventListener('click', () => ApiCredentialUi.close());
+    document.querySelectorAll('[data-dismiss="api-credential-modal"]').forEach(el => {
+        el.addEventListener('click', () => ApiCredentialUi.close());
+    });
+    document.getElementById('apiCredentialSource')?.addEventListener('change', () => {
+        ApiCredentialUi.renderGuide();
+        ApiCredentialUi.renderForm();
+        // refresh clear-button visibility for newly selected source
+        if (typeof ApiCredentialUi.open === 'function') {
+            // re-run clear-button refresh by re-opening logic; simplest is a direct status fetch
+            ApiCredentialManager.getCredentialsStatus().then(data => {
+                const src = document.getElementById('apiCredentialSource').value;
+                const clearBtn = document.getElementById('apiCredentialClear');
+                if (!clearBtn) return;
+                if (data.success && data.credentials && data.credentials[src]) {
+                    clearBtn.hidden = !data.credentials[src].configured;
+                } else {
+                    clearBtn.hidden = true;
+                }
+            });
+        }
+    });
+    document.getElementById('apiCredentialTest')?.addEventListener('click', () => ApiCredentialUi.testConnection());
+    document.getElementById('apiCredentialSave')?.addEventListener('click', () => ApiCredentialUi.save());
+    document.getElementById('apiCredentialClear')?.addEventListener('click', () => ApiCredentialUi.clear());
+
+    // First-time onboarding tip (Task 7)
+    document.getElementById('onboardingDismiss')?.addEventListener('click', () => {
+        const tipEl = document.getElementById('ipResourceFetchOnboardingTip');
+        if (tipEl) tipEl.hidden = true;
+        try { sessionStorage.setItem('onboardingTipDismissed', '1'); } catch (e) {}
+    });
+    document.getElementById('onboardingGoConfig')?.addEventListener('click', () => {
+        ApiCredentialUi.open('shodan');
     });
 }
 

@@ -13,6 +13,8 @@ from typing import Any
 from flask import Blueprint, jsonify, request
 
 from attack_resources.shared.ip_resource_catalog import list_protocol_resources, resolve_protocol_resource_path
+from attack_resources.shared import credential_store
+from attack_resources.shared.spiders import ShodanSpider, FOFASpider
 from attack_resources.tcp.code.routes import (
     DEFAULT_CONFIG_PATH as TCP_DEFAULT_CONFIG_PATH,
     TCP_OUTPUT_ROOT,
@@ -1581,6 +1583,120 @@ def ip_resource_countries():
     try:
         countries = resource_manager.get_country_list()
         return jsonify({"success": True, "countries": countries})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+# ====================== 凭据管理 API ======================
+_VALID_CRED_SOURCES = {"shodan", "fofa"}
+
+
+def _is_shodan_configured(creds):
+    return bool(creds and creds.get("api_key"))
+
+
+def _is_fofa_configured(creds):
+    return bool(creds and creds.get("email") and creds.get("key"))
+
+
+def _credential_status(source, creds):
+    if source == "shodan":
+        configured = _is_shodan_configured(creds)
+    else:
+        configured = _is_fofa_configured(creds)
+    return {"configured": configured, "updated_at": (creds or {}).get("updated_at")}
+
+
+def _validate_cred_payload(source, payload):
+    """返回 (ok, error_message)。"""
+    if source == "shodan":
+        if not payload.get("api_key"):
+            return False, "缺少必填字段: api_key"
+    else:  # fofa
+        if not payload.get("email"):
+            return False, "缺少必填字段: email"
+        if not payload.get("key"):
+            return False, "缺少必填字段: key"
+    return True, None
+
+
+@attack_resource_bp.route("/credentials", methods=["GET"])
+def credentials_status():
+    try:
+        all_creds = credential_store.load_credentials()
+        result = {}
+        for source in _VALID_CRED_SOURCES:
+            result[source] = _credential_status(source, all_creds.get(source))
+        return jsonify({"success": True, "credentials": result})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/credentials/<source>", methods=["POST"])
+def save_credentials_route(source: str):
+    try:
+        if source not in _VALID_CRED_SOURCES:
+            return jsonify({"success": False, "message": f"未知的数据源: {source}"}), 400
+
+        payload = request.get_json(silent=True) or {}
+        ok, message = _validate_cred_payload(source, payload)
+        if not ok:
+            return jsonify({"success": False, "message": message}), 400
+
+        credential_store.save_credentials(source, payload)
+
+        # 保存后立即测试（spider 会从 store 重新读取最新凭据）
+        if source == "shodan":
+            check_result = ShodanSpider().check_api_key()
+        else:
+            check_result = FOFASpider().check_credentials()
+
+        return jsonify({
+            "success": True,
+            "valid": bool(check_result.get("valid")),
+            "user": check_result.get("user"),
+            "error": check_result.get("error"),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/credentials/<source>", methods=["DELETE"])
+def clear_credentials_route(source: str):
+    try:
+        if source not in _VALID_CRED_SOURCES:
+            return jsonify({"success": False, "message": f"未知的数据源: {source}"}), 400
+
+        credential_store.clear_credentials(source)
+        display_name = source.capitalize() if source == "shodan" else "FOFA"
+        return jsonify({"success": True, "message": f"{display_name} 凭据已清除"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@attack_resource_bp.route("/credentials/<source>/test", methods=["POST"])
+def test_credentials_route(source: str):
+    try:
+        if source not in _VALID_CRED_SOURCES:
+            return jsonify({"success": False, "message": f"未知的数据源: {source}"}), 400
+
+        payload = request.get_json(silent=True) or {}
+        ok, message = _validate_cred_payload(source, payload)
+        if not ok:
+            return jsonify({"success": False, "message": message}), 400
+
+        # 仅用请求体中的凭据测试，不写入文件
+        if source == "shodan":
+            check_result = ShodanSpider().check_api_key(credentials=payload)
+        else:
+            check_result = FOFASpider().check_credentials(credentials=payload)
+
+        return jsonify({
+            "success": True,
+            "valid": bool(check_result.get("valid")),
+            "user": check_result.get("user"),
+            "error": check_result.get("error"),
+        })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 

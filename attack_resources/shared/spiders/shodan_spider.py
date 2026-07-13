@@ -8,12 +8,12 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from ..config import SPIDER_CONFIG
+from ..credential_store import get_credentials
 
 
 class ShodanSpider:
     def __init__(self):
         self.config = SPIDER_CONFIG.get("shodan", {})
-        self.api_key = self.config.get("api_key", "")
         self.base_url = self.config.get("base_url", "https://api.shodan.io")
         self.queries = self.config.get("queries", {})
         self.limit_per_query = self.config.get("limit_per_query", 1000)
@@ -25,7 +25,9 @@ class ShodanSpider:
         limit = params.get("limit", self.limit_per_query)
         output_dir = params.get("output_dir", "auto/shodan")
 
-        if not self.api_key:
+        creds = get_credentials("shodan") or {}
+        api_key = creds.get("api_key", "")
+        if not api_key:
             return {"success": False, "error": "Shodan API key not configured"}
 
         results = []
@@ -44,7 +46,7 @@ class ShodanSpider:
                 url = f"{self.base_url}/shodan/host/search"
                 response = requests.get(
                     url,
-                    params={"key": self.api_key, "query": query_str, "limit": limit},
+                    params={"key": api_key, "query": query_str, "limit": limit},
                     timeout=self.timeout,
                 )
                 response.raise_for_status()
@@ -102,13 +104,16 @@ class ShodanSpider:
             "successful": len([r for r in results if "error" not in r]),
         }
 
-    def check_api_key(self) -> Dict[str, Any]:
-        if not self.api_key:
+    def check_api_key(self, credentials: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        if credentials is None:
+            credentials = get_credentials("shodan") or {}
+        api_key = credentials.get("api_key", "")
+        if not api_key:
             return {"valid": False, "error": "API key not set"}
 
         try:
             url = f"{self.base_url}/account/profile"
-            response = requests.get(url, params={"key": self.api_key}, timeout=self.timeout)
+            response = requests.get(url, params={"key": api_key}, timeout=self.timeout)
             response.raise_for_status()
             data = response.json()
             return {"valid": True, "user": data.get("email", "")}

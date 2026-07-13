@@ -1410,6 +1410,11 @@ NTP 放大率测量原理：
                             <button type="button" id="ipResourceFetchClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
                         </div>
                         <div class="ip-resource-fetch-body">
+                            <div id="ipResourceFetchOnboardingTip" class="info-text" hidden style="background:#fff3cd;border:1px solid #ffe08a;padding:8px 12px;border-radius:4px;margin-bottom:8px;">
+                                <span>首次使用 Shodan/FOFA？请先配置 API 密钥。</span>
+                                <button type="button" id="onboardingGoConfig" class="btn btn-primary" style="margin-left:8px;">去配置</button>
+                                <button type="button" id="onboardingDismiss" class="btn btn-secondary" style="margin-left:4px;">稍后</button>
+                            </div>
                             <div class="form-group">
                                 <label for="ipResourceFetchSource">选择数据源</label>
                                 <select id="ipResourceFetchSource">
@@ -1424,6 +1429,34 @@ NTP 放大率测量原理：
                         <div class="action-buttons narrow">
                             <button type="button" id="ipResourceFetchCancel" class="btn btn-secondary"><i class="fas fa-xmark"></i>取消</button>
                             <button type="button" id="ipResourceFetchStart" class="btn btn-primary"><i class="fas fa-play"></i>开始获取</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="apiCredentialModal" class="tcp-modal" hidden>
+                    <div class="tcp-modal-backdrop" data-dismiss="api-credential-modal"></div>
+                    <div class="tcp-modal-panel">
+                        <div class="panel-heading">
+                            <div><h2><i class="fas fa-key"></i> <span>API 密钥配置</span></h2></div>
+                            <button type="button" id="apiCredentialClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
+                        </div>
+                        <div class="ip-resource-fetch-body">
+                            <div class="form-group">
+                                <label for="apiCredentialSource">选择数据源</label>
+                                <select id="apiCredentialSource">
+                                    <option value="shodan">Shodan</option>
+                                    <option value="fofa">FOFA</option>
+                                </select>
+                            </div>
+                            <div id="apiCredentialGuide"></div>
+                            <div id="apiCredentialForm"></div>
+                            <div id="apiCredentialStatus" class="info-text"></div>
+                        </div>
+                        <div class="action-buttons narrow">
+                            <button type="button" id="apiCredentialCancel" class="btn btn-secondary"><i class="fas fa-xmark"></i>取消</button>
+                            <button type="button" id="apiCredentialTest" class="btn btn-secondary"><i class="fas fa-vial"></i>测试连接</button>
+                            <button type="button" id="apiCredentialClear" class="btn btn-secondary" hidden><i class="fas fa-trash"></i>清除</button>
+                            <button type="button" id="apiCredentialSave" class="btn btn-primary"><i class="fas fa-save"></i>保存</button>
                         </div>
                     </div>
                 </div>

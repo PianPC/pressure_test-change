@@ -9,13 +9,12 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from ..config import SPIDER_CONFIG
+from ..credential_store import get_credentials
 
 
 class FOFASpider:
     def __init__(self):
         self.config = SPIDER_CONFIG.get("fofa", {})
-        self.email = self.config.get("email", "")
-        self.key = self.config.get("key", "")
         self.base_url = self.config.get("base_url", "https://fofa.info")
         self.api_url = self.config.get("api_url", "https://fofa.info/api/v1/search/all")
         self.queries = self.config.get("queries", {})
@@ -28,7 +27,10 @@ class FOFASpider:
         limit = params.get("limit", self.limit_per_query)
         output_dir = params.get("output_dir", "auto/fofa")
 
-        if not self.email or not self.key:
+        creds = get_credentials("fofa") or {}
+        email = creds.get("email", "")
+        key = creds.get("key", "")
+        if not email or not key:
             return {"success": False, "error": "FOFA email or key not configured"}
 
         results = []
@@ -46,10 +48,10 @@ class FOFASpider:
             try:
                 query_b64 = base64.b64encode(query_str.encode()).decode()
                 timestamp = str(int(datetime.now().timestamp()))
-                sign_str = f"{self.email}{self.key}{timestamp}{query_b64}"
+                sign_str = f"{email}{key}{timestamp}{query_b64}"
                 sign = hashlib.md5(sign_str.encode()).hexdigest()
 
-                url = f"{self.api_url}?email={self.email}&key={self.key}&qbase64={query_b64}&size={limit}&sign={sign}"
+                url = f"{self.api_url}?email={email}&key={key}&qbase64={query_b64}&size={limit}&sign={sign}"
                 response = requests.get(url, timeout=self.timeout)
                 response.raise_for_status()
 
@@ -98,17 +100,21 @@ class FOFASpider:
             "successful": len([r for r in results if "error" not in r]),
         }
 
-    def check_credentials(self) -> Dict[str, Any]:
-        if not self.email or not self.key:
+    def check_credentials(self, credentials: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        if credentials is None:
+            credentials = get_credentials("fofa") or {}
+        email = credentials.get("email", "")
+        key = credentials.get("key", "")
+        if not email or not key:
             return {"valid": False, "error": "Email or key not set"}
 
         try:
             test_query = base64.b64encode("ip=1.1.1.1".encode()).decode()
             timestamp = str(int(datetime.now().timestamp()))
-            sign_str = f"{self.email}{self.key}{timestamp}{test_query}"
+            sign_str = f"{email}{key}{timestamp}{test_query}"
             sign = hashlib.md5(sign_str.encode()).hexdigest()
 
-            url = f"{self.api_url}?email={self.email}&key={self.key}&qbase64={test_query}&size=1&sign={sign}"
+            url = f"{self.api_url}?email={email}&key={key}&qbase64={test_query}&size=1&sign={sign}"
             response = requests.get(url, timeout=self.timeout)
             data = response.json()
 
