@@ -111,6 +111,7 @@ app.register_blueprint(dns_scan_bp)
 app.register_blueprint(memcached_scan_bp)
 app.register_blueprint(ntp_scan_bp)
 app.register_blueprint(attack_resource_bp)
+app.register_blueprint(file_system_bp)
 
 VALID_SERVER_PROTOCOLS = {'tcp', 'memcached', 'dns', 'ntp'}
 GEOIP_CACHE_FILE = os.path.join('config', 'geoip_cache.json')

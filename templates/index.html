@@ -49,6 +49,13 @@
                 </a>
             </nav>
 
+            <nav class="nav-menu nav-menu-secondary" aria-label="系统工具">
+                <a href="#" class="nav-item" data-view="file-management" title="文件管理">
+                    <span class="nav-step-indicator"><i class="fas fa-folder-tree" style="font-size:10px"></i></span>
+                    <span class="nav-item-label">文件管理</span>
+                </a>
+            </nav>
+
             <div class="sidebar-quick-launch">
                 <button type="button" id="sidebarQuickConsole" class="btn btn-primary"><i class="fas fa-bolt"></i>快速启动</button>
             </div>
@@ -1196,6 +1203,52 @@ NTP 放大率测量原理：
                             <div class="latency-card"><span class="label">基准延迟</span><span class="value" id="autoPingBefore">-- ms</span></div>
                             <div class="latency-card"><span class="label">最新延迟</span><span class="value" id="latestLatency">-- ms</span></div>
                             <div class="latency-card effect"><span class="label">变化趋势</span><span class="value" id="latencyTrend">--</span></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="view-pane" id="view-file-management">
+                    <div class="panel file-manager-panel">
+                        <div class="panel-heading">
+                            <div>
+                                <h2><i class="fas fa-folder-tree"></i> 文件管理</h2>
+                                <p class="panel-subtitle">浏览项目内的文件与目录（仅在项目根目录以内可见，路径以相对形式展示）。</p>
+                            </div>
+                            <div class="file-manager-toolbar">
+                                <button type="button" id="fsRefreshBtn" class="btn btn-secondary btn-sm" title="刷新当前目录"><i class="fas fa-rotate"></i>刷新</button>
+                                <button type="button" id="fsUpBtn" class="btn btn-secondary btn-sm" title="返回上级目录"><i class="fas fa-arrow-up"></i>上级</button>
+                                <button type="button" id="fsNewFolderBtn" class="btn btn-outline btn-sm" title="新建文件夹"><i class="fas fa-folder-plus"></i>新建文件夹</button>
+                                <button type="button" id="fsNewFileBtn" class="btn btn-outline btn-sm" title="新建文件"><i class="fas fa-file-circle-plus"></i>新建文件</button>
+                            </div>
+                        </div>
+
+                        <div class="file-manager-breadcrumb" id="fsBreadcrumb"></div>
+
+                        <div class="file-manager-body">
+                            <div class="file-manager-list-col">
+                                <div class="file-list-header">
+                                    <span>名称</span>
+                                    <span>大小</span>
+                                    <span>修改时间</span>
+                                    <span>操作</span>
+                                </div>
+                                <div class="file-list" id="fsFileList"></div>
+                            </div>
+
+                            <div class="file-manager-editor-col">
+                                <div class="file-editor-header">
+                                    <div class="file-editor-title">
+                                        <i class="fas fa-file-lines"></i>
+                                        <span id="fsEditorName">未选择文件</span>
+                                    </div>
+                                    <div class="file-editor-actions">
+                                        <button type="button" id="fsEditorReloadBtn" class="btn btn-secondary btn-sm" disabled title="重新加载"><i class="fas fa-rotate"></i></button>
+                                        <button type="button" id="fsEditorSaveBtn" class="btn btn-primary btn-sm" disabled title="保存"><i class="fas fa-floppy-disk"></i>保存</button>
+                                    </div>
+                                </div>
+                                <div class="file-editor-meta" id="fsEditorMeta"></div>
+                                <textarea id="fsEditorContent" class="file-editor-textarea" placeholder="选择左侧文件以查看内容" spellcheck="false"></textarea>
+                            </div>
                         </div>
                     </div>
                 </section>

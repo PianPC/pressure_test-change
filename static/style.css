@@ -969,3 +969,125 @@ input:checked+.toggle-slider::before{transform:translateX(20px);background:var(-
   .chart-container{height:180px}
   .server-globe,.server-map-2d{height:300px}
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   文件管理 (File Management)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 侧边栏次级导航区块：与主工作流视觉分隔，不随主菜单拉伸 */
+.nav-menu-secondary{
+  flex:none;
+  padding:8px 8px 4px;
+  border-top:1px dashed var(--border-subtle);
+  margin-top:4px;
+}
+.nav-menu-secondary .nav-item{min-height:34px;font-size:12px;opacity:.92}
+.nav-menu-secondary .nav-item:hover{opacity:1}
+
+/* 面板 */
+.file-manager-panel{display:flex;flex-direction:column;flex:1;min-height:0}
+.panel-subtitle{margin-top:4px;font-size:11px;color:var(--text-tertiary);font-weight:400}
+.file-manager-toolbar{display:flex;flex-wrap:wrap;gap:6px}
+
+/* 面包屑 */
+.file-manager-breadcrumb{
+  display:flex;flex-wrap:wrap;align-items:center;gap:2px;
+  padding:8px 10px;
+  margin-bottom:10px;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--radius-sm);
+  background:var(--bg-overlay-hover);
+  font-size:12px;
+}
+.fs-crumb{padding:2px 6px;border-radius:var(--radius-xs);color:var(--text-secondary);cursor:pointer;transition:background .12s ease,color .12s ease}
+.fs-crumb:hover{background:var(--bg-overlay-active);color:var(--text-primary)}
+.fs-crumb-sep{color:var(--text-tertiary);user-select:none}
+
+/* 双栏主体 */
+.file-manager-body{display:flex;gap:12px;flex:1;min-height:0;align-items:stretch}
+.file-manager-list-col,.file-manager-editor-col{
+  display:flex;flex-direction:column;
+  min-width:0;
+  border:1px solid var(--border-subtle);
+  border-radius:var(--radius-sm);
+  background:var(--bg-raised);
+  overflow:hidden;
+}
+.file-manager-list-col{flex:1 1 42%;min-width:280px}
+.file-manager-editor-col{flex:1 1 58%;min-width:320px}
+
+/* 文件列表 */
+.file-list-header{
+  display:grid;grid-template-columns:1fr 80px 150px 88px;
+  gap:8px;align-items:center;
+  padding:8px 12px;
+  border-bottom:1px solid var(--border-subtle);
+  background:var(--bg-overlay-active);
+  font-size:10px;font-weight:700;color:var(--text-tertiary);
+  text-transform:uppercase;letter-spacing:0.04em;
+}
+.file-list{flex:1;overflow-y:auto}
+.fs-row{
+  display:grid;grid-template-columns:1fr 80px 150px 88px;
+  gap:8px;align-items:center;
+  padding:6px 12px;
+  border-bottom:1px solid var(--border-subtle);
+  font-size:12px;
+}
+.fs-row:hover{background:var(--bg-overlay-hover)}
+.fs-row.is-dir .fs-name{color:var(--text-primary);font-weight:600}
+.fs-name{display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;color:var(--text-secondary)}
+.fs-name i{width:14px;text-align:center;color:var(--icon-secondary);flex-shrink:0}
+.fs-row.is-dir .fs-name i{color:var(--status-warning)}
+.fs-name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fs-size{color:var(--text-tertiary);font-variant-numeric:tabular-nums}
+.fs-modified{color:var(--text-tertiary);font-size:11px}
+.fs-row-actions{display:flex;gap:4px;justify-content:flex-end}
+.fs-row-actions .btn{min-height:24px;padding:0 6px}
+.fs-row-actions .btn i{font-size:10px}
+.fs-empty{padding:24px 12px;text-align:center;color:var(--text-tertiary);font-size:12px}
+
+/* 编辑器 */
+.file-editor-header{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:8px 12px;
+  border-bottom:1px solid var(--border-subtle);
+  background:var(--bg-overlay-active);
+}
+.file-editor-title{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--text-primary);min-width:0}
+.file-editor-title i{color:var(--icon-brand);font-size:12px}
+.file-editor-title span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-editor-actions{display:flex;gap:4px;flex-shrink:0}
+.file-editor-meta{
+  display:flex;flex-wrap:wrap;gap:8px 14px;
+  padding:6px 12px;
+  border-bottom:1px solid var(--border-subtle);
+  font-size:11px;color:var(--text-tertiary);
+}
+.file-editor-meta .fs-tag-warn{color:var(--status-warning);font-weight:600}
+.file-editor-meta .fs-tag-ok{color:var(--status-success);font-weight:600}
+.file-editor-meta .fs-tag-info{color:var(--text-secondary)}
+.file-editor-textarea{
+  flex:1;width:100%;min-height:200px;
+  padding:12px;
+  border:none;
+  background:transparent;
+  color:var(--text-primary);
+  font-family:var(--font-mono);
+  font-size:12px;
+  line-height:1.55;
+  resize:none;
+  outline:none;
+}
+.file-editor-textarea:focus{background:var(--bg-overlay-hover)}
+.file-editor-textarea:disabled{opacity:.5;cursor:not-allowed}
+.file-editor-textarea::placeholder{color:var(--text-tertiary)}
+
+/* 窄屏：双栏堆叠 */
+@media (max-width:960px){
+  .file-manager-body{flex-direction:column}
+  .file-manager-list-col,.file-manager-editor-col{flex:none;min-width:0}
+  .file-manager-list-col{max-height:42vh}
+  .file-manager-editor-col{min-height:40vh}
+  .file-list-header,.fs-row{grid-template-columns:1fr 70px 110px 80px}
+}
