@@ -932,6 +932,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initAttackResourceView();
     initAttackResourceTaskFramework();
     initIpResourceManager();
+    FileSystemUi.init();
     toggleMultiProtocol();
     initConsoleFormPersistence();
     initLatencyFormPersistence();
@@ -1110,6 +1111,9 @@ function navigateToView(view = "dashboard") {
     }
     if (view === "attack-resources") {
         switchAttackResourceProto(currentAttackResourceProto || "tcp");
+    }
+    if (view === "file-management") {
+        FileSystemUi.load();
     }
     resizeCharts();
     updateWorkflowIndicators();
@@ -5293,3 +5297,332 @@ function renderAttackResourceSummary() {
     setText("workflowSummaryResourceProto", getMethodText(currentAttackResourceProto).toUpperCase());
     setText("workflowSummaryResourceTask", taskText);
 }
+
+// ===== 文件管理模块 =====
+const FileSystemUi = (() => {
+    let currentPath = "";       // 当前所在目录的相对路径（相对项目根，POSIX 风格）
+    let rootName = "项目根";    // 项目根目录显示名（仅 basename）
+    let currentFile = null;     // 当前在编辑器中打开的文件对象
+    let originalContent = "";   // 上次加载/保存后的原始内容
+    let dirty = false;          // 编辑器内容是否被修改
+    let rootLoaded = false;
+
+    // ---------- 工具函数 ----------
+    function formatSize(bytes) {
+        if (bytes == null) return "—";
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+        if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+        return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB";
+    }
+
+    function formatTime(iso) {
+        if (!iso) return "—";
+        try {
+            const d = new Date(iso);
+            if (isNaN(d.getTime())) return iso;
+            return d.toLocaleString("zh-CN", { hour12: false });
+        } catch { return iso; }
+    }
+
+    function encodePath(rel) {
+        if (!rel) return "";
+        return rel.split("/").map(encodeURIComponent).join("/");
+    }
+
+    function parentDir(rel) {
+        if (!rel) return "";
+        const idx = rel.lastIndexOf("/");
+        return idx >= 0 ? rel.substring(0, idx) : "";
+    }
+
+    function joinPath(dir, name) {
+        return dir ? `${dir}/${name}` : name;
+    }
+
+    // ---------- API 调用 ----------
+    async function apiGet(endpoint) {
+        const resp = await fetch(`/api/files${endpoint}`);
+        return resp.json().catch(() => ({ success: false, message: "响应解析失败" }));
+    }
+
+    async function apiJson(endpoint, options) {
+        const resp = await fetch(`/api/files${endpoint}`, options);
+        return resp.json().catch(() => ({ success: false, message: "响应解析失败" }));
+    }
+
+    async function fetchRoot() {
+        const data = await apiGet("/root");
+        if (data.success && data.root) {
+            rootName = data.root.name || "项目根";
+            rootLoaded = true;
+        }
+    }
+
+    async function fetchTree(path) {
+        const q = path ? `?path=${encodePath(path)}` : "";
+        return apiGet(`/tree${q}`);
+    }
+
+    async function fetchFile(path) {
+        return apiGet(`/file?path=${encodePath(path)}`);
+    }
+
+    async function saveFile(path, content) {
+        return apiJson(`/file?path=${encodePath(path)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content })
+        });
+    }
+
+    async function createItem(path, type, content) {
+        return apiJson(`/file`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path, type, content: content || "" })
+        });
+    }
+
+    async function deleteItem(path) {
+        return apiJson(`/file?path=${encodePath(path)}`, { method: "DELETE" });
+    }
+
+    async function renameItem(path, newPath) {
+        return apiJson(`/rename`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path, new_path: newPath })
+        });
+    }
+
+    // ---------- 渲染 ----------
+    function renderBreadcrumb() {
+        const bc = document.getElementById("fsBreadcrumb");
+        if (!bc) return;
+        let html = `<span class="fs-crumb" data-path="">${escapeHtml(rootName)}</span>`;
+        if (currentPath) {
+            let acc = "";
+            currentPath.split("/").forEach((part) => {
+                acc = acc ? `${acc}/${part}` : part;
+                html += `<span class="fs-crumb-sep">/</span><span class="fs-crumb" data-path="${escapeHtml(acc)}">${escapeHtml(part)}</span>`;
+            });
+        }
+        bc.innerHTML = html;
+        bc.querySelectorAll(".fs-crumb").forEach((el) => {
+            el.addEventListener("click", () => navigateTo(el.dataset.path || ""));
+        });
+    }
+
+    function renderList(entries) {
+        const list = document.getElementById("fsFileList");
+        if (!list) return;
+        if (!entries.length) {
+            list.innerHTML = '<div class="fs-empty">该目录为空</div>';
+            return;
+        }
+        list.innerHTML = entries.map((e) => {
+            const icon = e.type === "dir" ? "fa-folder" : "fa-file-lines";
+            const size = e.type === "dir" ? "—" : formatSize(e.size);
+            return `
+            <div class="fs-row${e.type === "dir" ? " is-dir" : ""}" data-path="${escapeHtml(e.path)}" data-type="${e.type}" data-name="${escapeHtml(e.name)}">
+                <span class="fs-name"><i class="fas ${icon}"></i> ${escapeHtml(e.name)}</span>
+                <span class="fs-size">${size}</span>
+                <span class="fs-modified">${formatTime(e.modified)}</span>
+                <span class="fs-row-actions">
+                    <button type="button" class="btn btn-secondary btn-sm fs-rename-btn" title="重命名"><i class="fas fa-pen"></i></button>
+                    <button type="button" class="btn btn-danger btn-sm fs-delete-btn" title="删除"><i class="fas fa-trash"></i></button>
+                </span>
+            </div>`;
+        }).join("");
+
+        list.querySelectorAll(".fs-row").forEach((row) => {
+            const path = row.dataset.path;
+            const type = row.dataset.type;
+            const name = row.dataset.name;
+            row.querySelector(".fs-name").addEventListener("click", () => {
+                if (type === "dir") navigateTo(path);
+                else openFile(path);
+            });
+            row.querySelector(".fs-rename-btn").addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                renameEntry(path, name);
+            });
+            row.querySelector(".fs-delete-btn").addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                deleteEntry(path, name, type === "dir");
+            });
+        });
+    }
+
+    function renderEditorEmpty() {
+        document.getElementById("fsEditorName").textContent = "未选择文件";
+        document.getElementById("fsEditorMeta").innerHTML = "";
+        const ta = document.getElementById("fsEditorContent");
+        ta.value = "";
+        ta.disabled = false;
+        document.getElementById("fsEditorSaveBtn").disabled = true;
+        document.getElementById("fsEditorReloadBtn").disabled = true;
+        currentFile = null;
+        originalContent = "";
+        dirty = false;
+    }
+
+    function updateMeta(file) {
+        const meta = document.getElementById("fsEditorMeta");
+        if (!meta || !file) { if (meta) meta.innerHTML = ""; return; }
+        const tags = [];
+        tags.push(`<span>路径: ${escapeHtml(file.path || "/")}</span>`);
+        tags.push(`<span>大小: ${formatSize(file.size)}</span>`);
+        tags.push(`<span>修改: ${formatTime(file.modified)}</span>`);
+        if (file.encoding === "binary") tags.push('<span class="fs-tag-warn">二进制文件</span>');
+        if (file.encoding === "too_large") tags.push('<span class="fs-tag-warn">文件过大</span>');
+        if (file.editable) tags.push('<span class="fs-tag-ok">可编辑</span>');
+        else if (file.encoding === "text") tags.push('<span class="fs-tag-info">只读</span>');
+        meta.innerHTML = tags.join("");
+    }
+
+    // ---------- 导航 ----------
+    async function navigateTo(relPath) {
+        relPath = relPath || "";
+        const data = await fetchTree(relPath);
+        if (!data.success) {
+            showNotification(data.message || "读取目录失败", "error");
+            return;
+        }
+        currentPath = data.path || "";
+        renderBreadcrumb();
+        renderList(data.entries || []);
+    }
+
+    function goUp() {
+        if (!currentPath) return;
+        navigateTo(parentDir(currentPath));
+    }
+
+    async function refresh() {
+        await navigateTo(currentPath);
+    }
+
+    // ---------- 文件操作 ----------
+    async function openFile(path) {
+        if (dirty && currentFile && !confirm("当前文件尚未保存，是否放弃修改并打开新文件？")) return;
+        const data = await fetchFile(path);
+        if (!data.success) {
+            showNotification(data.message || "读取文件失败", "error");
+            return;
+        }
+        currentFile = data.file;
+        const ta = document.getElementById("fsEditorContent");
+        const saveBtn = document.getElementById("fsEditorSaveBtn");
+        const reloadBtn = document.getElementById("fsEditorReloadBtn");
+        document.getElementById("fsEditorName").textContent = currentFile.name;
+        if (currentFile.encoding === "text") {
+            ta.value = currentFile.content || "";
+            ta.disabled = !currentFile.editable;
+            saveBtn.disabled = !currentFile.editable;
+            reloadBtn.disabled = false;
+        } else {
+            ta.value = "";
+            ta.disabled = true;
+            saveBtn.disabled = true;
+            reloadBtn.disabled = true;
+        }
+        originalContent = ta.value;
+        dirty = false;
+        updateMeta(currentFile);
+    }
+
+    async function saveCurrent() {
+        if (!currentFile || !currentFile.editable) return;
+        const ta = document.getElementById("fsEditorContent");
+        const data = await saveFile(currentFile.path, ta.value);
+        if (!data.success) {
+            showNotification(data.message || "保存失败", "error");
+            return;
+        }
+        originalContent = ta.value;
+        dirty = false;
+        document.getElementById("fsEditorSaveBtn").disabled = true;
+        showNotification(data.message || "已保存", "success");
+        await refresh();
+    }
+
+    async function reloadCurrent() {
+        if (!currentFile) return;
+        if (dirty && !confirm("重新加载将丢弃当前修改，是否继续？")) return;
+        await openFile(currentFile.path);
+    }
+
+    async function newFolder() {
+        const name = prompt("请输入新文件夹名称：");
+        if (!name || !name.trim()) return;
+        const path = joinPath(currentPath, name.trim());
+        const data = await createItem(path, "dir");
+        if (!data.success) { showNotification(data.message || "创建失败", "error"); return; }
+        showNotification(data.message || "已创建文件夹", "success");
+        await refresh();
+    }
+
+    async function newFile() {
+        const name = prompt("请输入新文件名称：");
+        if (!name || !name.trim()) return;
+        const path = joinPath(currentPath, name.trim());
+        const data = await createItem(path, "file", "");
+        if (!data.success) { showNotification(data.message || "创建失败", "error"); return; }
+        showNotification(data.message || "已创建文件", "success");
+        await refresh();
+        await openFile(path);
+    }
+
+    async function deleteEntry(path, name, isDir) {
+        const tip = isDir ? `文件夹「${name}」及其所有内容` : `文件「${name}」`;
+        if (!confirm(`确认删除${tip}？此操作不可恢复。`)) return;
+        const data = await deleteItem(path);
+        if (!data.success) { showNotification(data.message || "删除失败", "error"); return; }
+        showNotification(data.message || "已删除", "success");
+        if (currentFile && currentFile.path === path) renderEditorEmpty();
+        await refresh();
+    }
+
+    async function renameEntry(path, name) {
+        const newName = prompt("请输入新名称：", name);
+        if (!newName || !newName.trim() || newName.trim() === name) return;
+        const newPath = joinPath(parentDir(path), newName.trim());
+        const data = await renameItem(path, newPath);
+        if (!data.success) { showNotification(data.message || "重命名失败", "error"); return; }
+        showNotification(data.message || "已重命名", "success");
+        if (currentFile && currentFile.path === path) {
+            currentFile.path = newPath;
+            currentFile.name = newName.trim();
+            document.getElementById("fsEditorName").textContent = currentFile.name;
+            updateMeta(currentFile);
+        }
+        await refresh();
+    }
+
+    // ---------- 初始化与加载 ----------
+    function init() {
+        document.getElementById("fsRefreshBtn")?.addEventListener("click", refresh);
+        document.getElementById("fsUpBtn")?.addEventListener("click", goUp);
+        document.getElementById("fsNewFolderBtn")?.addEventListener("click", newFolder);
+        document.getElementById("fsNewFileBtn")?.addEventListener("click", newFile);
+        document.getElementById("fsEditorSaveBtn")?.addEventListener("click", saveCurrent);
+        document.getElementById("fsEditorReloadBtn")?.addEventListener("click", reloadCurrent);
+        const ta = document.getElementById("fsEditorContent");
+        ta?.addEventListener("input", () => {
+            dirty = ta.value !== originalContent;
+            const saveBtn = document.getElementById("fsEditorSaveBtn");
+            if (saveBtn && currentFile && currentFile.editable) {
+                saveBtn.disabled = !dirty;
+            }
+        });
+    }
+
+    async function load() {
+        if (!rootLoaded) await fetchRoot();
+        await navigateTo(currentPath);
+    }
+
+    return { init, load };
+})();
