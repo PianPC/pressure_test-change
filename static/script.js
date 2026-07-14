@@ -167,7 +167,542 @@ const IPResourceManager = (() => {
     };
 })();
 
+const ApiCredentialManager = (() => {
+    function getApiUrl(endpoint) {
+        return `/api/attack-resource${endpoint}`;
+    }
+
+    async function getCredentialsStatus() {
+        try {
+            const resp = await fetch(getApiUrl('/credentials'));
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async function saveCredentials(source, data) {
+        try {
+            const resp = await fetch(getApiUrl(`/credentials/${encodeURIComponent(source)}`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async function testCredentials(source, data) {
+        try {
+            const resp = await fetch(getApiUrl(`/credentials/${encodeURIComponent(source)}/test`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async function clearCredentials(source) {
+        try {
+            const resp = await fetch(getApiUrl(`/credentials/${encodeURIComponent(source)}`), {
+                method: 'DELETE'
+            });
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async function getCookiesStatus(source) {
+        try {
+            const resp = await fetch(getApiUrl(`/credentials/${encodeURIComponent(source)}/cookies`));
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async function saveCookies(source, cookieString) {
+        try {
+            const resp = await fetch(getApiUrl(`/credentials/${encodeURIComponent(source)}/cookies`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cookie_string: cookieString })
+            });
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async function autoExtractCookies(source) {
+        try {
+            const resp = await fetch(getApiUrl(`/credentials/${encodeURIComponent(source)}/cookies/auto`), {
+                method: 'POST'
+            });
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async function testCookies(source) {
+        try {
+            const resp = await fetch(getApiUrl(`/credentials/${encodeURIComponent(source)}/cookies/test`), {
+                method: 'POST'
+            });
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async function clearCookies(source) {
+        try {
+            const resp = await fetch(getApiUrl(`/credentials/${encodeURIComponent(source)}/cookies`), {
+                method: 'DELETE'
+            });
+            return await resp.json();
+        } catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    return { getCredentialsStatus, saveCredentials, testCredentials, clearCredentials, getCookiesStatus, saveCookies, autoExtractCookies, testCookies, clearCookies };
+})();
+
+const ApiCredentialUi = (() => {
+    // ---- 6 guide sets (each with replacement scenario notes) ----
+    const SHODAN_API_GUIDE = [
+        '注册账号：访问 <a href="https://account.shodan.io/register" target="_blank" rel="noopener noreferrer">https://account.shodan.io/register</a>，完成注册',
+        '登录后访问 <a href="https://account.shodan.io" target="_blank" rel="noopener noreferrer">https://account.shodan.io</a> 页面',
+        '在「API Key」区域复制您的 API Key',
+        '粘贴到下方「API Key」输入框',
+        '点击「测试连接」验证密钥可用',
+        '点击「保存」完成配置',
+        '<strong>更换场景</strong>：若当前 API key 余额不足或失效，直接在下方输入框填入新的 API key，点击「测试」验证后点击「替换保存」即可覆盖旧 key。无需先清除。'
+    ];
+    const SHODAN_COOKIE_AUTO_GUIDE = [
+        '在浏览器中访问 <a href="https://www.shodan.io" target="_blank" rel="noopener noreferrer">https://www.shodan.io</a> 并登录账号',
+        '确保登录成功（页面右上角显示用户名）',
+        '回到本页面点击下方「保存/替换」按钮，系统自动读取浏览器中的 Shodan cookie',
+        '点击「测试连接」验证登录态有效',
+        '配置完成',
+        '<strong>Cookie 过期后重新执行①-⑤即可替换。</strong>'
+    ];
+    const SHODAN_COOKIE_MANUAL_GUIDE = [
+        '在浏览器中访问 <a href="https://www.shodan.io" target="_blank" rel="noopener noreferrer">https://www.shodan.io</a> 并登录',
+        '按 F12 打开开发者工具，切换到 Network 标签',
+        '刷新页面，在请求列表中点击任意一个请求',
+        '在右侧 Headers 面板找到 Request Headers 下的 Cookie 字段',
+        '复制 Cookie 后的完整值（形如 <code>key1=val1; key2=val2</code>）',
+        '<strong>必需字段：`shodan_session` 和 `shodan_session.sig`</strong>。仅复制 `polito` 等偏好 cookie 无法通过登录态校验，请确保复制的 Cookie 字符串包含登录态字段',
+        '粘贴到下方输入框，点击「测试连接」再「保存」',
+        '<strong>Cookie 过期后重新粘贴新值即可替换。</strong>'
+    ];
+    const FOFA_API_GUIDE = [
+        '注册账号：访问 <a href="https://fofa.info/" target="_blank" rel="noopener noreferrer">https://fofa.info/</a>，完成注册并登录',
+        '访问 <a href="https://fofa.info/userInfo" target="_blank" rel="noopener noreferrer">https://fofa.info/userInfo</a> 个人中心',
+        '在「个人资料」中找到「Email」和「API Key」',
+        '分别填入下方对应输入框',
+        '点击「测试连接」',
+        '点击「保存」',
+        '<strong>更换场景</strong>：若当前 API key 余额不足或失效，直接在下方输入框填入新的 Email 和 API Key，点击「替换保存」即可覆盖。无需先清除。'
+    ];
+    const FOFA_COOKIE_AUTO_GUIDE = [
+        '<strong style="color:#ff9800;">⚠️ 提示：FOFA 使用服务端渲染，Cookie 模式可获取数据但受 web_query 配额限制（免费账号约 300 次/天）。如配额耗尽，请改用 API 密钥或等待次日刷新。</strong>',
+        '在浏览器中访问 <a href="https://fofa.info" target="_blank" rel="noopener noreferrer">https://fofa.info</a> 并登录账号',
+        '确保登录成功',
+        '回到本页面点击下方「保存/替换」按钮，系统自动读取浏览器中的 FOFA cookie',
+        '点击「测试连接」验证登录态有效',
+        '配置完成',
+        '<strong>注意：Cookie 过期后重新执行①-⑤即可替换。如遇 Cloudflare 拦截，请改用 API 密钥。</strong>'
+    ];
+    const FOFA_COOKIE_MANUAL_GUIDE = [
+        '<strong style="color:#ff9800;">⚠️ 提示：FOFA 使用服务端渲染，Cookie 模式可获取数据但受 web_query 配额限制（免费账号约 300 次/天）。如配额耗尽，请改用 API 密钥或等待次日刷新。</strong>',
+        '在浏览器中访问 <a href="https://fofa.info" target="_blank" rel="noopener noreferrer">https://fofa.info</a> 并登录',
+        '按 F12 打开开发者工具，切换到 Network 标签',
+        '刷新页面，在请求列表中点击任意一个请求',
+        '在右侧 Headers 面板找到 Request Headers 下的 Cookie 字段',
+        '复制 Cookie 后的完整值（形如 <code>key1=val1; key2=val2</code>）',
+        '<strong>必需字段：`fofa_token`</strong>。请确保复制的 Cookie 字符串包含该字段（JWT 格式），否则无法通过登录态校验',
+        '粘贴到下方输入框，点击「测试连接」再「保存」',
+        '<strong>注意：Cookie 过期后重新粘贴新值即可替换。如遇 Cloudflare 拦截，请改用 API 密钥。</strong>'
+    ];
+
+    // ---- State ----
+    let currentMethod = 'api'; // 'api' | 'cookie-auto' | 'cookie-manual'
+    let credentialStatusCache = null;
+
+    // ---- Helpers ----
+    function getStatusEl() { return document.getElementById('apiCredentialStatus'); }
+    function getSource() { return document.getElementById('apiCredentialSource').value; }
+    function sourceLabel(source) { return source === 'fofa' ? 'FOFA' : 'Shodan'; }
+    function escapeHtml(str) {
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function getGuides(source) {
+        if (source === 'fofa') {
+            return { 'api': FOFA_API_GUIDE, 'cookie-auto': FOFA_COOKIE_AUTO_GUIDE, 'cookie-manual': FOFA_COOKIE_MANUAL_GUIDE };
+        }
+        return { 'api': SHODAN_API_GUIDE, 'cookie-auto': SHODAN_COOKIE_AUTO_GUIDE, 'cookie-manual': SHODAN_COOKIE_MANUAL_GUIDE };
+    }
+
+    function isCurrentMethodConfigured(srcData) {
+        if (!srcData) return false;
+        if (currentMethod === 'api') return !!srcData.api_key_configured;
+        return !!srcData.cookies_configured;
+    }
+
+    // ---- Render method status overview ----
+    async function renderMethodStatus() {
+        const statusEl = document.getElementById('apiCredentialMethodStatus');
+        const source = getSource();
+        try {
+            const data = await ApiCredentialManager.getCredentialsStatus();
+            credentialStatusCache = data;
+            if (!data.success || !data.credentials) {
+                statusEl.innerHTML = '<span style="color:var(--text-tertiary);">状态加载失败</span>';
+                return;
+            }
+            const srcData = data.credentials[source] || {};
+            const apiKeyOk = !!srcData.api_key_configured;
+            const cookiesOk = !!srcData.cookies_configured;
+            let activeMethod = '未配置';
+            if (apiKeyOk) activeMethod = '方式一 (API 密钥)';
+            else if (cookiesOk) activeMethod = '方式二/三 (Cookie)';
+            statusEl.innerHTML = `
+                <div>方式一 API密钥: ${apiKeyOk ? '✅已配置' : '❌未配置'}</div>
+                <div>方式二 Cookie自动: ${cookiesOk ? '✅已配置' : '❌未配置'}</div>
+                <div>方式三 Cookie手动: ${cookiesOk ? '✅已配置' : '❌未配置'}</div>
+                <div style="margin-top:4px;font-weight:bold;">→ 当前生效: ${activeMethod}</div>
+            `;
+        } catch {
+            statusEl.innerHTML = '<span style="color:var(--text-tertiary);">状态加载失败</span>';
+        }
+    }
+
+    // ---- Render method tabs ----
+    function renderMethodTabs() {
+        const tabsEl = document.getElementById('apiCredentialMethodTabs');
+        if (!tabsEl) return;
+        const methods = [
+            { key: 'api', label: '方式一 API密钥' },
+            { key: 'cookie-auto', label: '方式二 Cookie自动' },
+            { key: 'cookie-manual', label: '方式三 Cookie手动' },
+        ];
+        tabsEl.innerHTML = methods.map(m =>
+            `<button type="button" class="btn ${currentMethod === m.key ? 'btn-primary' : 'btn-secondary'}" data-method="${m.key}" style="flex:1;min-width:120px;">${m.label}</button>`
+        ).join('');
+        tabsEl.querySelectorAll('button[data-method]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                currentMethod = btn.dataset.method;
+                renderAll();
+            });
+        });
+    }
+
+    // ---- Render guide ----
+    function renderGuide() {
+        const guideEl = document.getElementById('apiCredentialGuide');
+        const source = getSource();
+        const guides = getGuides(source);
+        const steps = guides[currentMethod] || guides['api'];
+        guideEl.innerHTML = `<div class="form-group"><label>配置步骤</label><ol style="margin:0;padding-left:20px;">${steps.map(s => `<li style="margin:4px 0;">${s}</li>`).join('')}</ol></div>`;
+    }
+
+    // ---- Render current status hint + update buttons ----
+    function renderCurrentStatus() {
+        const el = document.getElementById('apiCredentialCurrentStatus');
+        const source = getSource();
+        const srcData = (credentialStatusCache?.credentials?.[source]) || {};
+        const configured = isCurrentMethodConfigured(srcData);
+        if (configured) {
+            el.innerHTML = `<span style="color:green;">当前方式已配置。输入新值将<strong>替换</strong>旧配置。</span>`;
+        } else {
+            el.innerHTML = `<span style="color:var(--text-tertiary);">当前方式未配置。</span>`;
+        }
+        // Update save button text
+        const saveBtn = document.getElementById('apiCredentialSave');
+        if (saveBtn) {
+            saveBtn.innerHTML = configured ? '<i class="fas fa-save"></i>替换保存' : '<i class="fas fa-save"></i>保存';
+        }
+        // Update clear button visibility
+        const clearBtn = document.getElementById('apiCredentialClear');
+        if (clearBtn) {
+            clearBtn.hidden = !configured;
+        }
+    }
+
+    // ---- Render form ----
+    function renderForm() {
+        const formEl = document.getElementById('apiCredentialForm');
+        const source = getSource();
+        if (currentMethod === 'api') {
+            if (source === 'fofa') {
+                formEl.innerHTML = `
+                    <div class="form-group">
+                        <label for="credFofaEmail">Email</label>
+                        <input type="text" id="credFofaEmail" placeholder="FOFA 账号 Email" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="credFofaKey">API Key</label>
+                        <div style="display:flex;gap:4px;align-items:center;">
+                            <input type="password" id="credFofaKey" placeholder="FOFA API Key" autocomplete="off" style="flex:1;">
+                            <button type="button" class="btn btn-secondary cred-toggle" data-target="credFofaKey" style="min-width:32px;padding:0 8px;"><i class="fas fa-eye"></i></button>
+                        </div>
+                    </div>`;
+            } else {
+                formEl.innerHTML = `
+                    <div class="form-group">
+                        <label for="credShodanApiKey">API Key</label>
+                        <div style="display:flex;gap:4px;align-items:center;">
+                            <input type="password" id="credShodanApiKey" placeholder="Shodan API Key" autocomplete="off" style="flex:1;">
+                            <button type="button" class="btn btn-secondary cred-toggle" data-target="credShodanApiKey" style="min-width:32px;padding:0 8px;"><i class="fas fa-eye"></i></button>
+                        </div>
+                    </div>`;
+            }
+            bindToggleButtons(formEl);
+        } else if (currentMethod === 'cookie-auto') {
+            formEl.innerHTML = `
+                <div class="form-group">
+                    <label>Cookie 自动获取</label>
+                    <p style="font-size:13px;color:var(--text-tertiary);margin:4px 0;">点击下方「保存/替换」按钮，系统将从浏览器自动读取已登录的 ${escapeHtml(sourceLabel(source))} cookie。</p>
+                </div>`;
+        } else {
+            formEl.innerHTML = `
+                <div class="form-group">
+                    <label for="credCookieString">Cookie 字符串</label>
+                    <textarea id="credCookieString" rows="4" placeholder="粘贴 Cookie 字符串，格式: key1=val1; key2=val2" style="width:100%;font-family:monospace;font-size:12px;" autocomplete="off"></textarea>
+                </div>`;
+        }
+    }
+
+    function bindToggleButtons(container) {
+        container.querySelectorAll('.cred-toggle').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const input = document.getElementById(btn.dataset.target);
+                if (!input) return;
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    btn.innerHTML = '<i class="fas fa-eye-slash"></i>';
+                } else {
+                    input.type = 'password';
+                    btn.innerHTML = '<i class="fas fa-eye"></i>';
+                }
+            });
+        });
+    }
+
+    // ---- Get form values ----
+    function getFormValues() {
+        const source = getSource();
+        if (currentMethod === 'api') {
+            if (source === 'fofa') {
+                const email = document.getElementById('credFofaEmail')?.value || '';
+                const key = document.getElementById('credFofaKey')?.value || '';
+                return { email, key };
+            }
+            const api_key = document.getElementById('credShodanApiKey')?.value || '';
+            return { api_key };
+        } else if (currentMethod === 'cookie-manual') {
+            const cookieString = document.getElementById('credCookieString')?.value || '';
+            return { cookie_string: cookieString };
+        }
+        return {};
+    }
+
+    // ---- Render all ----
+    function renderAll() {
+        renderMethodTabs();
+        renderGuide();
+        renderForm();
+        renderCurrentStatus();
+    }
+
+    // ---- Open/close ----
+    async function open(source, method) {
+        const sourceSel = document.getElementById('apiCredentialSource');
+        sourceSel.value = source === 'fofa' ? 'fofa' : 'shodan';
+        if (method) currentMethod = method;
+        getStatusEl().innerHTML = '';
+        document.getElementById('apiCredentialModal').hidden = false;
+        await renderMethodStatus();
+        renderAll();
+    }
+
+    function close() {
+        document.getElementById('apiCredentialModal').hidden = true;
+    }
+
+    // ---- Test connection ----
+    async function testConnection() {
+        const source = getSource();
+        const statusEl = getStatusEl();
+        if (currentMethod === 'api') {
+            const values = getFormValues();
+            if (source === 'fofa') {
+                if (!values.email || !values.key) {
+                    statusEl.innerHTML = '<span style="color:red;">请先填写 Email 和 API Key</span>';
+                    return;
+                }
+            } else {
+                if (!values.api_key) {
+                    statusEl.innerHTML = '<span style="color:red;">请先填写 API Key</span>';
+                    return;
+                }
+            }
+            statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在测试 API 密钥...</span>';
+            const result = await ApiCredentialManager.testCredentials(source, values);
+            let html = '';
+            if (result.success && result.valid) {
+                html = `<span style="color:green;">API 密钥有效${result.user ? '，账号: ' + escapeHtml(result.user) : ''}</span>`;
+                if (source === 'shodan' && result.query_credits !== undefined) {
+                    html += `<div style="margin-top:4px;color:var(--text-secondary);">Plan: ${escapeHtml(String(result.plan || '-'))} | 查询额度: ${result.query_credits} | 扫描额度: ${result.scan_credits}</div>`;
+                }
+            } else if (result.success && !result.valid) {
+                html = `<span style="color:red;">API 密钥无效: ${escapeHtml(result.error || '凭据无效')}</span>`;
+            } else {
+                html = `<span style="color:red;">请求失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
+            }
+            if (result.warning) {
+                html += `<div style="margin-top:6px;color:#ff9800;font-size:13px;">⚠️ ${escapeHtml(result.warning)}</div>`;
+            }
+            statusEl.innerHTML = html;
+        } else {
+            statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在测试 Cookie 登录态...</span>';
+            const result = await ApiCredentialManager.testCookies(source);
+            if (result.success && result.valid) {
+                statusEl.innerHTML = `<span style="color:green;">Cookie 有效，页面含 ${result.ip_count || 0} 个 IP</span>`;
+            } else if (result.success && !result.valid) {
+                statusEl.innerHTML = `<span style="color:red;">Cookie 无效: ${escapeHtml(result.error || '登录态失效')}</span>`;
+            } else {
+                statusEl.innerHTML = `<span style="color:red;">请求失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
+            }
+        }
+    }
+
+    // ---- Save (with replace confirmation for API method) ----
+    async function save() {
+        const source = getSource();
+        const label = sourceLabel(source);
+        const statusEl = getStatusEl();
+
+        if (currentMethod === 'api') {
+            const values = getFormValues();
+            if (source === 'fofa') {
+                if (!values.email || !values.key) {
+                    statusEl.innerHTML = '<span style="color:red;">请填写 Email 和 API Key</span>';
+                    return;
+                }
+            } else {
+                if (!values.api_key) {
+                    statusEl.innerHTML = '<span style="color:red;">请填写 API Key</span>';
+                    return;
+                }
+            }
+            // Replace confirmation
+            const srcData = (credentialStatusCache?.credentials?.[source]) || {};
+            if (srcData.api_key_configured) {
+                if (!confirm('确定要用新输入的 API 密钥替换现有配置吗？')) return;
+            }
+            statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在保存...</span>';
+            const result = await ApiCredentialManager.saveCredentials(source, values);
+            if (!result.success) {
+                statusEl.innerHTML = `<span style="color:red;">保存失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
+                return;
+            }
+            if (result.valid) {
+                statusEl.innerHTML = `<span style="color:green;">${label} API 密钥已保存</span>`;
+            } else {
+                statusEl.innerHTML = `<span style="color:orange;">密钥已保存，但测试失败: ${escapeHtml(result.error || '未知错误')}。可稍后重试或更换。</span>`;
+            }
+        } else if (currentMethod === 'cookie-auto') {
+            statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在从浏览器自动获取 Cookie...</span>';
+            const result = await ApiCredentialManager.autoExtractCookies(source);
+            if (!result.success) {
+                statusEl.innerHTML = `<span style="color:red;">自动获取失败: ${escapeHtml(result.message || '未知错误')}</span>`;
+                return;
+            }
+            statusEl.innerHTML = `<span style="color:green;">${label} Cookie 已自动获取并保存（${result.count || 0} 项）</span>`;
+        } else {
+            const values = getFormValues();
+            if (!values.cookie_string || !values.cookie_string.trim()) {
+                statusEl.innerHTML = '<span style="color:red;">请粘贴 Cookie 字符串</span>';
+                return;
+            }
+            statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在保存 Cookie...</span>';
+            const result = await ApiCredentialManager.saveCookies(source, values.cookie_string);
+            if (!result.success) {
+                statusEl.innerHTML = `<span style="color:red;">保存失败: ${escapeHtml(result.message || '未知错误')}</span>`;
+                return;
+            }
+            let html = `<span style="color:green;">${label} Cookie 已保存</span>`;
+            if (result.warning) {
+                html += `<div style="margin-top:6px;color:#ff9800;font-size:13px;">⚠️ ${escapeHtml(result.warning)}</div>`;
+            }
+            statusEl.innerHTML = html;
+        }
+
+        // Refresh status and badges
+        await renderMethodStatus();
+        renderCurrentStatus();
+        if (typeof IPResourceUi !== 'undefined' && IPResourceUi.refreshCredentialBadges) {
+            await IPResourceUi.refreshCredentialBadges();
+            const fetchModal = document.getElementById('ipResourceFetchModal');
+            if (fetchModal && !fetchModal.hidden && typeof IPResourceUi.updateFetchParams === 'function') {
+                IPResourceUi.updateFetchParams();
+            }
+        }
+    }
+
+    // ---- Clear (per-method, preserves other method) ----
+    async function clear() {
+        const source = getSource();
+        const label = sourceLabel(source);
+        const statusEl = getStatusEl();
+        if (currentMethod === 'api') {
+            if (!confirm(`确定要清除已保存的 ${label} API 密钥吗？（Cookie 配置不受影响）`)) return;
+            statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在清除...</span>';
+            const result = await ApiCredentialManager.clearCredentials(source);
+            if (result.success) {
+                statusEl.innerHTML = `<span style="color:green;">${label} API 密钥已清除</span>`;
+            } else {
+                statusEl.innerHTML = `<span style="color:red;">清除失败: ${escapeHtml(result.message || '未知错误')}</span>`;
+            }
+        } else {
+            if (!confirm(`确定要清除已保存的 ${label} Cookie 吗？（API 密钥不受影响）`)) return;
+            statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在清除...</span>';
+            const result = await ApiCredentialManager.clearCookies(source);
+            if (result.success) {
+                statusEl.innerHTML = `<span style="color:green;">${label} Cookie 已清除</span>`;
+            } else {
+                statusEl.innerHTML = `<span style="color:red;">清除失败: ${escapeHtml(result.message || '未知错误')}</span>`;
+            }
+        }
+        await renderMethodStatus();
+        renderCurrentStatus();
+        if (typeof IPResourceUi !== 'undefined' && IPResourceUi.refreshCredentialBadges) {
+            await IPResourceUi.refreshCredentialBadges();
+            const fetchModal = document.getElementById('ipResourceFetchModal');
+            if (fetchModal && !fetchModal.hidden && typeof IPResourceUi.updateFetchParams === 'function') {
+                IPResourceUi.updateFetchParams();
+            }
+        }
+    }
+
+    return { open, close, renderGuide, renderForm, getFormValues, testConnection, save, clear, renderMethodStatus, renderAll, getCurrentMethod: () => currentMethod, setCurrentMethod: (m) => { currentMethod = m; } };
+})();
+
 const IPResourceUi = (() => {
+    let credentialStatus = null;
+
     function openManageModal() {
         document.getElementById('ipResourceModal').hidden = false;
         loadResourceList();
@@ -175,6 +710,52 @@ const IPResourceUi = (() => {
 
     function closeManageModal() {
         document.getElementById('ipResourceModal').hidden = true;
+    }
+
+    function isSourceConfigured(source) {
+        if (!credentialStatus || !credentialStatus.credentials) return false;
+        const entry = credentialStatus.credentials[source];
+        return !!(entry && entry.configured);
+    }
+
+    async function refreshCredentialBadges() {
+        const data = await ApiCredentialManager.getCredentialsStatus();
+        if (data.success) {
+            credentialStatus = data;
+        }
+        const shodanOpt = document.querySelector('#ipResourceFetchSource option[value="shodan"]');
+        const fofaOpt = document.querySelector('#ipResourceFetchSource option[value="fofa"]');
+        function badgeText(source) {
+            if (!isSourceConfigured(source)) return `${source === 'fofa' ? 'FOFA' : 'Shodan'} (未配置)`;
+            const entry = credentialStatus?.credentials?.[source] || {};
+            const apiOk = !!entry.api_key_configured;
+            const cookieOk = !!entry.cookies_configured;
+            const name = source === 'fofa' ? 'FOFA' : 'Shodan';
+            if (apiOk && cookieOk) return `${name} (已配置-全部)`;
+            if (apiOk) return `${name} (已配置-API)`;
+            if (cookieOk) return `${name} (已配置-Cookie)`;
+            return `${name} (已配置)`;
+        }
+        if (shodanOpt) {
+            shodanOpt.textContent = badgeText('shodan');
+        }
+        if (fofaOpt) {
+            fofaOpt.textContent = badgeText('fofa');
+        }
+        return credentialStatus;
+    }
+
+    function setStartButtonEnabled(enabled) {
+        const startBtn = document.getElementById('ipResourceFetchStart');
+        if (!startBtn) return;
+        startBtn.disabled = !enabled;
+        if (enabled) {
+            startBtn.style.opacity = '';
+            startBtn.style.cursor = '';
+        } else {
+            startBtn.style.opacity = '0.5';
+            startBtn.style.cursor = 'not-allowed';
+        }
     }
 
     async function loadResourceList() {
@@ -360,12 +941,20 @@ const IPResourceUi = (() => {
         document.getElementById('ipResourceNewModal').hidden = true;
     }
 
-    function openFetchModal() {
+    async function openFetchModal() {
         document.getElementById('ipResourceFetchStatus').textContent = '';
         document.getElementById('ipResourceFetchParams').innerHTML = '';
-        updateFetchParams();
         document.getElementById('ipResourceModal').hidden = true;
         document.getElementById('ipResourceFetchModal').hidden = false;
+        await refreshCredentialBadges();
+        // Task 7: onboarding tip — show only when both sources unconfigured and not dismissed this session
+        const tipEl = document.getElementById('ipResourceFetchOnboardingTip');
+        if (tipEl) {
+            const dismissed = sessionStorage.getItem('onboardingTipDismissed') === '1';
+            const bothUnconfigured = !isSourceConfigured('shodan') && !isSourceConfigured('fofa');
+            tipEl.hidden = !(bothUnconfigured && !dismissed);
+        }
+        updateFetchParams();
     }
 
     function updateFetchParams() {
@@ -416,21 +1005,52 @@ const IPResourceUi = (() => {
                     opt.selected = false;
                 });
             });
-        } else if (source === 'shodan' || source === 'fofa') {
-            container.innerHTML = `
-                <div class="form-group">
-                    <label>选择协议类型</label>
-                    <select id="ipResourceFetchProtocol">
-                        <option value="dns">DNS</option>
-                        <option value="memcached">Memcached</option>
-                        <option value="ntp">NTP</option>
-                        <option value="snmp">SNMP</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>结果数量限制</label>
-                    <input type="number" id="ipResourceFetchLimit" value="1000" min="10" max="10000">
-                </div>`;
+
+            setStartButtonEnabled(true);
+        } else if (source === 'shodan' || source === 'fofa' || source === 'sonar') {
+            const configured = source === 'sonar' ? true : isSourceConfigured(source);
+            if (!configured) {
+                container.innerHTML = `
+                    <div class="form-group" style="background:rgba(255,80,80,0.12);border:1px solid rgba(255,80,80,0.5);padding:8px 12px;border-radius:4px;color:#ff6b6b;">
+                        <div>该数据源需要 API 密钥，当前未配置。</div>
+                        <button type="button" id="ipResourceFetchConfigBtn" class="btn btn-primary" style="margin-top:6px;">立即配置</button>
+                    </div>`;
+                setStartButtonEnabled(false);
+                const configBtn = document.getElementById('ipResourceFetchConfigBtn');
+                if (configBtn) {
+                    configBtn.addEventListener('click', () => {
+                        ApiCredentialUi.open(source);
+                    });
+                }
+            } else {
+                const reconfigBtnHtml = (source === 'shodan' || source === 'fofa')
+                    ? `<div class="form-group" style="margin-top:8px;">
+                         <button type="button" id="ipResourceFetchReconfigBtn" class="btn btn-secondary">重新配置凭据</button>
+                       </div>`
+                    : '';
+                container.innerHTML = `
+                    <div class="form-group">
+                        <label>选择协议类型</label>
+                        <select id="ipResourceFetchProtocol">
+                            <option value="dns">DNS</option>
+                            <option value="memcached">Memcached</option>
+                            <option value="ntp">NTP</option>
+                            <option value="snmp">SNMP</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>结果数量限制</label>
+                        <input type="number" id="ipResourceFetchLimit" value="1000" min="10" max="10000">
+                    </div>
+                    ${reconfigBtnHtml}`;
+                setStartButtonEnabled(true);
+                const reconfigBtn = document.getElementById('ipResourceFetchReconfigBtn');
+                if (reconfigBtn) {
+                    reconfigBtn.addEventListener('click', () => {
+                        ApiCredentialUi.open(source);
+                    });
+                }
+            }
         }
     }
 
@@ -445,7 +1065,7 @@ const IPResourceUi = (() => {
                 const countries = Array.from(document.getElementById('ipResourceFetchCountries').selectedOptions)
                     .map(opt => opt.value);
                 params = { countries };
-            } else if (source === 'shodan' || source === 'fofa') {
+            } else if (source === 'shodan' || source === 'fofa' || source === 'sonar') {
                 const protocol = document.getElementById('ipResourceFetchProtocol').value;
                 const limit = parseInt(document.getElementById('ipResourceFetchLimit').value);
                 params = { queries: [protocol], limit };
@@ -455,17 +1075,68 @@ const IPResourceUi = (() => {
 
             if (result.success) {
                 const files = result.files || [];
-                const successCount = files.filter(f => !f.error).length;
-                statusEl.innerHTML = `<span style="color:green;">获取完成！成功 ${successCount}/${files.length} 个资源</span>`;
-                setTimeout(() => {
-                    closeFetch();
-                    loadResourceList();
-                }, 1500);
+                const successCount = files.filter(f => !f.error && (f.ip_count || 0) > 0).length;
+                const failedFiles = files.filter(f => f.error || !f.ip_count);
+
+                if (successCount === 0) {
+                    // 全部失败：橙色警告，不自动关闭
+                    let html = `<span style="color:#ff9800;">⚠️ 获取完成，但未提取到任何 IP（可能是免费账号受限或网站改版）</span>`;
+                    if (failedFiles.length > 0) {
+                        html += `<details style="margin-top:8px;">
+                            <summary style="cursor:pointer;color:var(--accent-primary);font-size:13px;">查看失败详情</summary>
+                            <div style="margin-top:6px;padding:8px;background:rgba(255,255,255,0.05);border-radius:4px;font-size:12px;color:var(--text-secondary);max-height:200px;overflow-y:auto;">
+                                ${failedFiles.map(f => `<div style="margin-bottom:4px;"><strong>${escapeHtml(f.protocol || '?')}:</strong> <span style="color:#ff9800;">${escapeHtml(f.error || 'ip_count=0')}</span></div>`).join('')}
+                            </div>
+                        </details>`;
+                    }
+                    statusEl.innerHTML = html;
+                } else if (successCount < files.length) {
+                    // 部分成功：黄色提示，3 秒后关闭
+                    let html = `<span style="color:#ffeb3b;">⚠️ 获取完成，成功 ${successCount}/${files.length} 个资源（部分失败）</span>`;
+                    if (failedFiles.length > 0) {
+                        html += `<details style="margin-top:8px;">
+                            <summary style="cursor:pointer;color:var(--accent-primary);font-size:13px;">查看失败详情</summary>
+                            <div style="margin-top:6px;padding:8px;background:rgba(255,255,255,0.05);border-radius:4px;font-size:12px;color:var(--text-secondary);max-height:200px;overflow-y:auto;">
+                                ${failedFiles.map(f => `<div style="margin-bottom:4px;"><strong>${escapeHtml(f.protocol || '?')}:</strong> <span style="color:#ff9800;">${escapeHtml(f.error || 'ip_count=0')}</span></div>`).join('')}
+                            </div>
+                        </details>`;
+                    }
+                    statusEl.innerHTML = html;
+                    setTimeout(() => {
+                        closeFetch();
+                        loadResourceList();
+                    }, 3000);
+                } else {
+                    // 全部成功：绿色，1.5 秒后关闭（原行为）
+                    statusEl.innerHTML = `<span style="color:green;">获取完成！成功 ${successCount}/${files.length} 个资源</span>`;
+                    setTimeout(() => {
+                        closeFetch();
+                        loadResourceList();
+                    }, 1500);
+                }
             } else {
-                statusEl.innerHTML = `<span style="color:red;">获取失败: ${result.error || '未知错误'}</span>`;
+                const errMsg = escapeHtml(result.error || '未知错误');
+                // Add reconfigure link for credential-related failures
+                if (source === 'shodan' || source === 'fofa') {
+                    const errorLower = (result.error || '').toLowerCase();
+                    let method = 'api';
+                    if (errorLower.includes('cookie') || errorLower.includes('登录态')) {
+                        method = 'cookie-auto';
+                    }
+                    statusEl.innerHTML = `<span style="color:red;">获取失败: ${errMsg}</span><br><a href="#" id="fetchReconfigLink" style="color:var(--accent-primary);font-size:13px;">点击此处重新配置/更换凭据</a>`;
+                    const link = document.getElementById('fetchReconfigLink');
+                    if (link) {
+                        link.addEventListener('click', (ev) => {
+                            ev.preventDefault();
+                            ApiCredentialUi.open(source, method);
+                        });
+                    }
+                } else {
+                    statusEl.innerHTML = `<span style="color:red;">获取失败: ${errMsg}</span>`;
+                }
             }
         } catch (e) {
-            statusEl.innerHTML = `<span style="color:red;">获取失败: ${e.message}</span>`;
+            statusEl.innerHTML = `<span style="color:red;">获取失败: ${escapeHtml(e.message)}</span>`;
         }
     }
 
@@ -506,7 +1177,8 @@ const IPResourceUi = (() => {
         openFetchModal,
         updateFetchParams,
         startFetch,
-        closeFetch
+        closeFetch,
+        refreshCredentialBadges
     };
 })();
 
@@ -1080,6 +1752,41 @@ function initIpResourceManager() {
     });
     document.querySelectorAll('[data-dismiss="ip-resource-new-modal"]').forEach(el => {
         el.addEventListener('click', IPResourceUi.closeNew);
+    });
+
+    // API credential modal wiring (Task 4/5/7)
+    document.getElementById('apiCredentialClose')?.addEventListener('click', () => ApiCredentialUi.close());
+    document.getElementById('apiCredentialCancel')?.addEventListener('click', () => ApiCredentialUi.close());
+    document.querySelectorAll('[data-dismiss="api-credential-modal"]').forEach(el => {
+        el.addEventListener('click', () => ApiCredentialUi.close());
+    });
+    document.getElementById('apiCredentialSource')?.addEventListener('change', () => {
+        ApiCredentialUi.renderMethodStatus().then(() => {
+            ApiCredentialUi.renderAll();
+        });
+    });
+    document.getElementById('apiCredentialTest')?.addEventListener('click', () => ApiCredentialUi.testConnection());
+    document.getElementById('apiCredentialSave')?.addEventListener('click', () => ApiCredentialUi.save());
+    document.getElementById('apiCredentialClear')?.addEventListener('click', () => ApiCredentialUi.clear());
+
+    // First-time onboarding tip (Task 7)
+    document.getElementById('onboardingUseSonar')?.addEventListener('click', () => {
+        const sel = document.getElementById('ipResourceFetchSource');
+        if (sel) {
+            sel.value = 'sonar';
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        const tip = document.getElementById('ipResourceFetchOnboardingTip');
+        if (tip) tip.hidden = true;
+        sessionStorage.setItem('onboardingTipDismissed', '1');
+    });
+    document.getElementById('onboardingDismiss')?.addEventListener('click', () => {
+        const tipEl = document.getElementById('ipResourceFetchOnboardingTip');
+        if (tipEl) tipEl.hidden = true;
+        try { sessionStorage.setItem('onboardingTipDismissed', '1'); } catch (e) {}
+    });
+    document.getElementById('onboardingGoConfig')?.addEventListener('click', () => {
+        ApiCredentialUi.open('shodan');
     });
 }
 

@@ -1,0 +1,14 @@
+- [x] `browser_cookie3` 未安装时，自动获取 Cookie 接口返回明确的安装指令（`pip install browser_cookie3==0.16.2`），且响应含 `missing_module: true`
+- [x] `browser_cookie3` 已安装但浏览器无 cookie 时，错误消息不再附带每浏览器 traceback
+- [x] Shodan 手动 cookie 缺少 `shodan_session` 时，保存接口返回 `warning` 字段，但 `success: true` 且 cookie 已写入
+- [x] FOFA 手动 cookie 缺少 `FOFA_TOKEN` 时，保存接口返回 `warning` 字段，但 `success: true` 且 cookie 已写入
+- [x] Shodan API 测试接口返回 `query_credits`、`scan_credits`、`plan` 字段
+- [x] Shodan API 有效但 `query_credits == 0` 时，测试接口返回 `warning` 字段，文案明确说明需付费 plan 或改用 Cookie
+- [x] Shodan 搜索 API 调用失败时，`files[].error` 含具体错误（如 `query credits exhausted`），而非仅 `403 Client Error`
+- [x] Sonar 下载返回 HTML 时，`files[].error` 明确提到"Rapid7 OpenData 已商业化"且建议改用其他数据源
+- [x] IP 资源获取面板：数据源已配置时，常驻显示「重新配置凭据」按钮
+- [x] IP 资源获取面板：数据源未配置时，维持现有「立即配置」按钮行为不变
+- [x] 凭据配置面板：API 测试结果显示 `query_credits`/`plan`，`warning` 用橙色警告样式展示
+- [x] Shodan Manual Cookie guide 包含"`shodan_session` 为必需字段"的说明
+- [x] FOFA Manual Cookie guide 包含"`FOFA_TOKEN` 为必需字段"的说明
+- [x] Manual cookie 保存后，若后端返回 warning，UI 显示警告条

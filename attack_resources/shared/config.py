@@ -60,6 +60,21 @@ SPIDER_CONFIG = {
         "update_interval_hours": 24,
         "request_timeout": 30,
     },
+    "sonar": {
+        "enabled": True,
+        "base_url": "https://opendata.rapid7.com",
+        "listing_url": "https://opendata.rapid7.com/sonar.udp/",
+        "timeout": 60,
+        "user_agent": "Mozilla/5.0",
+        "limit_per_query": 1000,
+        "queries": {
+            "dns": {"protocol": "dns", "sonar_pattern": "udp_dns_53"},
+            "ntp": {"protocol": "ntp", "sonar_pattern": "udp_ntpmonlist_123"},
+            "snmp": {"protocol": "snmp", "sonar_pattern": "udp_snmp_161"},
+            "memcached": {"protocol": "memcached", "sonar_pattern": "udp_memcached_11211"},
+            "ssdp": {"protocol": "ssdp", "sonar_pattern": "udp_upnp_1900"},
+        },
+    },
     "maxmind": {
         "enabled": False,
         "download_url": "https://geolite.maxmind.com/download/geoip/database/GeoLite2-Country.tar.gz",

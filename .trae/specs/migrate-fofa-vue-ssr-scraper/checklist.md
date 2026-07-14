@@ -1,0 +1,17 @@
+- [x] `requirements.txt` 含 `lxml>=4.9.0`
+- [x] `fofa_spider.py` 含 `USER_AGENTS` 常量（至少 5 个 UA）
+- [x] `fofa_spider.py` 含 `_parse_vue_data` 方法，正则匹配 `ShallowReactive`
+- [x] `fofa_spider.py` 含 `_resolve_vue_ref` 方法，处理数字索引引用
+- [x] `fofa_spider.py` 含 `_parse_ips_from_vue` 方法，从 assets 字段提取 IP
+- [x] `fofa_spider.py` 含 `_get_total_count` 方法，从 page.total 提取总数
+- [x] `fofa_spider.py` 含 `_generate_query_variants` 方法，按国家生成变体
+- [x] `_fetch_via_web` 优先用 Vue SSR 解析，失败降级到元素解析 + 正则兜底
+- [x] `_fetch_via_web` 使用多查询变体策略，跨变体去重累计
+- [x] `_fetch_via_web` 每次请求随机 UA + 随机延迟 3-8 秒
+- [x] `check_web_cookies` 访问首页检测登录态关键词（退出/logout/个人中心等）
+- [x] `check_web_cookies` 保留 Cloudflare 检测
+- [x] `_REQUIRED_COOKIE_FIELDS` 中 fofa 字段为 `fofa_token`（小写）
+- [x] `save_cookies_route` 中 fofa warning 文案含 `fofa_token`（JWT 格式）
+- [x] `FOFA_COOKIE_AUTO_GUIDE` 首条为中性提示（web_query 配额限制），非"大概率被拦截"
+- [x] `FOFA_COOKIE_MANUAL_GUIDE` 必需字段为 `fofa_token`（小写）
+- [x] `python -m py_compile fofa_spider.py` 通过

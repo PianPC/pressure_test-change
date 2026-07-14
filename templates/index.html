@@ -1410,10 +1410,17 @@ NTP 放大率测量原理：
                             <button type="button" id="ipResourceFetchClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
                         </div>
                         <div class="ip-resource-fetch-body">
+                            <div id="ipResourceFetchOnboardingTip" class="info-text" hidden style="background:#fff3cd;border:1px solid #ffe08a;padding:8px 12px;border-radius:4px;margin-bottom:8px;">
+                                <span>无 API 密钥？可使用 Rapid7 Sonar 免费数据源，或点击「去配置」为 Shodan/FOFA 配置密钥。</span>
+                                <button type="button" id="onboardingUseSonar" class="btn btn-primary" style="margin-left:8px;">切换到免费源</button>
+                                <button type="button" id="onboardingGoConfig" class="btn btn-primary" style="margin-left:4px;">去配置</button>
+                                <button type="button" id="onboardingDismiss" class="btn btn-secondary" style="margin-left:4px;">稍后</button>
+                            </div>
                             <div class="form-group">
                                 <label for="ipResourceFetchSource">选择数据源</label>
                                 <select id="ipResourceFetchSource">
                                     <option value="ipdeny">IPdeny (国家IP段 - 免费)</option>
+                                    <option value="sonar">Rapid7 Sonar (免费/无需API密钥)</option>
                                     <option value="shodan">Shodan (需要API密钥)</option>
                                     <option value="fofa">FOFA (需要API密钥)</option>
                                 </select>
@@ -1424,6 +1431,37 @@ NTP 放大率测量原理：
                         <div class="action-buttons narrow">
                             <button type="button" id="ipResourceFetchCancel" class="btn btn-secondary"><i class="fas fa-xmark"></i>取消</button>
                             <button type="button" id="ipResourceFetchStart" class="btn btn-primary"><i class="fas fa-play"></i>开始获取</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="apiCredentialModal" class="tcp-modal" hidden>
+                    <div class="tcp-modal-backdrop" data-dismiss="api-credential-modal"></div>
+                    <div class="tcp-modal-panel">
+                        <div class="panel-heading">
+                            <div><h2><i class="fas fa-key"></i> <span>凭据配置</span></h2></div>
+                            <button type="button" id="apiCredentialClose" class="btn btn-secondary"><i class="fas fa-xmark"></i>关闭</button>
+                        </div>
+                        <div class="ip-resource-fetch-body">
+                            <div class="form-group">
+                                <label for="apiCredentialSource">选择数据源</label>
+                                <select id="apiCredentialSource">
+                                    <option value="shodan">Shodan</option>
+                                    <option value="fofa">FOFA</option>
+                                </select>
+                            </div>
+                            <div id="apiCredentialMethodStatus" class="info-text" style="background:var(--bg-secondary);padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:13px;"></div>
+                            <div id="apiCredentialMethodTabs" class="form-group" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+                            <div id="apiCredentialGuide"></div>
+                            <div id="apiCredentialCurrentStatus" class="info-text" style="font-size:13px;"></div>
+                            <div id="apiCredentialForm"></div>
+                            <div id="apiCredentialStatus" class="info-text"></div>
+                        </div>
+                        <div class="action-buttons narrow">
+                            <button type="button" id="apiCredentialCancel" class="btn btn-secondary"><i class="fas fa-xmark"></i>取消</button>
+                            <button type="button" id="apiCredentialTest" class="btn btn-secondary"><i class="fas fa-vial"></i>测试连接</button>
+                            <button type="button" id="apiCredentialClear" class="btn btn-secondary" hidden><i class="fas fa-trash"></i>清除</button>
+                            <button type="button" id="apiCredentialSave" class="btn btn-primary"><i class="fas fa-save"></i>保存</button>
                         </div>
                     </div>
                 </div>

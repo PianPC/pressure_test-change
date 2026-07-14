@@ -23,3 +23,6 @@ config/geoip_cache.json
 Thumbs.db
 .vscode/
 .idea/
+
+# Local API credentials (runtime-generated, never commit)
+attack_resources/shared/api_credentials.json
