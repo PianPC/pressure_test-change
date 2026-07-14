@@ -301,6 +301,7 @@ const ApiCredentialUi = (() => {
         '刷新页面，在请求列表中点击任意一个请求',
         '在右侧 Headers 面板找到 Request Headers 下的 Cookie 字段',
         '复制 Cookie 后的完整值（形如 <code>key1=val1; key2=val2</code>）',
+        '<strong>必需字段：`shodan_session` 和 `shodan_session.sig`</strong>。仅复制 `polito` 等偏好 cookie 无法通过登录态校验，请确保复制的 Cookie 字符串包含登录态字段',
         '粘贴到下方输入框，点击「测试连接」再「保存」',
         '<strong>Cookie 过期后重新粘贴新值即可替换。</strong>'
     ];
@@ -327,6 +328,7 @@ const ApiCredentialUi = (() => {
         '刷新页面，在请求列表中点击任意一个请求',
         '在右侧 Headers 面板找到 Request Headers 下的 Cookie 字段',
         '复制 Cookie 后的完整值（形如 <code>key1=val1; key2=val2</code>）',
+        '<strong>必需字段：`FOFA_TOKEN`</strong>。请确保复制的 Cookie 字符串包含该字段，否则无法通过登录态校验',
         '粘贴到下方输入框，点击「测试连接」再「保存」',
         '<strong>注意：FOFA Cloudflare 防护可能导致 Cookie 模式不可用。Cookie 过期后重新粘贴新值即可替换。</strong>'
     ];
@@ -556,13 +558,21 @@ const ApiCredentialUi = (() => {
             }
             statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在测试 API 密钥...</span>';
             const result = await ApiCredentialManager.testCredentials(source, values);
+            let html = '';
             if (result.success && result.valid) {
-                statusEl.innerHTML = `<span style="color:green;">API 密钥有效${result.user ? '，账号: ' + escapeHtml(result.user) : ''}</span>`;
+                html = `<span style="color:green;">API 密钥有效${result.user ? '，账号: ' + escapeHtml(result.user) : ''}</span>`;
+                if (source === 'shodan' && result.query_credits !== undefined) {
+                    html += `<div style="margin-top:4px;color:var(--text-secondary);">Plan: ${escapeHtml(String(result.plan || '-'))} | 查询额度: ${result.query_credits} | 扫描额度: ${result.scan_credits}</div>`;
+                }
             } else if (result.success && !result.valid) {
-                statusEl.innerHTML = `<span style="color:red;">API 密钥无效: ${escapeHtml(result.error || '凭据无效')}</span>`;
+                html = `<span style="color:red;">API 密钥无效: ${escapeHtml(result.error || '凭据无效')}</span>`;
             } else {
-                statusEl.innerHTML = `<span style="color:red;">请求失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
+                html = `<span style="color:red;">请求失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
             }
+            if (result.warning) {
+                html += `<div style="margin-top:6px;color:#ff9800;font-size:13px;">⚠️ ${escapeHtml(result.warning)}</div>`;
+            }
+            statusEl.innerHTML = html;
         } else {
             statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在测试 Cookie 登录态...</span>';
             const result = await ApiCredentialManager.testCookies(source);
@@ -631,7 +641,11 @@ const ApiCredentialUi = (() => {
                 statusEl.innerHTML = `<span style="color:red;">保存失败: ${escapeHtml(result.message || '未知错误')}</span>`;
                 return;
             }
-            statusEl.innerHTML = `<span style="color:green;">${label} Cookie 已保存</span>`;
+            let html = `<span style="color:green;">${label} Cookie 已保存</span>`;
+            if (result.warning) {
+                html += `<div style="margin-top:6px;color:#ff9800;font-size:13px;">⚠️ ${escapeHtml(result.warning)}</div>`;
+            }
+            statusEl.innerHTML = html;
         }
 
         // Refresh status and badges
@@ -1007,6 +1021,11 @@ const IPResourceUi = (() => {
                     });
                 }
             } else {
+                const reconfigBtnHtml = (source === 'shodan' || source === 'fofa')
+                    ? `<div class="form-group" style="margin-top:8px;">
+                         <button type="button" id="ipResourceFetchReconfigBtn" class="btn btn-secondary">重新配置凭据</button>
+                       </div>`
+                    : '';
                 container.innerHTML = `
                     <div class="form-group">
                         <label>选择协议类型</label>
@@ -1020,8 +1039,15 @@ const IPResourceUi = (() => {
                     <div class="form-group">
                         <label>结果数量限制</label>
                         <input type="number" id="ipResourceFetchLimit" value="1000" min="10" max="10000">
-                    </div>`;
+                    </div>
+                    ${reconfigBtnHtml}`;
                 setStartButtonEnabled(true);
+                const reconfigBtn = document.getElementById('ipResourceFetchReconfigBtn');
+                if (reconfigBtn) {
+                    reconfigBtn.addEventListener('click', () => {
+                        ApiCredentialUi.open(source);
+                    });
+                }
             }
         }
     }

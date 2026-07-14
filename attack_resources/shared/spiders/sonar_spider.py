@@ -111,9 +111,15 @@ class SonarSpider:
                 # (Rapid7 now requires login for some downloads), report clearly.
                 content = dl_response.content
                 if content[:2] != b"\x1f\x8b":
+                    # 判断是商业化 gating（HTML 登录页）还是其他非 gzip 响应
+                    head = content[:512].lower()
+                    if b"<html" in head or b"login" in head or b"<!doctype" in head:
+                        err_msg = "Rapid7 OpenData 已商业化，公开下载受限（服务端返回登录页而非数据文件）。请改用 Shodan 或 FOFA 数据源。"
+                    else:
+                        err_msg = "下载失败: 服务端返回了非 gzip 数据 (文件可能需要登录)"
                     results.append({
                         "protocol": protocol,
-                        "error": "下载失败: 服务端返回了非 gzip 数据 (文件可能需要登录)",
+                        "error": err_msg,
                     })
                     continue
 

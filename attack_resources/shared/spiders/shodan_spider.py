@@ -102,6 +102,19 @@ class ShodanSpider:
                     "source_url": url,
                 })
 
+            except requests.HTTPError as he:
+                # Shodan 返回 JSON 错误体，提取 error 字段得到具体原因
+                err_msg = str(he)
+                try:
+                    err_data = he.response.json()
+                    if isinstance(err_data, dict) and err_data.get("error"):
+                        err_msg = f"{he.response.status_code} {err_data.get('error')}"
+                except (ValueError, AttributeError):
+                    pass
+                results.append({
+                    "protocol": protocol,
+                    "error": err_msg,
+                })
             except Exception as e:
                 results.append({
                     "protocol": protocol,
@@ -248,7 +261,19 @@ class ShodanSpider:
             response = requests.get(url, params={"key": api_key}, timeout=self.timeout)
             response.raise_for_status()
             data = response.json()
-            return {"valid": True, "user": data.get("email", "")}
+            query_credits = data.get("query_credits", 0)
+            scan_credits = data.get("scan_credits", 0)
+            plan = data.get("plan", "")
+            result = {
+                "valid": True,
+                "user": data.get("email", ""),
+                "query_credits": query_credits,
+                "scan_credits": scan_credits,
+                "plan": plan,
+            }
+            if query_credits <= 0:
+                result["warning"] = f"API 有效但无搜索额度（query_credits=0）。免费账号通常无法使用搜索 API，需购买付费 plan 或改用 Cookie 模式。"
+            return result
         except Exception as e:
             return {"valid": False, "error": str(e)}
 

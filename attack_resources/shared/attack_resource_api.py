@@ -1662,12 +1662,17 @@ def save_credentials_route(source: str):
         else:
             check_result = FOFASpider().check_credentials()
 
-        return jsonify({
+        response = {
             "success": True,
             "valid": bool(check_result.get("valid")),
             "user": check_result.get("user"),
             "error": check_result.get("error"),
-        })
+        }
+        # 透传 Shodan credits/plan/warning 字段
+        for k in ("query_credits", "scan_credits", "plan", "warning"):
+            if k in check_result:
+                response[k] = check_result[k]
+        return jsonify(response)
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
@@ -1702,12 +1707,17 @@ def test_credentials_route(source: str):
         else:
             check_result = FOFASpider().check_credentials(credentials=payload)
 
-        return jsonify({
+        response = {
             "success": True,
             "valid": bool(check_result.get("valid")),
             "user": check_result.get("user"),
             "error": check_result.get("error"),
-        })
+        }
+        # 透传 Shodan credits/plan/warning 字段
+        for k in ("query_credits", "scan_credits", "plan", "warning"):
+            if k in check_result:
+                response[k] = check_result[k]
+        return jsonify(response)
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
@@ -1717,6 +1727,11 @@ def test_credentials_route(source: str):
 _COOKIE_DOMAINS = {
     "shodan": ".shodan.io",
     "fofa": ".fofa.info",
+}
+
+_REQUIRED_COOKIE_FIELDS = {
+    "shodan": "shodan_session",
+    "fofa": "FOFA_TOKEN",
 }
 
 
@@ -1767,7 +1782,20 @@ def save_cookies_route(source: str):
 
         credential_store.save_cookies(source, cookies_dict)
         display_name = source.capitalize() if source == "shodan" else "FOFA"
-        return jsonify({"success": True, "message": f"{display_name} Cookie 已保存（{len(cookies_dict)} 项）"})
+
+        # 关键字段校验
+        required_field = _REQUIRED_COOKIE_FIELDS.get(source)
+        warning = None
+        if required_field and required_field not in cookies_dict:
+            if source == "shodan":
+                warning = f"Cookie 已保存，但未检测到 {required_field} 字段。Shodan 登录态依赖该字段，仅提供 polito 等偏好 cookie 无法通过登录态校验。请重新从浏览器 DevTools 复制完整 Cookie 字符串。"
+            else:
+                warning = f"Cookie 已保存，但未检测到 {required_field} 字段。FOFA 登录态依赖该字段，请重新从浏览器 DevTools 复制完整 Cookie 字符串。"
+
+        response = {"success": True, "message": f"{display_name} Cookie 已保存（{len(cookies_dict)} 项）"}
+        if warning:
+            response["warning"] = warning
+        return jsonify(response)
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
@@ -1778,9 +1806,18 @@ def auto_extract_cookies_route(source: str):
         if source not in _VALID_CRED_SOURCES:
             return jsonify({"success": False, "message": f"未知的数据源: {source}"}), 400
 
+        # 提前导入 browser_cookie3，若未安装则给出明确提示
+        try:
+            import browser_cookie3
+        except ImportError:
+            return jsonify({
+                "success": False,
+                "message": "未安装 browser_cookie3 模块，请在服务器上运行: pip install browser_cookie3==0.16.2",
+                "missing_module": True,
+            }), 200
+
         domain = _COOKIE_DOMAINS[source]
         cookies_dict = None
-        errors = []
 
         for browser_name, load_fn_name in [
             ("chrome", "chrome"),
@@ -1788,7 +1825,6 @@ def auto_extract_cookies_route(source: str):
             ("edge", "edge"),
         ]:
             try:
-                import browser_cookie3
                 load_fn = getattr(browser_cookie3, load_fn_name, None)
                 if load_fn is None:
                     continue
@@ -1796,14 +1832,13 @@ def auto_extract_cookies_route(source: str):
                 cookies_dict = {c.name: c.value for c in cj if domain in (c.domain or "")}
                 if cookies_dict:
                     break
-            except Exception as e:
-                errors.append(f"{browser_name}: {e}")
+            except Exception:
                 continue
 
         if not cookies_dict:
             return jsonify({
                 "success": False,
-                "message": f"未能从浏览器自动获取 {source} cookie。请确保已在浏览器中登录 {domain}。详情: {'; '.join(errors) or '无可用浏览器'}",
+                "message": f"未能从浏览器自动获取 {source} cookie。请确保已在浏览器中登录 {domain}。",
             })
 
         credential_store.save_cookies(source, cookies_dict)
