@@ -12,6 +12,8 @@ import requests
 from ..config import SPIDER_CONFIG
 from ..credential_store import get_credentials, get_cookies
 
+_COOKIE_DOMAIN = ".shodan.io"
+
 
 class ShodanSpider:
     def __init__(self):
@@ -20,6 +22,16 @@ class ShodanSpider:
         self.queries = self.config.get("queries", {})
         self.limit_per_query = self.config.get("limit_per_query", 1000)
         self.timeout = self.config.get("request_timeout", 30)
+
+    @staticmethod
+    def _set_cookies_to_session(session, cookies):
+        """将 cookies dict 逐个 set 到 session，带 domain。
+
+        session.cookies.update(dict) 不设置 domain，导致 requests 发送请求时不带 cookie。
+        必须用 session.cookies.set(name, value, domain=...) 逐个设置（参考 ip_collector 实现）。
+        """
+        for name, value in cookies.items():
+            session.cookies.set(name, str(value), domain=_COOKIE_DOMAIN)
 
     def fetch(self, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         params = params or {}
@@ -140,7 +152,15 @@ class ShodanSpider:
         web_base = "https://www.shodan.io"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
         }
         ip_pattern = re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")
 
@@ -154,7 +174,7 @@ class ShodanSpider:
 
             try:
                 session = requests.Session()
-                session.cookies.update(cookies)
+                self._set_cookies_to_session(session, cookies)
                 url = f"{web_base}/search?{urlencode({'query': query_str})}"
                 response = session.get(url, headers=headers, timeout=self.timeout, allow_redirects=True)
 
@@ -308,9 +328,18 @@ class ShodanSpider:
 
         try:
             session = requests.Session()
-            session.cookies.update(cookies)
+            self._set_cookies_to_session(session, cookies)
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
             }
             response = session.get("https://www.shodan.io/search?query=port:53", headers=headers, timeout=self.timeout, allow_redirects=True)
             lower_text = response.text.lower()

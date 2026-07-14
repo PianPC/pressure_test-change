@@ -25,6 +25,8 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 ]
 
+_COOKIE_DOMAIN = "fofa.info"
+
 
 class FOFASpider:
     def __init__(self):
@@ -35,6 +37,16 @@ class FOFASpider:
         self.limit_per_query = self.config.get("limit_per_query", 1000)
         self.timeout = self.config.get("request_timeout", 30)
         self.ip_pattern = re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")
+
+    @staticmethod
+    def _set_cookies_to_session(session, cookies):
+        """将 cookies dict 逐个 set 到 session，带 domain。
+
+        session.cookies.update(dict) 不设置 domain，导致 requests 发送请求时不带 cookie。
+        必须用 session.cookies.set(name, value, domain=...) 逐个设置（参考 ip_collector 实现）。
+        """
+        for name, value in cookies.items():
+            session.cookies.set(name, str(value), domain=_COOKIE_DOMAIN)
 
     def fetch(self, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         params = params or {}
@@ -225,7 +237,7 @@ class FOFASpider:
         web_base = "https://fofa.info"
 
         session = requests.Session()
-        session.cookies.update(cookies)
+        self._set_cookies_to_session(session, cookies)
 
         for query_name in query_names:
             if query_name not in self.queries:
@@ -263,8 +275,13 @@ class FOFASpider:
                         "User-Agent": random.choice(USER_AGENTS),
                         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                        "Accept-Encoding": "gzip, deflate, br",
                         "Connection": "keep-alive",
                         "Upgrade-Insecure-Requests": "1",
+                        "Sec-Fetch-Dest": "document",
+                        "Sec-Fetch-Mode": "navigate",
+                        "Sec-Fetch-Site": "none",
+                        "Sec-Fetch-User": "?1",
                     }
 
                     query_b64 = base64.b64encode(variant_query.encode("utf-8")).decode("utf-8")
@@ -446,13 +463,18 @@ class FOFASpider:
 
         try:
             session = requests.Session()
-            session.cookies.update(cookies)
+            self._set_cookies_to_session(session, cookies)
             headers = {
                 "User-Agent": random.choice(USER_AGENTS),
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
             }
 
             # 第一步：访问首页检测登录态
