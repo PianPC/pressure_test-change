@@ -180,8 +180,8 @@ class ShodanSpider:
 
                 lower_text = response.text.lower()
 
-                # 检测登录态失效
-                if response.status_code in (302, 301) or "login" in lower_text or "sign in" in lower_text:
+                # 检测登录态失效（只检测重定向，不检测 login 关键词——Shodan 页面普遍含 login 字样无区分力）
+                if response.status_code in (302, 301):
                     results.append({
                         "protocol": protocol,
                         "error": "Cookie 登录态已过期，请重新获取 Cookie",
@@ -260,8 +260,7 @@ class ShodanSpider:
                 if not ips:
                     # 检测标志位
                     flags = []
-                    if "login" in lower_text or "sign in" in lower_text:
-                        flags.append("login")
+                    # 注：不再检测 "login" 关键词，Shodan 页面普遍含 login 字样无区分力
                     if "cf-challenge" in lower_text or "cloudflare" in lower_text:
                         flags.append("cloudflare")
                     if "upgrade" in lower_text or "subscription" in lower_text:
@@ -343,7 +342,8 @@ class ShodanSpider:
             }
             response = session.get("https://www.shodan.io/search?query=port:53", headers=headers, timeout=self.timeout, allow_redirects=True)
             lower_text = response.text.lower()
-            if response.status_code in (302, 301) or "login" in lower_text or "sign in" in lower_text:
+            # 只检测重定向（Shodan 未登录会 302 到 /account/login）；不检测 login 关键词（无区分力）
+            if response.status_code in (302, 301):
                 return {"valid": False, "error": "Cookie 登录态已过期，请重新获取 Cookie"}
 
             # 统计搜索结果容器数量（侧边栏推荐 IP 不计入）

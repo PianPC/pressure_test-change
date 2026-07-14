@@ -306,12 +306,14 @@ class FOFASpider:
                             break  # 第一个就被拦截，后续也不会成功
                         continue  # 后续变体被拦截，跳过
 
-                    # 登录态检测
-                    if "login" in lower_text or "sign in" in lower_text or response.status_code in (302, 301):
+                    # 非 200 状态码视为失败（对齐参考实现 ip_collector，不做 login 关键词误判）
+                    # FOFA 页面普遍含 "login" 字样（CSS class / JS 路径 / 登录按钮），无区分力。
+                    # 登录态是否真失效由 check_web_cookies 的首页中文关键词检测判定。
+                    if response.status_code != 200:
                         if i == 0:
                             results.append({
                                 "protocol": protocol,
-                                "error": "Cookie 登录态已过期，请重新获取 Cookie",
+                                "error": f"FOFA 返回非 200 状态码（{response.status_code}），Cookie 可能已失效，请重新获取",
                             })
                             break
                         continue
@@ -382,10 +384,10 @@ class FOFASpider:
                 # 所有变体完成：0 结果时不写文件，返回 error 含调试信息
                 if not all_ips:
                     flags = []
-                    if "login" in last_lower_text or "sign in" in last_lower_text:
-                        flags.append("login")
                     if "cf-challenge" in last_lower_text or "cloudflare" in last_lower_text:
                         flags.append("cloudflare")
+                    # 注：不再检测 "login" 关键词，因为 FOFA 页面普遍含 login 字样无区分力。
+                    # 登录态是否真失效，由 check_web_cookies 的首页中文关键词检测判定。
                     if "upgrade" in last_lower_text or "vip" in last_lower_text:
                         flags.append("vip")
                     if "credits" in last_lower_text:
@@ -490,9 +492,8 @@ class FOFASpider:
             login_confirmed = any(indicator.lower() in lower_text for indicator in login_indicators)
 
             if not login_confirmed:
-                # 也检测是否被重定向到登录页
-                if "login" in lower_text or "sign in" in lower_text or response.status_code in (302, 301):
-                    return {"valid": False, "error": "Cookie 登录态已过期，请重新获取 Cookie"}
+                # 未检测到中文登录关键词即为未登录
+                # （"login" 英文词无区分力，FOFA 页面普遍含；重定向也已由 allow_redirects=True 跟随）
                 return {"valid": False, "error": "Cookie 登录态已过期，请重新获取 Cookie"}
 
             # 第二步：登录态有效，用测试查询检测搜索结果容器
