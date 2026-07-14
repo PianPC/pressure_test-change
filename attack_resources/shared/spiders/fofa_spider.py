@@ -162,12 +162,44 @@ class FOFASpider:
                 ips = []
                 seen = set()
 
-                # 从结果链接提取 IP（FOFA 结果页常见 a 标签含 IP）
-                for link in soup.find_all("a"):
+                # 选择器 1: a.target（FOFA 结果页 IP 链接）
+                for link in soup.select("a.target"):
                     text = link.get_text(strip=True)
                     if ip_pattern.match(text) and text not in seen:
                         seen.add(text)
                         ips.append(text)
+                    href = link.get("href", "")
+                    candidate = href.strip()
+                    if ip_pattern.match(candidate) and candidate not in seen:
+                        seen.add(candidate)
+                        ips.append(candidate)
+
+                # 选择器 2: div.r_item a, div.list_module a, div.result-item a
+                if not ips:
+                    for selector in ["div.r_item a", "div.list_module a", "div.result-item a"]:
+                        for link in soup.select(selector):
+                            text = link.get_text(strip=True)
+                            if ip_pattern.match(text) and text not in seen:
+                                seen.add(text)
+                                ips.append(text)
+                        if ips:
+                            break
+
+                # 选择器 3: span.ip
+                if not ips:
+                    for el in soup.select("span.ip"):
+                        text = el.get_text(strip=True)
+                        if ip_pattern.match(text) and text not in seen:
+                            seen.add(text)
+                            ips.append(text)
+
+                # 选择器 4: 所有 a 标签文本（原逻辑兜底）
+                if not ips:
+                    for link in soup.find_all("a"):
+                        text = link.get_text(strip=True)
+                        if ip_pattern.match(text) and text not in seen:
+                            seen.add(text)
+                            ips.append(text)
 
                 # 兜底：正则全文提取
                 if not ips:
@@ -177,6 +209,33 @@ class FOFASpider:
                             ips.append(match)
 
                 ips = ips[:limit]
+
+                # 0 结果时不写文件，返回 error 含调试信息
+                if not ips:
+                    flags = []
+                    if "login" in lower_text or "sign in" in lower_text:
+                        flags.append("login")
+                    if "cf-challenge" in lower_text or "cloudflare" in lower_text:
+                        flags.append("cloudflare")
+                    if "upgrade" in lower_text or "vip" in lower_text:
+                        flags.append("vip")
+                    if "credits" in lower_text:
+                        flags.append("credits")
+
+                    flags_str = "、".join(flags) if flags else "无"
+                    error_msg = (
+                        f"网页爬取提取到 0 个 IP（status={response.status_code}, "
+                        f"html_length={len(response.text)}, 含 {flags_str} 标志）。"
+                        f"可能原因：Cloudflare 隐式拦截 / 网站改版 / Cookie 登录态失效 / 查询无结果。"
+                        f"建议改用 API 密钥。"
+                    )
+                    results.append({
+                        "protocol": protocol,
+                        "error": error_msg,
+                        "query": query_str,
+                        "source_url": url,
+                    })
+                    continue
 
                 filename = f"{query_name}_{today_str}.txt"
                 output_path = base_path / output_dir / filename
@@ -232,14 +291,28 @@ class FOFASpider:
 
             # Cloudflare 检测
             if response.status_code in (403, 503) or "cf-challenge" in lower_text or "cloudflare" in lower_text:
-                return {"valid": False, "error": "FOFA 被 Cloudflare 拦截，Cookie 模式可能不可用，建议使用 API 密钥"}
+                return {"valid": False, "error": "FOFA 被 Cloudflare 拦截，Cookie 模式不可用，建议使用 API 密钥"}
 
             if "login" in lower_text or "sign in" in lower_text or response.status_code in (302, 301):
                 return {"valid": False, "error": "Cookie 登录态已过期，请重新获取 Cookie"}
 
+            # 统计搜索结果容器
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(response.text, "html.parser")
+            result_containers = max(
+                len(soup.select("div.list_module")),
+                len(soup.select("div.r_item")),
+                len(soup.select("a.target")),
+                len(soup.select("div.result-item")),
+            )
+
             ip_pattern = re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")
             ip_count = len(set(ip_pattern.findall(response.text)))
-            return {"valid": True, "ip_count": ip_count}
+
+            result = {"valid": True, "ip_count": ip_count, "result_containers": result_containers}
+            if result_containers == 0:
+                result["warning"] = "登录态有效但未找到搜索结果容器（可能是网站改版、查询无结果或 Cloudflare 隐式拦截）。"
+            return result
         except Exception as e:
             return {"valid": False, "error": str(e)}
 

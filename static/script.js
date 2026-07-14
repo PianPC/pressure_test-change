@@ -315,6 +315,7 @@ const ApiCredentialUi = (() => {
         '<strong>更换场景</strong>：若当前 API key 余额不足或失效，直接在下方输入框填入新的 Email 和 API Key，点击「替换保存」即可覆盖。无需先清除。'
     ];
     const FOFA_COOKIE_AUTO_GUIDE = [
+        '<strong style="color:#ff6b6b;">⚠️ 警告：FOFA 使用 Cloudflare 严格防护，Cookie 模式大概率被拦截。如有可能，请优先使用 API 密钥（需付费账号）。</strong>',
         '在浏览器中访问 <a href="https://fofa.info" target="_blank" rel="noopener noreferrer">https://fofa.info</a> 并登录账号',
         '确保登录成功',
         '回到本页面点击下方「保存/替换」按钮，系统自动读取浏览器中的 FOFA cookie',
@@ -323,6 +324,7 @@ const ApiCredentialUi = (() => {
         '<strong>注意：FOFA 使用 Cloudflare 防护，Cookie 模式可能被拦截。如失败请改用 API 密钥。Cookie 过期后重新执行①-⑤即可替换。</strong>'
     ];
     const FOFA_COOKIE_MANUAL_GUIDE = [
+        '<strong style="color:#ff6b6b;">⚠️ 警告：FOFA 使用 Cloudflare 严格防护，Cookie 模式大概率被拦截。如有可能，请优先使用 API 密钥（需付费账号）。</strong>',
         '在浏览器中访问 <a href="https://fofa.info" target="_blank" rel="noopener noreferrer">https://fofa.info</a> 并登录',
         '按 F12 打开开发者工具，切换到 Network 标签',
         '刷新页面，在请求列表中点击任意一个请求',
@@ -1073,12 +1075,45 @@ const IPResourceUi = (() => {
 
             if (result.success) {
                 const files = result.files || [];
-                const successCount = files.filter(f => !f.error).length;
-                statusEl.innerHTML = `<span style="color:green;">获取完成！成功 ${successCount}/${files.length} 个资源</span>`;
-                setTimeout(() => {
-                    closeFetch();
-                    loadResourceList();
-                }, 1500);
+                const successCount = files.filter(f => !f.error && (f.ip_count || 0) > 0).length;
+                const failedFiles = files.filter(f => f.error || !f.ip_count);
+
+                if (successCount === 0) {
+                    // 全部失败：橙色警告，不自动关闭
+                    let html = `<span style="color:#ff9800;">⚠️ 获取完成，但未提取到任何 IP（可能是免费账号受限或网站改版）</span>`;
+                    if (failedFiles.length > 0) {
+                        html += `<details style="margin-top:8px;">
+                            <summary style="cursor:pointer;color:var(--accent-primary);font-size:13px;">查看失败详情</summary>
+                            <div style="margin-top:6px;padding:8px;background:rgba(255,255,255,0.05);border-radius:4px;font-size:12px;color:var(--text-secondary);max-height:200px;overflow-y:auto;">
+                                ${failedFiles.map(f => `<div style="margin-bottom:4px;"><strong>${escapeHtml(f.protocol || '?')}:</strong> <span style="color:#ff9800;">${escapeHtml(f.error || 'ip_count=0')}</span></div>`).join('')}
+                            </div>
+                        </details>`;
+                    }
+                    statusEl.innerHTML = html;
+                } else if (successCount < files.length) {
+                    // 部分成功：黄色提示，3 秒后关闭
+                    let html = `<span style="color:#ffeb3b;">⚠️ 获取完成，成功 ${successCount}/${files.length} 个资源（部分失败）</span>`;
+                    if (failedFiles.length > 0) {
+                        html += `<details style="margin-top:8px;">
+                            <summary style="cursor:pointer;color:var(--accent-primary);font-size:13px;">查看失败详情</summary>
+                            <div style="margin-top:6px;padding:8px;background:rgba(255,255,255,0.05);border-radius:4px;font-size:12px;color:var(--text-secondary);max-height:200px;overflow-y:auto;">
+                                ${failedFiles.map(f => `<div style="margin-bottom:4px;"><strong>${escapeHtml(f.protocol || '?')}:</strong> <span style="color:#ff9800;">${escapeHtml(f.error || 'ip_count=0')}</span></div>`).join('')}
+                            </div>
+                        </details>`;
+                    }
+                    statusEl.innerHTML = html;
+                    setTimeout(() => {
+                        closeFetch();
+                        loadResourceList();
+                    }, 3000);
+                } else {
+                    // 全部成功：绿色，1.5 秒后关闭（原行为）
+                    statusEl.innerHTML = `<span style="color:green;">获取完成！成功 ${successCount}/${files.length} 个资源</span>`;
+                    setTimeout(() => {
+                        closeFetch();
+                        loadResourceList();
+                    }, 1500);
+                }
             } else {
                 const errMsg = escapeHtml(result.error || '未知错误');
                 // Add reconfigure link for credential-related failures

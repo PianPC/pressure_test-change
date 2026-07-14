@@ -11,6 +11,24 @@ import requests
 from ..config import SPIDER_CONFIG
 
 
+def _requests_get_with_retry(url: str, timeout: int, headers: dict, max_retries: int = 3):
+    """带重试的 GET 请求。对 ConnectionError 自动重试，间隔 2/4/6 秒。"""
+    import time
+    last_exc = None
+    for attempt in range(max_retries + 1):  # 1 initial + 3 retries = 4 total
+        try:
+            return requests.get(url, timeout=timeout, headers=headers)
+        except requests.exceptions.ConnectionError as e:
+            last_exc = e
+            if attempt < max_retries:
+                sleep_sec = 2 * (attempt + 1)  # 2, 4, 6
+                time.sleep(sleep_sec)
+                continue
+            raise
+    # 不会走到这里，但作为防御
+    raise last_exc
+
+
 class SonarSpider:
     def __init__(self):
         self.config = SPIDER_CONFIG.get("sonar", {})
@@ -29,13 +47,15 @@ class SonarSpider:
 
         # 1. Fetch listing page HTML
         try:
-            response = requests.get(
+            response = _requests_get_with_retry(
                 self.listing_url,
                 timeout=self.timeout,
                 headers={"User-Agent": self.user_agent},
             )
             response.raise_for_status()
             html_text = response.text
+        except requests.exceptions.ConnectionError as e:
+            return {"success": False, "error": f"无法连接 Rapid7 OpenData 服务器（多次重试失败，最后错误: {e}）。可能是网络问题或被防火墙拦截，建议检查网络或改用 Shodan/FOFA 数据源。"}
         except Exception as e:
             return {"success": False, "error": f"无法获取 Sonar 数据集列表: {e}"}
 
@@ -100,12 +120,22 @@ class SonarSpider:
                     download_url = self.listing_url + latest
 
                 # Download .csv.gz to memory
-                dl_response = requests.get(
-                    download_url,
-                    timeout=self.timeout,
-                    headers={"User-Agent": self.user_agent},
-                )
-                dl_response.raise_for_status()
+                try:
+                    dl_response = _requests_get_with_retry(
+                        download_url,
+                        timeout=self.timeout,
+                        headers={"User-Agent": self.user_agent},
+                    )
+                    dl_response.raise_for_status()
+                except requests.exceptions.ConnectionError as e:
+                    results.append({
+                        "protocol": protocol,
+                        "error": f"下载失败: 无法连接服务器（多次重试失败，{e}）。可能是网络问题或被防火墙拦截。",
+                    })
+                    continue
+                except Exception as e:
+                    results.append({"protocol": protocol, "error": f"下载失败: {e}"})
+                    continue
 
                 # Detect gating: if the server returned HTML instead of gzip
                 # (Rapid7 now requires login for some downloads), report clearly.
