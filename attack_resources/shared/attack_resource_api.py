@@ -1731,7 +1731,7 @@ _COOKIE_DOMAINS = {
 
 _REQUIRED_COOKIE_FIELDS = {
     "shodan": "shodan_session",
-    "fofa": "FOFA_TOKEN",
+    "fofa": "fofa_token",
 }
 
 
@@ -1789,8 +1789,8 @@ def save_cookies_route(source: str):
         if required_field and required_field not in cookies_dict:
             if source == "shodan":
                 warning = f"Cookie 已保存，但未检测到 {required_field} 字段。Shodan 登录态依赖该字段，仅提供 polito 等偏好 cookie 无法通过登录态校验。请重新从浏览器 DevTools 复制完整 Cookie 字符串。"
-            else:
-                warning = f"Cookie 已保存，但未检测到 {required_field} 字段。FOFA 登录态依赖该字段，请重新从浏览器 DevTools 复制完整 Cookie 字符串。"
+            else:  # fofa
+                warning = f"Cookie 已保存，但未检测到 {required_field} 字段。FOFA 登录态依赖该字段（JWT 格式），请重新从浏览器 DevTools 复制完整 Cookie 字符串。"
 
         response = {"success": True, "message": f"{display_name} Cookie 已保存（{len(cookies_dict)} 项）"}
         if warning:

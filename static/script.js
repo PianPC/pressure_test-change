@@ -315,24 +315,24 @@ const ApiCredentialUi = (() => {
         '<strong>更换场景</strong>：若当前 API key 余额不足或失效，直接在下方输入框填入新的 Email 和 API Key，点击「替换保存」即可覆盖。无需先清除。'
     ];
     const FOFA_COOKIE_AUTO_GUIDE = [
-        '<strong style="color:#ff6b6b;">⚠️ 警告：FOFA 使用 Cloudflare 严格防护，Cookie 模式大概率被拦截。如有可能，请优先使用 API 密钥（需付费账号）。</strong>',
+        '<strong style="color:#ff9800;">⚠️ 提示：FOFA 使用服务端渲染，Cookie 模式可获取数据但受 web_query 配额限制（免费账号约 300 次/天）。如配额耗尽，请改用 API 密钥或等待次日刷新。</strong>',
         '在浏览器中访问 <a href="https://fofa.info" target="_blank" rel="noopener noreferrer">https://fofa.info</a> 并登录账号',
         '确保登录成功',
         '回到本页面点击下方「保存/替换」按钮，系统自动读取浏览器中的 FOFA cookie',
         '点击「测试连接」验证登录态有效',
         '配置完成',
-        '<strong>注意：FOFA 使用 Cloudflare 防护，Cookie 模式可能被拦截。如失败请改用 API 密钥。Cookie 过期后重新执行①-⑤即可替换。</strong>'
+        '<strong>注意：Cookie 过期后重新执行①-⑤即可替换。如遇 Cloudflare 拦截，请改用 API 密钥。</strong>'
     ];
     const FOFA_COOKIE_MANUAL_GUIDE = [
-        '<strong style="color:#ff6b6b;">⚠️ 警告：FOFA 使用 Cloudflare 严格防护，Cookie 模式大概率被拦截。如有可能，请优先使用 API 密钥（需付费账号）。</strong>',
+        '<strong style="color:#ff9800;">⚠️ 提示：FOFA 使用服务端渲染，Cookie 模式可获取数据但受 web_query 配额限制（免费账号约 300 次/天）。如配额耗尽，请改用 API 密钥或等待次日刷新。</strong>',
         '在浏览器中访问 <a href="https://fofa.info" target="_blank" rel="noopener noreferrer">https://fofa.info</a> 并登录',
         '按 F12 打开开发者工具，切换到 Network 标签',
         '刷新页面，在请求列表中点击任意一个请求',
         '在右侧 Headers 面板找到 Request Headers 下的 Cookie 字段',
         '复制 Cookie 后的完整值（形如 <code>key1=val1; key2=val2</code>）',
-        '<strong>必需字段：`FOFA_TOKEN`</strong>。请确保复制的 Cookie 字符串包含该字段，否则无法通过登录态校验',
+        '<strong>必需字段：`fofa_token`</strong>。请确保复制的 Cookie 字符串包含该字段（JWT 格式），否则无法通过登录态校验',
         '粘贴到下方输入框，点击「测试连接」再「保存」',
-        '<strong>注意：FOFA Cloudflare 防护可能导致 Cookie 模式不可用。Cookie 过期后重新粘贴新值即可替换。</strong>'
+        '<strong>注意：Cookie 过期后重新粘贴新值即可替换。如遇 Cloudflare 拦截，请改用 API 密钥。</strong>'
     ];
 
     // ---- State ----
