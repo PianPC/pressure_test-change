@@ -63,7 +63,15 @@ class ScanConfig:
         return data
 
 
-def load_config(path: str | Path) -> ScanConfig:
+def load_config(path: str | Path, *, validate: bool = True) -> ScanConfig:
+    """从 TOML/INI 文件加载配置。
+
+    Args:
+        path: 配置文件路径。
+        validate: 是否调用 ``validate_config`` 校验文件存在性。
+                  当此配置只是"默认模板"、真实参数稍后会被请求数据覆盖时，
+                  应传 ``False`` 以避免示例占位路径导致校验失败。
+    """
     config_path = Path(path)
     if not config_path.exists():
         raise ConfigError(f"Config file does not exist: {config_path}")
@@ -104,7 +112,9 @@ def load_config(path: str | Path) -> ScanConfig:
         dry_run=_bool(general.get("dry_run", False), "dry_run"),
         python_bin=_string(general.get("python_bin", "python3"), "python_bin"),
     )
-    return validate_config(cfg)
+    if validate:
+        return validate_config(cfg)
+    return cfg
 
 
 def validate_config(cfg: ScanConfig, check_runtime: bool = True) -> ScanConfig:

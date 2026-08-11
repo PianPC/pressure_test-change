@@ -258,7 +258,9 @@ def tcp_scan_state_view():
 
 
 def _config_from_request(data: dict[str, Any]) -> ScanConfig:
-    base = load_config(DEFAULT_CONFIG_PATH)
+    # 加载默认配置时跳过校验：默认配置中的 ip_file 只是占位示例，
+    # 真正的文件由请求参数指定并经 _resolve_ip_file 解析为实际路径
+    base = load_config(DEFAULT_CONFIG_PATH, validate=False)
     ip_file = _resolve_ip_file(str(data.get("ip_file") or base.ip_file))
     cfg = replace(
         base,

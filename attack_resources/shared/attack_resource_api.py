@@ -490,7 +490,7 @@ def _dns_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
         if not available:
             return {"success": False, "message": "\u6ca1\u6709\u53ef\u7528\u7684 IP \u5019\u9009\u6587\u4ef6"}, 400
         ip_file = available[0]["path"]
-    resolved_ip_file = _resolve_protocol_resource("memcached", ip_file)
+    resolved_ip_file = _resolve_protocol_resource("dns", ip_file)
     if resolved_ip_file is None or not resolved_ip_file.exists():
         return {"success": False, "message": f"IP \u6587\u4ef6\u4e0d\u5b58\u5728: {ip_file}"}, 400
 
@@ -1201,7 +1201,8 @@ def _ntp_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
         if not available:
             return {"success": False, "message": "没有可用的 IP 候选文件"}, 400
         ip_file = available[0]["path"]
-    if not Path(ip_file).exists():
+    resolved_ip_file = _resolve_protocol_resource("ntp", ip_file)
+    if resolved_ip_file is None or not resolved_ip_file.exists():
         return {"success": False, "message": f"IP 文件不存在: {ip_file}"}, 400
 
     probe_action = str(payload.get("probe_action", "both")).strip().lower()
@@ -1432,6 +1433,181 @@ def attack_resource_results(proto: str, run_id: str):
         return jsonify({"success": False, "message": f"Protocol not implemented: {proto}"}), 501
     except FileNotFoundError:
         return jsonify({"success": False, "message": "Run not found"}), 404
+
+
+# ── 统一优质 IP 详情 ──────────────────────────────────────────
+
+_PROTO_OUTPUT_ROOTS = {
+    "tcp": TCP_OUTPUT_ROOT,
+    "dns": DNS_OUTPUT_ROOT,
+    "ntp": NTP_OUTPUT_ROOT,
+    "memcached": MEMCACHED_OUTPUT_ROOT,
+}
+
+# 各协议 CSV 中 IP 列名 -> 统一字段名 ip
+_PROTO_IP_COLUMN = {
+    "tcp": "saddr",
+    "dns": "IP",
+    "ntp": "IP",
+    "memcached": "IP",
+}
+
+
+def _read_qualified_ips_set(run_dir: Path) -> set[str]:
+    """读取 qualified_ips.txt，返回优质 IP 集合。"""
+    ip_file = run_dir / "qualified_ips.txt"
+    if not ip_file.exists():
+        return set()
+    return {
+        line.strip()
+        for line in ip_file.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+
+
+def _normalize_scan_row(proto: str, row: dict[str, str]) -> dict[str, Any]:
+    """将各协议 CSV 行统一为标准格式。"""
+    ip_col = _PROTO_IP_COLUMN.get(proto, "IP")
+    ip = (row.get(ip_col) or row.get("IP") or "").strip()
+    if not ip:
+        return None
+
+    amplification_raw = row.get("Amplification", "")
+    latency_raw = row.get("LatencyMs", "")
+    responded_raw = row.get("Responded", "")
+
+    def _to_float(val):
+        try:
+            f = float(val)
+            return f if f == f else None  # NaN check
+        except (ValueError, TypeError):
+            return None
+
+    def _to_int(val):
+        try:
+            return int(float(val))
+        except (ValueError, TypeError):
+            return None
+
+    entry: dict[str, Any] = {
+        "ip": ip,
+        "protocol": proto,
+        "amplification": _to_float(amplification_raw),
+        "latency_ms": _to_int(latency_raw),
+        "responded": str(responded_raw).strip().lower() in ("true", "1", "yes"),
+        "request_bytes": _to_int(row.get("RequestBytes", "")),
+        "response_bytes": _to_int(row.get("ResponseBytes", "")),
+        "extra": {},
+    }
+
+    # 协议特有字段放入 extra
+    if proto == "tcp":
+        entry["extra"] = {
+            "flags": row.get("flags", ""),
+            "count": _to_int(row.get("count", "")),
+            "payloadlen": _to_int(row.get("payloadlen", "")),
+            "len": _to_int(row.get("len", "")),
+        }
+    elif proto == "dns":
+        entry["extra"] = {
+            "domain": row.get("Domain", ""),
+            "query_type": row.get("QueryType", ""),
+            "dnssec": row.get("DNSSEC", ""),
+        }
+    elif proto == "memcached":
+        entry["extra"] = {
+            "cmd_type": row.get("CmdType", ""),
+            "available": row.get("Available", ""),
+            "set_ok": row.get("SetOK", ""),
+            "data_size_kb": _to_float(row.get("DataSizeKB", "")),
+        }
+    elif proto == "ntp":
+        entry["extra"] = {
+            "action": row.get("Action", ""),
+            "response_packets": _to_int(row.get("ResponsePackets", "")),
+        }
+
+    return entry
+
+
+def _build_qualified_details(proto: str, run_id: str) -> dict[str, Any]:
+    """读取扫描结果 CSV，筛选优质 IP，返回统一格式的详情列表。"""
+    output_root = _PROTO_OUTPUT_ROOTS.get(proto)
+    if output_root is None:
+        raise KeyError(proto)
+
+    run_dir = output_root / run_id
+    if not run_dir.exists():
+        raise FileNotFoundError(run_id)
+
+    qualified_set = _read_qualified_ips_set(run_dir)
+    csv_file = run_dir / "scan_results.csv"
+
+    # TCP 的 scan_results.csv 列名不同，需读取处理后的 CSV
+    if proto == "tcp":
+        processed_csv = run_dir / "processed_scan_results.csv"
+        if processed_csv.exists():
+            csv_file = processed_csv
+
+    details: list[dict[str, Any]] = []
+    if csv_file.exists():
+        with csv_file.open("r", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                entry = _normalize_scan_row(proto, row)
+                if entry and entry["ip"] in qualified_set:
+                    details.append(entry)
+
+    # 如果 CSV 不存在但 qualified_ips.txt 存在，返回无元数据的 IP 列表
+    if not details and qualified_set:
+        details = [
+            {"ip": ip, "protocol": proto, "amplification": None, "latency_ms": None,
+             "responded": True, "request_bytes": None, "response_bytes": None, "extra": {}}
+            for ip in sorted(qualified_set)
+        ]
+
+    return {
+        "success": True,
+        "proto": proto,
+        "run_id": run_id,
+        "qualified_ips": details,
+        "total": len(details),
+    }
+
+
+@attack_resource_bp.route("/<proto>/runs/<run_id>/qualified-details", methods=["GET"])
+def attack_resource_qualified_details(proto: str, run_id: str):
+    """返回某次扫描的优质 IP 统一详情（带放大率、延迟等元数据）。"""
+    try:
+        return jsonify(_build_qualified_details(proto, run_id))
+    except KeyError:
+        return jsonify({"success": False, "message": f"Protocol not implemented: {proto}"}), 501
+    except FileNotFoundError:
+        return jsonify({"success": False, "message": "Run not found"}), 404
+    except Exception as exc:
+        return jsonify({"success": False, "message": str(exc)}), 500
+
+
+@attack_resource_bp.route("/<proto>/add-to-pool", methods=["POST"])
+def attack_resource_add_to_pool(proto: str):
+    """手动添加选中的优质 IP 到资源池。"""
+    try:
+        from attack_resources.shared.qualified_pool import add_ips_to_pool
+
+        data = request.get_json(silent=True) or {}
+        ips = data.get("ips", [])
+        if not isinstance(ips, list) or not ips:
+            return jsonify({"success": False, "message": "请提供 ips 列表"}), 400
+
+        # 清理 IP 列表
+        clean_ips = [str(ip).strip() for ip in ips if str(ip).strip()]
+        if not clean_ips:
+            return jsonify({"success": False, "message": "IP 列表为空"}), 400
+
+        result = add_ips_to_pool(proto, clean_ips)
+        return jsonify({"success": True, **result})
+    except Exception as exc:
+        return jsonify({"success": False, "message": str(exc)}), 500
 
 
 @attack_resource_bp.route("/<proto>/runs/<run_id>/files/<path:filename>", methods=["GET"])

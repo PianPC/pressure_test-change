@@ -142,6 +142,70 @@ def aggregate_quality_ips(proto: str, task_qualified_ips_path: str) -> Dict[str,
     }
 
 
+def add_ips_to_pool(proto: str, ips: List[str]) -> Dict[str, Any]:
+    """手动添加选中的 IP 到指定协议的质量池。
+
+    与 ``aggregate_quality_ips`` 不同，此函数直接接收 IP 列表（而非从文件读取），
+    适用于前端"选取优质 IP 添加到资源池"的场景。
+
+    Args:
+        proto: 协议名称（tcp/dns/memcached/ntp）。
+        ips: 要添加的 IP 地址列表。
+
+    Returns:
+        包含 ``added_count``、``total_count``、``pool_path`` 的字典。
+    """
+    pool_path = _qualified_pool_path(proto)
+    existing_ips = _read_ip_lines(pool_path)
+
+    merged: List[str] = list(existing_ips)
+    seen = set(existing_ips)
+    added_count = 0
+    for ip in ips:
+        ip = ip.strip()
+        if not ip or ip in seen:
+            continue
+        seen.add(ip)
+        merged.append(ip)
+        added_count += 1
+
+    pool_dir = os.path.dirname(pool_path)
+    if pool_dir:
+        os.makedirs(pool_dir, exist_ok=True)
+
+    with open(pool_path, "w", encoding="utf-8") as handle:
+        for ip in merged:
+            handle.write(ip + "\n")
+
+    logger.info(
+        "manually added %d IPs for proto=%s, total=%d",
+        added_count,
+        proto,
+        len(merged),
+    )
+
+    # Sync to protocol-local display directory
+    sync_target = os.path.join(
+        ATTACK_RESOURCES_ROOT, proto, "resources", "ip_lists", QUALIFIED_POOL_FILENAME
+    )
+    synced_path = ""
+    try:
+        sync_dir = os.path.dirname(sync_target)
+        if sync_dir:
+            os.makedirs(sync_dir, exist_ok=True)
+        shutil.copy2(pool_path, sync_target)
+        synced_path = os.path.abspath(sync_target)
+    except Exception as sync_err:
+        logger.warning("failed to sync qualified pool to %s: %s", sync_target, sync_err)
+
+    return {
+        "added_count": added_count,
+        "total_count": len(merged),
+        "pool_path": os.path.abspath(pool_path),
+        "synced_path": synced_path,
+    }
+
+
 def list_qualified_pool_ips(proto: str) -> Dict[str, Any]:
     """读取指定协议质量池的当前 IP 列表与元信息。
 

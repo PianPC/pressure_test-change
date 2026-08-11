@@ -4957,14 +4957,13 @@ function renderDnsStages(stats = {}, isRunning = false) {
 }
 
 function renderDnsQualifiedPreview(qualifiedIps = []) {
+    // 已由 AttackResourceTaskController.renderResultPreview 统一渲染交互式表格
+    // 此函数保留为空壳，避免旧版轮询覆盖新表格
     const container = document.getElementById("dnsQualifiedPreview");
     if (!container) return;
-    if (!qualifiedIps.length) {
+    if (!qualifiedIps.length && !container.querySelector(".qualified-ip-table")) {
         container.textContent = "暂无优质 IP。完整结果可通过输出文件查看。";
-        return;
     }
-    const preview = qualifiedIps.slice(0, 5).map((ip) => escapeHtml(ip)).join("、");
-    container.innerHTML = `<strong>已筛出 ${qualifiedIps.length} 个优质 IP</strong><br>预览：${preview}${qualifiedIps.length > 5 ? " 等" : ""}<br>完整列表请直接打开 <code>qualified_ips.txt</code>。`;
 }
 
 function renderDnsMeta(detail) {
@@ -5685,10 +5684,224 @@ class AttackResourceTaskController {
                 container.textContent = resultPreview.empty_text || "暂无结果预览。";
                 return;
             }
-            container.innerHTML = `<strong>${escapeHtml(resultPreview.title || "结果预览")}</strong><br>${items.map((item) => escapeHtml(item)).join("<br>")}${resultPreview.total > items.length ? `<br>共 ${resultPreview.total} 条` : ""}`;
+            // 有优质 IP 时，加载详情表格
+            this._loadQualifiedDetailsTable(container);
             return;
         }
         container.textContent = "";
+    }
+
+    async _loadQualifiedDetailsTable(container) {
+        if (!this.currentRunId) {
+            container.textContent = "暂无结果预览。";
+            return;
+        }
+        container.innerHTML = '<span class="info-text">加载优质 IP 详情…</span>';
+        try {
+            const resp = await fetch(`/api/attack-resource/${this.proto}/runs/${encodeURIComponent(this.currentRunId)}/qualified-details`);
+            const data = await resp.json();
+            if (!data.success || !data.qualified_ips || !data.qualified_ips.length) {
+                container.textContent = "暂无优质 IP。完整结果可通过输出文件查看。";
+                return;
+            }
+            this._renderQualifiedTable(container, data.qualified_ips);
+        } catch (err) {
+            container.textContent = `加载失败：${err.message}`;
+        }
+    }
+
+    _renderQualifiedTable(container, ips) {
+        // 保存原始数据用于排序/筛选
+        this._qualifiedIpData = ips;
+        this._qualifiedSortKey = null;
+        this._qualifiedSortDesc = true;
+
+        const isTcp = this.proto === "tcp";
+        const amplificationLabel = isTcp ? "包长度" : "放大率";
+
+        container.innerHTML = `
+            <div class="qualified-toolbar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                <label style="font-size:12px;color:var(--text-secondary);">${amplificationLabel} ≥</label>
+                <input type="number" id="${this.proto}QualFilter" value="0" min="0" step="0.1" style="width:70px;padding:2px 6px;font-size:12px;background:var(--bg-base-secondary);border:1px solid var(--border-neutral-l1);border-radius:4px;color:var(--text-default);">
+                <label style="font-size:12px;color:var(--text-secondary);">延迟 ≤</label>
+                <input type="number" id="${this.proto}QualLatencyFilter" value="9999" min="0" step="10" style="width:70px;padding:2px 6px;font-size:12px;background:var(--bg-base-secondary);border:1px solid var(--border-neutral-l1);border-radius:4px;color:var(--text-default);">
+                <span style="flex:1;"></span>
+                <span id="${this.proto}QualCount" style="font-size:12px;color:var(--text-secondary);">共 ${ips.length} 个</span>
+                <button type="button" class="ds-btn ds-btn--brand ds-btn--sm" id="${this.proto}AddPoolBtn" disabled style="opacity:0.5;">
+                    <i class="fas fa-plus" style="margin-right:4px;"></i>添加选中到资源池
+                </button>
+            </div>
+            <div class="qualified-table-wrap" style="overflow-x:auto;max-height:320px;overflow-y:auto;border:1px solid var(--border-neutral-l1);border-radius:6px;">
+                <table class="qualified-ip-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+                    <thead style="position:sticky;top:0;background:var(--bg-base-secondary);z-index:1;">
+                        <tr>
+                            <th style="padding:6px 8px;text-align:left;width:32px;"><input type="checkbox" id="${this.proto}QualSelectAll"></th>
+                            <th style="padding:6px 8px;text-align:left;cursor:pointer;" data-sort="ip">IP 地址</th>
+                            ${isTcp ? '' : `<th style="padding:6px 8px;text-align:right;cursor:pointer;" data-sort="amplification">放大率</th>`}
+                            ${isTcp ? '' : `<th style="padding:6px 8px;text-align:right;cursor:pointer;" data-sort="latency_ms">延迟(ms)</th>`}
+                            ${isTcp ? '<th style="padding:6px 8px;text-align:right;cursor:pointer;" data-sort="len">总长度</th>' : ''}
+                            <th style="padding:6px 8px;text-align:left;">状态</th>
+                            <th style="padding:6px 8px;text-align:left;">详情</th>
+                        </tr>
+                    </thead>
+                    <tbody id="${this.proto}QualTbody"></tbody>
+                </table>
+            </div>
+        `;
+
+        this._updateQualifiedTbody();
+
+        // 绑定筛选
+        const filterInput = document.getElementById(`${this.proto}QualFilter`);
+        const latencyInput = document.getElementById(`${this.proto}QualLatencyFilter`);
+        filterInput?.addEventListener("input", () => this._updateQualifiedTbody());
+        latencyInput?.addEventListener("input", () => this._updateQualifiedTbody());
+
+        // 绑定排序
+        container.querySelectorAll("th[data-sort]").forEach((th) => {
+            th.addEventListener("click", () => {
+                const key = th.getAttribute("data-sort");
+                if (this._qualifiedSortKey === key) {
+                    this._qualifiedSortDesc = !this._qualifiedSortDesc;
+                } else {
+                    this._qualifiedSortKey = key;
+                    this._qualifiedSortDesc = true;
+                }
+                this._updateQualifiedTbody();
+            });
+        });
+
+        // 全选
+        const selectAll = document.getElementById(`${this.proto}QualSelectAll`);
+        selectAll?.addEventListener("change", (e) => {
+            const checked = e.target.checked;
+            container.querySelectorAll(`#${this.proto}QualTbody input[type="checkbox"]`).forEach((cb) => {
+                cb.checked = checked;
+            });
+            this._updateQualSelectCount();
+        });
+
+        // 添加到资源池
+        const addBtn = document.getElementById(`${this.proto}AddPoolBtn`);
+        addBtn?.addEventListener("click", () => this._addSelectedToPool());
+    }
+
+    _getFilteredSortedIps() {
+        let data = this._qualifiedIpData || [];
+        const isTcp = this.proto === "tcp";
+        const filterVal = parseFloat(document.getElementById(`${this.proto}QualFilter`)?.value) || 0;
+        const latencyVal = parseFloat(document.getElementById(`${this.proto}QualLatencyFilter`)?.value) || 9999;
+
+        data = data.filter((item) => {
+            const metric = isTcp ? (item.extra?.len || 0) : (item.amplification || 0);
+            if (metric < filterVal) return false;
+            if (!isTcp && item.latency_ms !== null && item.latency_ms > latencyVal) return false;
+            return true;
+        });
+
+        if (this._qualifiedSortKey) {
+            const key = this._qualifiedSortKey;
+            const desc = this._qualifiedSortDesc;
+            data = [...data].sort((a, b) => {
+                let va, vb;
+                if (key === "ip") { va = a.ip; vb = b.ip; return desc ? vb.localeCompare(va) : va.localeCompare(vb); }
+                if (key === "len") { va = a.extra?.len || 0; vb = b.extra?.len || 0; }
+                else { va = a[key] ?? 0; vb = b[key] ?? 0; }
+                va = Number(va) || 0; vb = Number(vb) || 0;
+                return desc ? vb - va : va - vb;
+            });
+        }
+        return data;
+    }
+
+    _updateQualifiedTbody() {
+        const tbody = document.getElementById(`${this.proto}QualTbody`);
+        if (!tbody) return;
+        const isTcp = this.proto === "tcp";
+        const filtered = this._getFilteredSortedIps();
+
+        tbody.innerHTML = filtered.map((item) => {
+            const status = item.responded ? '<span style="color:var(--status-success-default);">✓ 响应</span>' : '<span style="color:var(--text-tertiary);">—</span>';
+            let detail = "";
+            if (isTcp) {
+                detail = `flags: ${escapeHtml(item.extra?.flags || "-")} · count: ${item.extra?.count ?? "-"}`;
+            } else {
+                const parts = [];
+                if (item.extra?.domain) parts.push(`域名: ${escapeHtml(item.extra.domain)}`);
+                if (item.extra?.cmd_type) parts.push(`命令: ${escapeHtml(item.extra.cmd_type)}`);
+                if (item.extra?.action) parts.push(`动作: ${escapeHtml(item.extra.action)}`);
+                detail = parts.join(" · ") || "-";
+            }
+            const amp = isTcp
+                ? `${item.extra?.len ?? "-"}`
+                : (item.amplification !== null ? `${item.amplification.toFixed(1)}x` : "-");
+            const lat = isTcp ? "" : `<td style="padding:4px 8px;text-align:right;">${item.latency_ms ?? "-"}</td>`;
+            return `<tr style="border-bottom:1px solid var(--border-neutral-l1);">
+                <td style="padding:4px 8px;"><input type="checkbox" value="${escapeHtml(item.ip)}" class="qual-ip-check"></td>
+                <td style="padding:4px 8px;font-family:monospace;">${escapeHtml(item.ip)}</td>
+                ${isTcp ? '' : `<td style="padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums;">${amp}</td>`}
+                ${isTcp ? `<td style="padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums;">${amp}</td>` : ''}
+                ${lat}
+                <td style="padding:4px 8px;">${status}</td>
+                <td style="padding:4px 8px;font-size:11px;color:var(--text-tertiary);">${detail}</td>
+            </tr>`;
+        }).join("");
+
+        // 更新计数
+        const countEl = document.getElementById(`${this.proto}QualCount`);
+        if (countEl) countEl.textContent = `筛选后 ${filtered.length} / ${this._qualifiedIpData.length} 个`;
+
+        // 绑定 checkbox
+        tbody.querySelectorAll(".qual-ip-check").forEach((cb) => {
+            cb.addEventListener("change", () => this._updateQualSelectCount());
+        });
+        this._updateQualSelectCount();
+    }
+
+    _updateQualSelectCount() {
+        const checked = document.querySelectorAll(`#${this.proto}QualTbody input[type="checkbox"]:checked`);
+        const btn = document.getElementById(`${this.proto}AddPoolBtn`);
+        if (btn) {
+            btn.disabled = checked.length === 0;
+            btn.style.opacity = checked.length === 0 ? "0.5" : "1";
+            btn.innerHTML = checked.length > 0
+                ? `<i class="fas fa-plus" style="margin-right:4px;"></i>添加 ${checked.length} 个到资源池`
+                : `<i class="fas fa-plus" style="margin-right:4px;"></i>添加选中到资源池`;
+        }
+    }
+
+    async _addSelectedToPool() {
+        const checked = document.querySelectorAll(`#${this.proto}QualTbody input[type="checkbox"]:checked`);
+        const ips = Array.from(checked).map((cb) => cb.value);
+        if (!ips.length) return;
+
+        const btn = document.getElementById(`${this.proto}AddPoolBtn`);
+        if (btn) { btn.disabled = true; btn.textContent = "添加中…"; }
+
+        try {
+            const resp = await fetch(`/api/attack-resource/${this.proto}/add-to-pool`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ips }),
+            });
+            const data = await resp.json();
+            if (data.success) {
+                const msg = data.added_count > 0
+                    ? `已添加 ${data.added_count} 个优质 IP 到资源池（总计 ${data.total_count} 个）`
+                    : `选中的 IP 已全部在资源池中（总计 ${data.total_count} 个）`;
+                showNotification(msg, "success");
+                updateWorkflowIndicators?.();
+            } else {
+                showNotification(data.message || "添加失败", "error");
+            }
+        } catch (err) {
+            showNotification(`添加失败：${err.message}`, "error");
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                this._updateQualSelectCount();
+            }
+        }
     }
 
     renderEmptyState() {
