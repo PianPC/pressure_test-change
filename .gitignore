@@ -26,3 +26,13 @@ Thumbs.db
 
 # Local API credentials (runtime-generated, never commit)
 attack_resources/shared/api_credentials.json
+
+# ZMap build artifacts and binaries (machine-specific, must rebuild on each device)
+vendor/weaponizing-censors/*/build/
+vendor/weaponizing-censors/*/CMakeCache.txt
+vendor/weaponizing-censors/*/CMakeFiles/
+vendor/weaponizing-censors/*/src/CMakeFiles/
+vendor/weaponizing-censors/*/src/zmap
+vendor/weaponizing-censors/*/src/ztee
+vendor/weaponizing-censors/*/src/ziterate
+vendor/weaponizing-censors/*/src/ztests

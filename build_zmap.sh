@@ -34,20 +34,40 @@ require_dir() {
     fi
 }
 
+BUILD_DEPS=(
+    build-essential
+    cmake
+    pkg-config
+    libjson-c-dev
+    libpcap-dev
+    libgmp-dev
+    libunistring-dev
+    gengetopt
+    flex
+    byacc
+)
+
+check_deps_installed() {
+    for pkg in "${BUILD_DEPS[@]}"; do
+        if ! dpkg -s "$pkg" >/dev/null 2>&1; then
+            return 1
+        fi
+    done
+    return 0
+}
+
 install_deps() {
     print_info "Installing build dependencies..."
     sudo apt update -qq
-    sudo apt install -y \
-        build-essential \
-        cmake \
-        pkg-config \
-        libjson-c-dev \
-        libpcap-dev \
-        libgmp-dev \
-        libunistring-dev \
-        gengetopt \
-        flex \
-        byacc
+    sudo apt install -y "${BUILD_DEPS[@]}"
+}
+
+ensure_deps() {
+    if check_deps_installed; then
+        print_info "All build dependencies already installed, skipping apt install"
+    else
+        install_deps
+    fi
 }
 
 fix_json_c() {
@@ -106,10 +126,30 @@ clean_build_cache() {
     local dir="$1"
     local build_dir="$dir/build"
     print_info "Cleaning previous build cache under $dir"
-    rm -rf "$build_dir"
-    rm -f "$dir/CMakeCache.txt"
-    rm -rf "$dir/CMakeFiles"
-    rm -rf "$dir/src/CMakeFiles"
+
+    # 检查是否有 root 所属的残留文件（之前用 sudo 编译遗留）
+    local needs_sudo=false
+    for target in "$build_dir" "$dir/CMakeFiles" "$dir/src/CMakeFiles"; do
+        if [ -e "$target" ] && [ ! -w "$(dirname "$target")" ]; then
+            needs_sudo=true
+        elif [ -e "$target" ] && ! rm -rf "$target" 2>/dev/null; then
+            needs_sudo=true
+        fi
+    done
+
+    if [ "$needs_sudo" = true ]; then
+        print_warn "Detected root-owned build artifacts (likely from a previous sudo build). Cleaning with sudo..."
+        if ! sudo rm -rf "$build_dir" "$dir/CMakeFiles" "$dir/src/CMakeFiles"; then
+            print_error "Failed to clean root-owned build artifacts with sudo."
+            print_error "Please run this command manually, then re-run build_zmap.sh:"
+            print_error "  sudo rm -rf \"$build_dir\" \"$dir/CMakeFiles\" \"$dir/src/CMakeFiles\""
+            exit 1
+        fi
+        rm -f "$dir/CMakeCache.txt"
+    else
+        rm -rf "$build_dir" "$dir/CMakeFiles" "$dir/src/CMakeFiles"
+        rm -f "$dir/CMakeCache.txt"
+    fi
     mkdir -p "$build_dir"
 }
 
@@ -135,12 +175,15 @@ build_one() {
         print_error "$label binary is not executable: $bin_path"
         exit 1
     fi
-    print_info "$label build succeeded: $bin_path"
+    # 同时复制到 src/zmap (in-source)，兼容 runner.py 中查找 src/zmap 的逻辑
+    cp -f "$bin_path" "$src_dir/src/zmap"
+    chmod +x "$src_dir/src/zmap"
+    print_info "$label build succeeded: $bin_path (also copied to $src_dir/src/zmap)"
 }
 
 require_dir "$ZMAP_SINGLE" "Single-probe ZMap source"
 require_dir "$ZMAP_MULTI" "Multi-probe ZMap source"
-install_deps
+ensure_deps
 fix_json_c "$ZMAP_SINGLE/CMakeLists.txt"
 fix_json_c "$ZMAP_MULTI/CMakeLists.txt"
 fix_source_tree "$ZMAP_SINGLE" "ZMap (single_probe)"

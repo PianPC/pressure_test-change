@@ -6,29 +6,35 @@
 git clone
 ```
 
-确保有cmake
+### 编译 ZMap（新设备必须执行）
+
+ZMap 二进制是机器特定的（链接到本机共享库），仓库不再提交预编译二进制。
+**每台新设备克隆后必须运行编译脚本**，否则扫描功能会报 exit code 127。
+
+安装编译依赖（只需一次）：
+
 ```bash
 sudo apt update
-sudo apt install -y build-essential cmake libgmp3-dev libpcap-dev libjson-c-dev byacc flex
+sudo apt install -y build-essential cmake pkg-config \
+    libjson-c-dev libpcap-dev libgmp-dev libunistring-dev \
+    gengetopt flex byacc
 ```
 
-在新设备上编译ZMap
+编译 ZMap：
 
 ```bash
 chmod +x build_zmap.sh
-sudo ./build_zmap.sh
+./build_zmap.sh
 ```
 
-如果因为没有cmake编译失败
+> 脚本会自动检测依赖是否已安装：已装则跳过 `sudo apt`，未装则自动安装。
+> 如果之前用 `sudo` 编译过导致 `build/` 目录变为 root 所有，脚本会自动用 `sudo rm` 清理。
+
+如果手动清理旧 build 目录：
+
 ```bash
-sudo apt update
-sudo apt install -y build-essential cmake libgmp3-dev libpcap-dev libjson-c-dev byacc flex
-
-# 清理旧 build 目录（如果之前有残留）
-rm -rf vendor/weaponizing-censors/zmap/{build,CMakeCache.txt,CMakeFiles} vendor/weaponizing-censors/zmap_multiple_probes/{build,CMakeCache.txt,CMakeFiles}
-
-# 再次编译
-sudo ./build_zmap.sh
+rm -rf vendor/weaponizing-censors/zmap/{build,CMakeCache.txt,CMakeFiles} \
+       vendor/weaponizing-censors/zmap_multiple_probes/{build,CMakeCache.txt,CMakeFiles}
 ```
 
 创建虚拟环境，安装必要库
