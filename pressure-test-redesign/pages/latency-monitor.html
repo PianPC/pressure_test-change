@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN" class="dark">
 <head>
     <meta charset="UTF-8">
@@ -2132,6 +2132,108 @@
         min-height: 0;
       }
 
+      /* ============================================================
+         Responsive Design — Mobile & Tablet Optimization
+         Desktop layout unchanged; media queries only
+         ============================================================ */
+
+      .sh-menu-toggle {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border: none;
+        background: transparent;
+        color: var(--text-default);
+        cursor: pointer;
+        border-radius: var(--radius-6);
+        flex-shrink: 0;
+        padding: 0;
+      }
+      .sh-menu-toggle:hover { background: var(--bg-overlay-l2); }
+      .sh-menu-toggle-icon { width: 18px; height: 18px; flex-shrink: 0; }
+
+      .sh-sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 999;
+        opacity: 0;
+        transition: opacity 0.25s ease;
+      }
+      .sh-sidebar-overlay.is-visible {
+        display: block;
+        opacity: 1;
+      }
+
+      @media (max-width: 1024px) {
+        .sh-sidebar {
+          position: fixed;
+          top: 0;
+          left: 0;
+          bottom: 0;
+          height: 100vh;
+          z-index: 1000;
+          transform: translateX(-100%);
+          transition: transform 0.25s ease;
+          box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+        }
+        .sh-sidebar.is-open { transform: translateX(0); }
+        .sh-menu-toggle { display: inline-flex; }
+      }
+
+      @media (max-width: 768px) {
+        .sh-topbar { padding: 0 var(--spacer-16); gap: var(--spacer-8); }
+        .sh-topbar__meta { gap: var(--spacer-8); }
+        .sh-topbar__stats { display: none; }
+        .sh-page-body { padding: var(--spacer-16); }
+        .ds-grid-2, .ds-grid-3, .ds-grid-4,
+        .grid-2, .grid-3, .grid-4 {
+          grid-template-columns: 1fr !important;
+        }
+        .ds-statcard__grid {
+          grid-template-columns: repeat(2, 1fr) !important;
+        }
+        .ds-statcard__grid .ds-statcard {
+          flex: none !important;
+          min-width: 0 !important;
+        }
+        .ds-table-wrap, .ds-tablepanel {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+        table { min-width: 480px; }
+        .ds-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+        .ds-tab { flex-shrink: 0; white-space: nowrap; }
+        /* Latency monitor specific */
+        .lm-target-controls {
+          flex-wrap: wrap;
+          gap: var(--spacer-8);
+        }
+        .lm-target-controls > div:first-child {
+          width: 100%;
+          flex: none;
+        }
+        .lm-target-controls .ds-input {
+          max-width: none !important;
+        }
+        .lm-quick-stats {
+          grid-template-columns: 1fr !important;
+        }
+        .lm-chart-container {
+          padding: var(--spacer-16);
+          height: 300px !important;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .ds-statcard__grid { grid-template-columns: 1fr !important; }
+        .sh-topbar__page-title { font-size: var(--body-base-font-size); }
+        .lm-target-controls .ds-btn { flex: 1; }
+      }
+
       /* ── Latency Monitor Specific ── */
       .lm-chart-container {
         background: var(--bg-base-secondary);
@@ -2221,6 +2323,7 @@
     </style>
 
     <div class="sh-app-layout">
+      <div class="sh-sidebar-overlay" id="sh-sidebar-overlay"></div>
       <!-- Sidebar -->
       <aside class="sh-sidebar">
         <div class="sh-sidebar__logo">
@@ -2275,6 +2378,13 @@
       <main class="sh-main-content">
         <header class="sh-topbar">
           <div class="sh-topbar__title-area">
+            <button class="sh-menu-toggle" id="sh-menu-toggle" aria-label="打开菜单">
+              <svg class="sh-menu-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <line x1="3" y1="18" x2="21" y2="18"/>
+              </svg>
+            </button>
             <span class="sh-topbar__page-title" data-dom-id="page-title">延迟监控</span>
           </div>
           <div class="sh-topbar__meta">
@@ -2303,7 +2413,7 @@
           </div>
 
           <!-- Target Controls -->
-          <div style="display: flex; align-items: center; gap: var(--spacer-12); padding: var(--spacer-12) var(--spacer-16); background: var(--bg-base-secondary); border: 1px solid var(--border-neutral-l1); border-radius: var(--radius-8); margin-bottom: var(--spacer-24);">
+          <div class="lm-target-controls" style="display: flex; align-items: center; gap: var(--spacer-12); padding: var(--spacer-12) var(--spacer-16); background: var(--bg-base-secondary); border: 1px solid var(--border-neutral-l1); border-radius: var(--radius-8); margin-bottom: var(--spacer-24);">
             <div style="display: flex; align-items: center; gap: var(--spacer-8); flex: 1; min-width: 0;">
               <span style="font-size: var(--body-sm-font-size); color: var(--text-tertiary); flex-shrink: 0;">目标</span>
               <input type="text" class="ds-input" data-dom-id="latency-target-ip" placeholder="自动同步控制台目标…" style="max-width: 280px;" value="">
@@ -2333,7 +2443,7 @@
           </div>
 
           <!-- Quick Stats Row -->
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacer-16); margin-bottom: var(--spacer-24);">
+          <div class="lm-quick-stats" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacer-16); margin-bottom: var(--spacer-24);">
             <div class="ds-statcard" data-dom-id="latency-baseline">
               <span class="ds-statcard__label">基准延迟</span>
               <span class="ds-statcard__value" style="font-family: var(--code-editor-font-family);">-- ms</span>
@@ -2526,6 +2636,25 @@
           if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null; }
         });
       })();
+    </script>
+    <script>
+(function() {
+  var toggle = document.getElementById('sh-menu-toggle');
+  var sidebar = document.querySelector('.sh-sidebar');
+  var overlay = document.getElementById('sh-sidebar-overlay');
+  if (toggle && sidebar && overlay) {
+    function openSidebar() { sidebar.classList.add('is-open'); overlay.classList.add('is-visible'); }
+    function closeSidebar() { sidebar.classList.remove('is-open'); overlay.classList.remove('is-visible'); }
+    toggle.addEventListener('click', function() {
+      if (sidebar.classList.contains('is-open')) { closeSidebar(); } else { openSidebar(); }
+    });
+    overlay.addEventListener('click', closeSidebar);
+    var navItems = sidebar.querySelectorAll('.sh-nav__item');
+    for (var i = 0; i < navItems.length; i++) {
+      navItems[i].addEventListener('click', function() { if (window.innerWidth <= 1024) { closeSidebar(); } });
+    }
+  }
+})();
     </script>
     <script>lucide.createIcons();</script>
 </body>
