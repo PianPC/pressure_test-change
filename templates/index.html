@@ -252,6 +252,7 @@
                                                             <input type="text" id="tcpTargetHost" value="www.youporn.com" autocomplete="off" list="tcpHostSuggestions" title="输入或选择目标主机地址，留空则使用默认值">
                                                             <datalist id="tcpHostSuggestions">
                                                                 <option value="www.youporn.com" label="YouPorn（论文主要测试对象，响应率 11.4%）"></option>
+                                                                <option value="www.roxypalce.com" label="RoxyPalace（论文测试对象，部分中间盒有响应）"></option>
                                                                 <option value="www.pornhub.com" label="PornHub（论文测试对象，响应率因中间盒而异）"></option>
                                                                 <option value="www.xvideos.com" label="XVideos（论文测试对象，部分中间盒有响应）"></option>
                                                                 <option value="www.pornhub.com:443" label="PornHub HTTPS（部分中间盒对 443 端口有响应）"></option>
@@ -846,8 +847,8 @@ NTP 放大率测量原理：
                         </div>
 
                         <div class="protocol-tabs">
-                            <button class="tab-btn" data-proto="tcp">TCP</button>
-                            <button class="tab-btn active" data-proto="memcached">Memcached</button>
+                            <button class="tab-btn active" data-proto="tcp">TCP</button>
+                            <button class="tab-btn" data-proto="memcached">Memcached</button>
                             <button class="tab-btn" data-proto="dns">DNS</button>
                             <button class="tab-btn" data-proto="ntp">NTP</button>
                         </div>
@@ -1045,6 +1046,17 @@ NTP 放大率测量原理：
                                     <div class="info-text" style="margin-top:6px;">
                                         <i class="fas fa-circle-info"></i>
                                         默认仅使用优质池（qualified_pool.txt）作为攻击源，优质池为空时自动回退加载全部 .txt。可通过上方"源文件选择"按钮限定具体来源。
+                                    </div>
+                                </div>
+
+                                <div id="tcpSensitiveHostSection" class="form-group" style="display:none;">
+                                    <label>敏感目标地址 <i class="fas fa-circle-info form-help-icon" title="TCP反射放大攻击的目标Host。论文发现部分中间盒对特定敏感Host响应率更高。可添加、删除自定义地址"></i></label>
+                                    <div class="sensitive-host-manager">
+                                        <div class="sensitive-host-input-row">
+                                            <input type="text" id="tcpSensitiveHostInput" placeholder="输入敏感地址，如 www.example.com" title="输入完整域名或域名:端口">
+                                            <button type="button" class="btn btn-outline btn-sm" id="tcpAddSensitiveHostBtn" title="添加到敏感地址列表"><i class="fas fa-plus"></i> 添加</button>
+                                        </div>
+                                        <div id="tcpSensitiveHostList" class="sensitive-host-list"></div>
                                     </div>
                                 </div>
 

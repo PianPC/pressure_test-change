@@ -5,12 +5,18 @@ import time
 import subprocess
 import re
 import sys
+import os
 import shutil # 引入shutil用于检查命令是否存在
 
 # === 固定配置（无需用户输入，根据实际环境调整路径） ===
 sport = 12345
 seq = 1000
-geoip_db_path = "/opt/project/GeoLite2-City.mmdb"  # 确保该路径下有GeoIP数据库文件
+
+# 自动定位 GeoIP 数据库：相对于本脚本向上推算项目根目录
+# legacy_scripts -> tcp_censor_scan -> code -> tcp -> attack_resources -> project_root (5 levels)
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_SCRIPT_DIR)))))
+geoip_db_path = os.path.join(_PROJECT_ROOT, "attack_resources", "tcp", "resources", "geoip", "GeoLite2-City.mmdb")
 
 # === 全局变量（通过命令行传参赋值，核心适配自动化） ===
 target_file = ""       # 接收IP_take.py输出的IP文件路径
@@ -333,24 +339,25 @@ def test():
 
     # ==================== 配置文件中的固定参数（直接写死，无需命令行输入） ====================
     # [GENERAL_CONFIG]
-    OUTPUT_DIR = "/opt/project/scan_results/trytest_SYN_PSH_ACK_yo_20251103_122708"
+    OUTPUT_DIR = os.path.join(_PROJECT_ROOT, "scan_results", "trytest_SYN_PSH_ACK_yo_20251103_122708")
 
     # [SCAN_CONFIG]
-    IP_FILE = "/opt/project/scan_results/trytest_SYN_PSH_ACK_yo_20251103_122708/ru-SYN_PSH_ACK-IPs.txt"  # 待测IP集文件路径
+    IP_FILE = os.path.join(_PROJECT_ROOT, "scan_results", "trytest_SYN_PSH_ACK_yo_20251103_122708", "ru-SYN_PSH_ACK-IPs.txt")  # 待测IP集文件路径
     TARGET_HOST = "www.youporn.com"      # 目标HOST
     PKT_METHOD = "SYN_PSH_ACK"           # 发包方式
     SCAN_RATE = 2000                     # 扫描速率（脚本中未使用，保留配置）
 
     # [AMPLIFY_CONFIG]
-    GEOIP_DB_PATH = "/opt/project/GeoLite2-City.mmdb"  # GeoIP数据库路径
+    GEOIP_DB_PATH = geoip_db_path  # 使用脚本自动定位的 GeoIP 数据库路径
     SCAN_COUNT = 30                                     # 单个IP扫描次数
     TTL = 255                                           # TTL值
 
     # [SCRIPT_CONFIG]（脚本中未使用，保留配置）
-    PROCESS_PY = "/opt/project/process_test.py"
-    IP_TAKE_PY = "/opt/project/IP_take.py"
-    MAGNIFICATION_TEST_PY = "/opt/project/magnification_test.py"
-    ANALYZE_AMPLIFY_LOG_PY = "/opt/project/analyze_amplify_log.py"
+    _legacy = os.path.join(_PROJECT_ROOT, "attack_resources", "tcp", "code", "tcp_censor_scan", "legacy_scripts")
+    PROCESS_PY = os.path.join(_legacy, "process_test.py")
+    IP_TAKE_PY = os.path.join(_legacy, "IP_take.py")
+    MAGNIFICATION_TEST_PY = os.path.join(_legacy, "magnification_test.py")
+    ANALYZE_AMPLIFY_LOG_PY = os.path.join(_legacy, "analyze_amplify_log.py")
     # ======================================================================================
 
     # 1. 初始化核心参数

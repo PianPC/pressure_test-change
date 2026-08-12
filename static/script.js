@@ -11,7 +11,7 @@ let isLatencySamplePending = false;
 let baselineLatency = null;
 let baselineSamples = [];
 let attackStartTimeForLatency = null;
-let currentProto = "memcached";
+let currentProto = "tcp";
 let serverGlobe = null;
 let lastGeoPoints = [];
 let lastGeoAreas = [];
@@ -1697,6 +1697,7 @@ document.addEventListener("DOMContentLoaded", () => {
     FileSystemUi.init();
     toggleMultiProtocol();
     initConsoleFormPersistence();
+    initSensitiveHostManager();
     initLatencyFormPersistence();
     loadAllServerCounts();
     loadServerGeoMap();
@@ -3607,10 +3608,19 @@ function initServerGlobe() {
         .globeImageUrl("//unpkg.com/three-globe/example/img/earth-blue-marble.jpg")
         .bumpImageUrl("//unpkg.com/three-globe/example/img/earth-topology.png")
         .polygonsData([])
-        .polygonAltitude(() => 0.004)
+        .polygonAltitude((feature) => {
+            const area = feature.properties?._resourceArea;
+            return isAreaSelected(area) ? 0.012 : 0.004;
+        })
         .polygonCapColor((feature) => getAreaFillColor(feature.properties?._resourceArea))
-        .polygonSideColor(() => "rgba(64, 231, 255, 0.08)")
-        .polygonStrokeColor(() => "rgba(223, 245, 255, 0.78)")
+        .polygonSideColor((feature) => {
+            const area = feature.properties?._resourceArea;
+            return isAreaSelected(area) ? "rgba(59, 130, 246, 0.45)" : "rgba(64, 231, 255, 0.08)";
+        })
+        .polygonStrokeColor((feature) => {
+            const area = feature.properties?._resourceArea;
+            return isAreaSelected(area) ? "rgba(255, 255, 255, 1)" : "rgba(223, 245, 255, 0.78)";
+        })
         .polygonLabel((feature) => renderAreaTooltip(feature.properties?._resourceArea));
     const controls = serverGlobe.controls();
     if (controls) {
@@ -3910,7 +3920,12 @@ function getAreaFillColor(area) {
         ntp: [92, 255, 177]
     }[area?.protocol || currentProto] || [64, 231, 255];
     const selected = isAreaSelected(area);
-    const alpha = selected ? 0.88 : 0.28 + ratio * 0.5;
+    if (selected) {
+        // 选中状态：高饱和度 + 高不透明度 + 暖色调偏移，与未选中形成强对比
+        return `rgba(${Math.min(255, base[0] + 40)}, ${Math.min(255, base[1] + 40)}, ${base[2]}, 0.95)`;
+    }
+    // 未选中：低不透明度，根据资源密度渐变
+    const alpha = 0.15 + ratio * 0.35;
     return `rgba(${base[0]}, ${base[1]}, ${base[2]}, ${alpha.toFixed(2)})`;
 }
 
@@ -3983,14 +3998,96 @@ function toggleMultiProtocol() {
     updateWorkflowIndicators();
 }
 
+// === 敏感目标地址管理 ===
+let tcpSensitiveHosts = [];
+const TCP_SENSITIVE_HOSTS_KEY = "tcp_sensitive_hosts";
+const TCP_DEFAULT_SENSITIVE_HOSTS = [
+    "www.youporn.com",
+    "www.roxypalce.com",
+    "www.pornhub.com",
+    "www.xvideos.com",
+];
+
+function loadSensitiveHosts() {
+    try {
+        const saved = localStorage.getItem(TCP_SENSITIVE_HOSTS_KEY);
+        if (saved) {
+            tcpSensitiveHosts = JSON.parse(saved);
+        } else {
+            tcpSensitiveHosts = [...TCP_DEFAULT_SENSITIVE_HOSTS];
+        }
+    } catch {
+        tcpSensitiveHosts = [...TCP_DEFAULT_SENSITIVE_HOSTS];
+    }
+}
+
+function saveSensitiveHosts() {
+    try {
+        localStorage.setItem(TCP_SENSITIVE_HOSTS_KEY, JSON.stringify(tcpSensitiveHosts));
+    } catch {}
+}
+
+function renderSensitiveHostList() {
+    const container = document.getElementById("tcpSensitiveHostList");
+    if (!container) return;
+    if (!tcpSensitiveHosts.length) {
+        container.innerHTML = `<span class="info-text" style="font-size:10px">暂无敏感地址，请添加</span>`;
+        return;
+    }
+    container.innerHTML = tcpSensitiveHosts.map((host) => `
+        <span class="sensitive-host-chip" data-host="${escapeHtml(host)}">
+            ${escapeHtml(host)}
+            <i class="fas fa-times chip-remove" data-remove-host="${escapeHtml(host)}" title="删除"></i>
+        </span>
+    `).join("");
+    container.querySelectorAll("[data-remove-host]").forEach((el) => {
+        el.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const host = el.getAttribute("data-remove-host");
+            tcpSensitiveHosts = tcpSensitiveHosts.filter((h) => h !== host);
+            saveSensitiveHosts();
+            renderSensitiveHostList();
+        });
+    });
+}
+
+function addSensitiveHost() {
+    const input = document.getElementById("tcpSensitiveHostInput");
+    if (!input) return;
+    const host = input.value.trim();
+    if (!host) return;
+    if (tcpSensitiveHosts.includes(host)) {
+        input.value = "";
+        return;
+    }
+    tcpSensitiveHosts.push(host);
+    saveSensitiveHosts();
+    renderSensitiveHostList();
+    input.value = "";
+}
+
+function initSensitiveHostManager() {
+    loadSensitiveHosts();
+    renderSensitiveHostList();
+    document.getElementById("tcpAddSensitiveHostBtn")?.addEventListener("click", addSensitiveHost);
+    document.getElementById("tcpSensitiveHostInput")?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            addSensitiveHost();
+        }
+    });
+}
+
 function updateMethodSettings() {
     const method = document.getElementById("method")?.value;
     const tcpSection = document.getElementById("tcpPktMethodSection");
     const tcpTtlSection = document.getElementById("tcpTtlSection");
+    const tcpHostSection = document.getElementById("tcpSensitiveHostSection");
     const sourceRow = document.getElementById("singleProtoSourceRow");
     const showTcp = method === "tcp";
     if (tcpSection) tcpSection.style.display = showTcp ? "block" : "none";
     if (tcpTtlSection) tcpTtlSection.style.display = showTcp ? "block" : "none";
+    if (tcpHostSection) tcpHostSection.style.display = showTcp ? "block" : "none";
     if (sourceRow) {
         sourceRow.style.display = method ? "flex" : "none";
     }
@@ -4010,8 +4107,10 @@ function updateProtocolSelection() {
         const hasTcp = selectedProtocols.includes("tcp");
         const tcpSection = document.getElementById("tcpPktMethodSection");
         const tcpTtlSection = document.getElementById("tcpTtlSection");
+        const tcpHostSection = document.getElementById("tcpSensitiveHostSection");
         if (tcpSection) tcpSection.style.display = hasTcp ? "block" : "none";
         if (tcpTtlSection) tcpTtlSection.style.display = hasTcp ? "block" : "none";
+        if (tcpHostSection) tcpHostSection.style.display = hasTcp ? "block" : "none";
     } else {
         const method = document.getElementById("method")?.value;
         loadReflectorCount(method ? [method] : ["memcached", "dns", "ntp"]);
