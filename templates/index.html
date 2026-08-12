@@ -1041,6 +1041,15 @@ NTP 放大率测量原理：
                                     </div>
                                 </div>
 
+                                <div id="tcpTtlSection" class="form-group" style="display:none;">
+                                    <label for="tcpAttackTtl">TCP TTL（论文推荐 255，利用路由环路放大）</label>
+                                    <input type="number" id="tcpAttackTtl" value="255" min="1" max="255" title="范围 1-255，默认 255">
+                                    <div class="info-text" style="margin-top:6px;">
+                                        <i class="fas fa-circle-info"></i>
+                                        默认仅使用优质池（qualified_pool.txt）作为攻击源，优质池为空时自动回退加载全部 .txt。可通过上方"源文件选择"按钮限定具体来源。
+                                    </div>
+                                </div>
+
                                 <div id="multiProtocolSection" class="multi-section" style="display:none;">
                                     <label>协议组合与资源选择</label>
                                     <div class="proto-check-group" id="multiProtoCheckGroup">

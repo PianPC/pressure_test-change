@@ -240,16 +240,23 @@ def extract_qualified_ips(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, P
     update_stage(run_dir, "extract_qualified_ips", "running")
     min_ratio = cfg.min_amplification
     min_success_rate = cfg.min_success_rate
+    max_cv = cfg.max_cv  # 最大变异系数（默认1.5）
 
     if cfg.dry_run:
         log("Writing mock qualified IPs")
         ips = _read_ip_list(artifacts["ip_txt"])
         qualified = []
         for ip in ips[:3]:
-            qualified.append({"ip": ip, "ratio": min_ratio + 1.0, "success_rate": 100.0})
-        _write_qualified_ips(artifacts["qualified_ips"], qualified, min_ratio, min_success_rate)
+            qualified.append({
+                "ip": ip,
+                "median_ratio": min_ratio + 1.0,
+                "avg_ratio": min_ratio + 1.0,
+                "success_rate": 100.0,
+                "cv": 0.0,
+            })
+        _write_qualified_ips(artifacts["qualified_ips"], qualified, min_ratio, min_success_rate, max_cv)
         artifacts["qualified_log"].write_text(
-            f"dry_run: extracted {len(qualified)} qualified IPs (min_ratio={min_ratio}, min_success_rate={min_success_rate})\n",
+            f"dry_run: extracted {len(qualified)} qualified IPs (min_ratio={min_ratio}, min_success_rate={min_success_rate}%, max_cv={max_cv})\n",
             encoding="utf-8",
         )
         update_stage(run_dir, "extract_qualified_ips", "completed", dry_run=True)
@@ -261,14 +268,16 @@ def extract_qualified_ips(cfg: ScanConfig, run_dir: Path, artifacts: dict[str, P
         min_ratio=min_ratio,
         min_success_rate=min_success_rate,
         scan_count=cfg.scan_count,
+        max_cv=max_cv,
     )
-    _write_qualified_ips(artifacts["qualified_ips"], qualified, min_ratio, min_success_rate)
+    _write_qualified_ips(artifacts["qualified_ips"], qualified, min_ratio, min_success_rate, max_cv)
 
-    log(f"Extracted {len(qualified)} qualified IPs with amplification ratio >= {min_ratio} and success_rate >= {min_success_rate}%")
+    log(f"Extracted {len(qualified)} qualified IPs with median amplification >= {min_ratio}, success_rate >= {min_success_rate}%, and CV <= {max_cv}")
     artifacts["qualified_log"].write_text(
         f"Extracted {len(qualified)} qualified IPs from amplification log\n"
-        f"Min amplification ratio: {min_ratio}\n"
-        f"Min success rate: {min_success_rate}%\n",
+        f"Median amplification ratio >= {min_ratio}\n"
+        f"Min success rate: {min_success_rate}%\n"
+        f"Max coefficient of variation (CV): {max_cv}\n",
         encoding="utf-8",
     )
 
@@ -281,7 +290,26 @@ def _parse_amplification_log_for_qualified(
     min_ratio: float,
     min_success_rate: float,
     scan_count: int,
+    max_cv: float = 1.5,
 ) -> list[dict[str, Any]]:
+    import math
+
+    def _median(values: list[float]) -> float:
+        if not values:
+            return 0.0
+        sorted_vals = sorted(values)
+        n = len(sorted_vals)
+        mid = n // 2
+        if n % 2 == 1:
+            return float(sorted_vals[mid])
+        return (sorted_vals[mid - 1] + sorted_vals[mid]) / 2.0
+
+    def _stddev(values: list[float], avg: float) -> float:
+        if len(values) < 2:
+            return 0.0
+        variance = sum((v - avg) ** 2 for v in values) / (len(values) - 1)
+        return math.sqrt(variance)
+
     qualified = []
     if not log_path.exists():
         return qualified
@@ -298,13 +326,24 @@ def _parse_amplification_log_for_qualified(
             if ip_match:
                 if current_ip and ratios:
                     avg_ratio = sum(ratios) / len(ratios)
+                    median_ratio = _median(ratios)
+                    std_dev = _stddev(ratios, avg_ratio)
+                    cv = (std_dev / avg_ratio) if avg_ratio > 0 else 0.0
                     success_rate = round(len(ratios) / norm_count * 100, 1)
-                    # 双阈值筛选：放大率与成功率均需达标
-                    if avg_ratio >= min_ratio and success_rate >= min_success_rate:
+                    # 双阈值筛选：成功率 + 中位数放大率 + 变异系数稳定性
+                    if (
+                        success_rate >= min_success_rate
+                        and median_ratio >= min_ratio
+                        and cv <= max_cv
+                    ):
                         qualified.append({
                             "ip": current_ip,
-                            "ratio": round(avg_ratio, 2),
+                            "median_ratio": round(median_ratio, 2),
+                            "avg_ratio": round(avg_ratio, 2),
+                            "std_dev": round(std_dev, 2),
+                            "cv": round(cv, 2),
                             "success_rate": success_rate,
+                            "samples": len(ratios),
                         })
                 current_ip = ip_match
                 ratios = []
@@ -316,16 +355,27 @@ def _parse_amplification_log_for_qualified(
 
         if current_ip and ratios:
             avg_ratio = sum(ratios) / len(ratios)
+            median_ratio = _median(ratios)
+            std_dev = _stddev(ratios, avg_ratio)
+            cv = (std_dev / avg_ratio) if avg_ratio > 0 else 0.0
             success_rate = round(len(ratios) / norm_count * 100, 1)
-            if avg_ratio >= min_ratio and success_rate >= min_success_rate:
+            if (
+                success_rate >= min_success_rate
+                and median_ratio >= min_ratio
+                and cv <= max_cv
+            ):
                 qualified.append({
                     "ip": current_ip,
-                    "ratio": round(avg_ratio, 2),
+                    "median_ratio": round(median_ratio, 2),
+                    "avg_ratio": round(avg_ratio, 2),
+                    "std_dev": round(std_dev, 2),
+                    "cv": round(cv, 2),
                     "success_rate": success_rate,
+                    "samples": len(ratios),
                 })
 
-    # 按放大率降序排序
-    qualified.sort(key=lambda x: x["ratio"], reverse=True)
+    # 按中位数放大率降序排序（中位数比平均值更抗极端值）
+    qualified.sort(key=lambda x: x["median_ratio"], reverse=True)
     return qualified
 
 
@@ -356,9 +406,10 @@ def _write_qualified_ips(
     qualified: list[dict[str, Any]],
     min_ratio: float,
     min_success_rate: float,
+    max_cv: float,
 ) -> None:
     lines = [
-        f"# TCP优质反射器IP列表（放大率 >= {min_ratio}x，成功率 >= {min_success_rate}%）",
+        f"# TCP优质反射器IP列表（中位数放大率 >= {min_ratio}x，成功率 >= {min_success_rate}%，变异系数CV <= {max_cv}）",
         f"# 生成时间: {now_iso()}",
         f"# 优质IP数量: {len(qualified)}",
         "",

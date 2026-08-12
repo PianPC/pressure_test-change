@@ -3955,8 +3955,11 @@ function toggleMultiProtocol() {
 function updateMethodSettings() {
     const method = document.getElementById("method")?.value;
     const tcpSection = document.getElementById("tcpPktMethodSection");
+    const tcpTtlSection = document.getElementById("tcpTtlSection");
     const sourceRow = document.getElementById("singleProtoSourceRow");
-    if (tcpSection) tcpSection.style.display = (method === "tcp") ? "block" : "none";
+    const showTcp = method === "tcp";
+    if (tcpSection) tcpSection.style.display = showTcp ? "block" : "none";
+    if (tcpTtlSection) tcpTtlSection.style.display = showTcp ? "block" : "none";
     if (sourceRow) {
         sourceRow.style.display = method ? "flex" : "none";
     }
@@ -3973,8 +3976,11 @@ function updateProtocolSelection() {
         .map((input) => input.value);
     if (isMultiProtocol) {
         loadReflectorCount(selectedProtocols);
+        const hasTcp = selectedProtocols.includes("tcp");
         const tcpSection = document.getElementById("tcpPktMethodSection");
-        if (tcpSection) tcpSection.style.display = selectedProtocols.includes("tcp") ? "block" : "none";
+        const tcpTtlSection = document.getElementById("tcpTtlSection");
+        if (tcpSection) tcpSection.style.display = hasTcp ? "block" : "none";
+        if (tcpTtlSection) tcpTtlSection.style.display = hasTcp ? "block" : "none";
     } else {
         const method = document.getElementById("method")?.value;
         loadReflectorCount(method ? [method] : ["memcached", "dns", "ntp"]);
@@ -4147,6 +4153,17 @@ async function startTest() {
         target_pps: readNumber("target_pps", 5000),
         multi_protocol: isMultiProtocol
     };
+
+    // 读取 TCP TTL（默认 255，论文推荐利用路由环路放大）
+    const tcpAttackTtlInput = document.getElementById("tcpAttackTtl");
+    let ttl = 255;
+    if (tcpAttackTtlInput) {
+        const raw = parseInt(tcpAttackTtlInput.value, 10);
+        if (!isNaN(raw) && raw >= 1 && raw <= 255) {
+            ttl = raw;
+        }
+    }
+    data.ttl = ttl;
 
     if (isMultiProtocol) {
         updateProtocolSelection();

