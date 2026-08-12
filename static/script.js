@@ -22,8 +22,9 @@ let isGeoMapLoading = false;
 let serverResourceItems = [];
 let serverUnresolvedItems = [];
 let serverUnresolvedCount = 0;
-let selectedAreaCode = "";
+let selectedAreaCodes = [];
 let selectedIp = "";
+let selectedIpSet = new Set();
 let serverListFilterMode = "all";
 let currentServerFile = null;
 let currentServerSource = "";
@@ -3088,8 +3089,9 @@ function renderGeoUnresolved(items) {
 }
 
 function resetServerSelectionState() {
-    selectedAreaCode = "";
+    selectedAreaCodes = [];
     selectedIp = "";
+    selectedIpSet = new Set();
     serverListFilterMode = "all";
 }
 
@@ -3157,7 +3159,12 @@ function getAreaDisplayName(area) {
 }
 
 function getSelectedArea() {
-    return lastGeoAreas.find((area) => String(area.area_code || "") === selectedAreaCode) || null;
+    const code = selectedAreaCodes.length > 0 ? selectedAreaCodes[0] : "";
+    return lastGeoAreas.find((area) => String(area.area_code || "") === code) || null;
+}
+
+function getAllSelectedAreas() {
+    return lastGeoAreas.filter((area) => selectedAreaCodes.includes(String(area.area_code || "")));
 }
 
 function getAreaForItem(item) {
@@ -3166,13 +3173,15 @@ function getAreaForItem(item) {
 }
 
 function getVisibleServerResourceItems() {
-    if (serverListFilterMode === "area" && selectedAreaCode) {
-        const area = getSelectedArea();
-        if (!area) return [];
-        return serverResourceItems.filter((item) => area.ips.includes(item.ip));
+    if (selectedIpSet.size > 0) {
+        return serverResourceItems;
     }
-    if (serverListFilterMode === "ip" && selectedIp) {
-        return serverResourceItems.filter((item) => item.ip === selectedIp);
+    if (selectedAreaCodes.length > 0) {
+        const selectedAreas = getAllSelectedAreas();
+        if (!selectedAreas.length) return [];
+        const ipSet = new Set();
+        selectedAreas.forEach((area) => (area.ips || []).forEach((ip) => ipSet.add(ip)));
+        return serverResourceItems.filter((item) => ipSet.has(item.ip));
     }
     return serverResourceItems;
 }
@@ -3186,10 +3195,21 @@ function clearServerSelection() {
 function selectServerArea(areaCode) {
     const area = lastGeoAreas.find((item) => String(item.area_code || "") === String(areaCode || ""));
     if (!area) return;
-    selectedAreaCode = String(area.area_code || "");
-    selectedIp = "";
-    serverListFilterMode = "area";
-    focusServerArea(area);
+    const code = String(area.area_code || "");
+    const idx = selectedAreaCodes.indexOf(code);
+    if (idx >= 0) {
+        selectedAreaCodes.splice(idx, 1);
+    } else {
+        selectedAreaCodes.push(code);
+    }
+    if (selectedAreaCodes.length > 0) {
+        selectedIpSet = new Set();
+        selectedIp = "";
+        serverListFilterMode = "area";
+        focusServerArea(area);
+    } else {
+        serverListFilterMode = "all";
+    }
     renderServerWorkspace();
     updateWorkflowIndicators();
 }
@@ -3197,10 +3217,23 @@ function selectServerArea(areaCode) {
 function selectServerIp(ip) {
     const item = serverResourceItems.find((resource) => resource.ip === ip);
     if (!item) return;
-    selectedIp = ip;
+    const wasSelected = selectedIpSet.has(ip);
+    if (wasSelected) {
+        selectedIpSet.delete(ip);
+        if (selectedIp === ip) selectedIp = selectedIpSet.size > 0 ? [...selectedIpSet][selectedIpSet.size - 1] : "";
+    } else {
+        selectedIpSet.add(ip);
+        selectedIp = ip;
+    }
+    if (selectedIpSet.size > 0 && selectedAreaCodes.length > 0) {
+        selectedAreaCodes = [];
+        serverListFilterMode = "all";
+    } else if (selectedIpSet.size > 0) {
+        serverListFilterMode = "ip";
+    } else {
+        serverListFilterMode = "all";
+    }
     const area = getAreaForItem(item);
-    selectedAreaCode = area?.area_code || "";
-    serverListFilterMode = "ip";
     if (area) focusServerArea(area, item);
     renderServerWorkspace();
     updateWorkflowIndicators();
@@ -3236,12 +3269,12 @@ function renderServerFilterSummary() {
     const count = document.getElementById("serverVisibleCount");
     const clearBtn = document.getElementById("clearServerSelectionBtn");
     const visibleItems = getVisibleServerResourceItems();
-    const area = getSelectedArea();
+    const selectedAreas = getAllSelectedAreas();
     let filterTitle = "全部资源";
-    if (serverListFilterMode === "area" && area) {
-        filterTitle = `区域筛选 · ${getAreaDisplayName(area)}`;
-    } else if (serverListFilterMode === "ip" && selectedIp) {
-        filterTitle = `IP 定位 · ${selectedIp}`;
+    if (selectedAreaCodes.length > 0) {
+        filterTitle = `区域筛选 (${selectedAreaCodes.length}个区域)`;
+    } else if (selectedIpSet.size > 0) {
+        filterTitle = `已选 IP (${selectedIpSet.size}个)`;
     }
     if (title) title.textContent = filterTitle;
     if (count) count.textContent = String(visibleItems.length);
@@ -3251,51 +3284,44 @@ function renderServerFilterSummary() {
 function renderServerSelectionDetail() {
     const container = document.getElementById("serverSelectionDetail");
     if (!container) return;
-    if (serverListFilterMode === "all") {
+    if (selectedAreaCodes.length === 0 && selectedIpSet.size === 0) {
         container.innerHTML = `
             <div class="server-detail-grid">
                 <div><span>当前协议</span><strong>${escapeHtml(getMethodText(currentProto))}</strong></div>
                 <div><span>已选源文件</span><strong>${escapeHtml(getSelectedServerSourceSummary())}</strong></div>
                 <div><span>已选数量</span><strong>${escapeHtml(String(getSelectedServerSources().length))}</strong></div>
-                <div><span>交互提示</span><strong>点击地图区域或 IP 反向定位</strong></div>
+                <div><span>交互提示</span><strong>点击地图区域/IP 可多选；再次点击可取消</strong></div>
             </div>
         `;
         return;
     }
-    if (serverListFilterMode === "all") {
-        container.innerHTML = `<div class="info-text">点击地图区域可筛选资源，点击 IP 列表可反向定位所在区域。</div>`;
-        return;
-    }
-    if (serverListFilterMode === "area") {
-        const area = getSelectedArea();
-        if (!area) {
-            container.innerHTML = `<div class="info-text">当前区域已不可用，请重新选择。</div>`;
-            return;
-        }
+    if (selectedAreaCodes.length > 0) {
+        const selectedAreas = getAllSelectedAreas();
+        const totalIps = selectedAreas.reduce((sum, a) => sum + (a.ips || []).length, 0);
         container.innerHTML = `
             <div class="server-detail-grid">
-                <div><span>当前区域</span><strong>${escapeHtml(getAreaDisplayName(area))}</strong></div>
-                <div><span>资源条目</span><strong>${escapeHtml(String(area.resource_count || 0))}</strong></div>
-                <div><span>IP 数量</span><strong>${escapeHtml(String((area.ips || []).length))}</strong></div>
-                <div><span>协议</span><strong>${escapeHtml(getMethodText(area.protocol))}</strong></div>
+                <div><span>选中区域</span><strong>${escapeHtml(String(selectedAreaCodes.length))} 个</strong></div>
+                <div><span>区域内 IP 总数</span><strong>${escapeHtml(String(totalIps))}</strong></div>
+                <div><span>区域名称</span><strong style="font-size:11px">${escapeHtml(selectedAreas.map(a => getAreaDisplayName(a)).join("、"))}</strong></div>
+                <div><span>操作提示</span><strong>再次点击区域可取消选中</strong></div>
             </div>
         `;
         return;
     }
-    const selectedItem = serverResourceItems.find((item) => item.ip === selectedIp);
-    const area = selectedItem ? getAreaForItem(selectedItem) : null;
-    if (!selectedItem) {
-        container.innerHTML = `<div class="info-text">当前 IP 已不可用，请重新选择。</div>`;
+    if (selectedIpSet.size > 0) {
+        const ips = [...selectedIpSet];
+        const item = serverResourceItems.find((it) => ips.includes(it.ip));
+        const area = item ? getAreaForItem(item) : null;
+        container.innerHTML = `
+            <div class="server-detail-grid">
+                <div><span>已选 IP</span><strong>${escapeHtml(String(selectedIpSet.size))} 个</strong></div>
+                <div><span>最近选中</span><strong>${escapeHtml(selectedIp || "-")}</strong></div>
+                <div><span>最近区域</span><strong>${escapeHtml(area ? getAreaDisplayName(area) : "未定位")}</strong></div>
+                <div><span>操作提示</span><strong>IP 仅高亮不筛选列表，点击可取消</strong></div>
+            </div>
+        `;
         return;
     }
-    container.innerHTML = `
-        <div class="server-detail-grid">
-            <div><span>资源条目</span><strong>${escapeHtml(selectedItem.entry)}</strong></div>
-            <div><span>IP</span><strong>${escapeHtml(selectedItem.ip)}</strong></div>
-            <div><span>地区</span><strong>${escapeHtml(area ? getAreaDisplayName(area) : "未定位")}</strong></div>
-            <div><span>城市</span><strong>${escapeHtml(selectedItem.city || "-")}</strong></div>
-        </div>
-    `;
 }
 
 function renderServerResourceList() {
@@ -3303,15 +3329,20 @@ function renderServerResourceList() {
     if (!container) return;
     const visibleItems = getVisibleServerResourceItems();
     if (!visibleItems.length) {
-        container.innerHTML = `<div class="info-text">当前筛选条件下没有可展示的资源。</div>`;
+        let msg = "当前筛选条件下没有可展示的资源。";
+        if (selectedAreaCodes.length > 0) {
+            const areaNames = getAllSelectedAreas().map((a) => getAreaDisplayName(a));
+            msg = `选中区域（${areaNames.join("、")}）内暂无可展示的资源。`;
+        }
+        container.innerHTML = `<div class="info-text">${escapeHtml(msg)}</div>`;
         return;
     }
     container.innerHTML = visibleItems.map((item) => {
         const area = getAreaForItem(item);
-        const isActive = selectedIp === item.ip && serverListFilterMode === "ip";
-        const inSelectedArea = selectedAreaCode && area?.area_code === selectedAreaCode;
+        const isActive = selectedIpSet.has(item.ip);
+        const inSelectedArea = selectedAreaCodes.length > 0 && area && selectedAreaCodes.includes(String(area.area_code || ""));
         return `
-            <button type="button" class="server-resource-item ${isActive ? "active" : ""}" data-server-ip="${escapeHtml(item.ip)}">
+            <button type="button" class="server-resource-item ${isActive ? "active" : ""} ${inSelectedArea ? "in-area" : ""}" data-server-ip="${escapeHtml(item.ip)}">
                 <span class="server-resource-main">
                     <strong>${escapeHtml(item.entry)}</strong>
                     <span>${escapeHtml(item.ip)}</span>
@@ -3320,7 +3351,7 @@ function renderServerResourceList() {
                 <span class="server-resource-meta">
                     <span>${escapeHtml(area ? getAreaDisplayName(area) : "未定位")}</span>
                     <span>${escapeHtml(item.city || item.country || "-")}</span>
-                    ${inSelectedArea ? `<em>当前区域</em>` : ""}
+                    ${inSelectedArea ? `<em>区域内</em>` : ""}
                 </span>
             </button>
         `;
@@ -3626,10 +3657,10 @@ async function loadServerGeoMap() {
         serverResourceItems = buildServerResourceItems(lastGeoPoints);
         serverUnresolvedItems = [];
         serverUnresolvedCount = Number(data.unresolved_count) || 0;
-        if (serverListFilterMode === "area" && !getSelectedArea()) {
+        if (serverListFilterMode === "area" && getAllSelectedAreas().length === 0) {
             resetServerSelectionState();
         }
-        if (serverListFilterMode === "ip" && selectedIp && !serverResourceItems.some((item) => item.ip === selectedIp)) {
+        if (serverListFilterMode === "ip" && selectedIpSet.size > 0 && !serverResourceItems.some((item) => selectedIpSet.has(item.ip))) {
             resetServerSelectionState();
         }
         await ensureServerMapShapes();
@@ -3884,7 +3915,7 @@ function getAreaFillColor(area) {
 }
 
 function isAreaSelected(area) {
-    return Boolean(area && selectedAreaCode && String(area.area_code || "") === String(selectedAreaCode));
+    return Boolean(area && selectedAreaCodes.length > 0 && selectedAreaCodes.includes(String(area.area_code || "")));
 }
 
 function renderAreaTooltip(area) {

@@ -131,7 +131,8 @@ def run_zmap_scan(cfg: ScanConfig, run_dir: Path, zmap_workdir: Path, artifacts:
         f"--rate={cfg.scan_rate}",
     ]
     log("Running zmap: " + " ".join(command))
-    _run_command(command, zmap_workdir, artifacts["scan_log"], run_dir / "zmap.pid")
+    # zmap 扫描超时：默认 5 分钟，避免因网络或权限问题无限阻塞
+    _run_command(command, zmap_workdir, artifacts["scan_log"], run_dir / "zmap.pid", timeout=300)
     update_stage(run_dir, "run_zmap_scan", "completed")
     _save_artifacts(run_dir, artifacts)
 
@@ -502,24 +503,34 @@ def _patch_forbidden_scan_module(path: Path, host: str, tcp_flags: str) -> None:
     path.write_text("\n".join(output) + "\n", encoding="utf-8")
 
 
-def _run_command(command: list[str], cwd: Path, log_file: Path, pid_file: Path) -> None:
+def _run_command(command: list[str], cwd: Path, log_file: Path, pid_file: Path, timeout: int | None = None) -> None:
     if command and command[0] in {"python", "python3"}:
         command = [sys.executable, *command[1:]]
     env = os.environ.copy()
     env.setdefault("PYTHONIOENCODING", "utf-8")
     env.setdefault("PYTHONUTF8", "1")
-    with log_file.open("w", encoding="utf-8", errors="replace") as fh:
-        process = subprocess.Popen(command, cwd=str(cwd), stdout=fh, stderr=subprocess.STDOUT, text=True, env=env)
+    # 使用行缓冲写入日志，确保子进程输出能及时落盘
+    with log_file.open("w", encoding="utf-8", errors="replace", buffering=1) as fh:
+        process = subprocess.Popen(command, cwd=str(cwd), stdout=fh, stderr=subprocess.STDOUT, text=True, env=env, bufsize=1)
         pid_file.write_text(str(process.pid), encoding="utf-8")
-        return_code = process.wait()
+        try:
+            return_code = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            return_code = -1
     try:
         pid_file.unlink()
     except FileNotFoundError:
         pass
     if return_code != 0:
+        cmd_str = ' '.join(command)
+        hint = ""
+        if "zmap" in cmd_str and not os.geteuid() == 0:
+            hint = "（zmap 需要 root 权限运行原始报文发送，请使用 sudo 启动）"
         raise RuntimeError(
-            f"Command failed with exit code {return_code}: {' '.join(command)}. "
-            f"See log: {log_file}"
+            f"Command failed with exit code {return_code}: {cmd_str}. "
+            f"See log: {log_file} {hint}"
         )
 
 
@@ -553,6 +564,7 @@ def preflight_check(cfg: ScanConfig) -> dict[str, Any]:
         checks.append(_check_command("traceroute"))
         checks.append(_check_path("selected_zmap_root", cfg.selected_zmap_root, "ZMap 源码目录"))
         checks.append(_check_zmap_binary(cfg.selected_zmap_root))
+        checks.append(_check_root_privilege())
     return {
         "ok": all(item["ok"] for item in checks),
         "dry_run": cfg.dry_run,
@@ -569,6 +581,18 @@ def _check_path(key: str, path: Path, label: str) -> dict[str, Any]:
         "ok": path.exists(),
         "path": str(path),
         "message": f"{label}存在" if path.exists() else f"{label}不存在",
+    }
+
+
+def _check_root_privilege() -> dict[str, Any]:
+    """检查是否具备 root 权限（zmap 真实扫描需要）。"""
+    is_root = os.geteuid() == 0
+    return {
+        "key": "root_privilege",
+        "label": "Root 权限（zmap 真实扫描必备）",
+        "ok": is_root,
+        "path": "当前用户" if is_root else "当前用户（非 root）",
+        "message": "具备 root 权限" if is_root else "缺少 root 权限，真实扫描需要使用 sudo 启动",
     }
 
 

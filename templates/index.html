@@ -242,70 +242,68 @@
 
                                             <form id="tcpScanForm" data-role="task-form">
                                                 <div class="form-grid">
-                                                    <div class="form-group wide">
-                                                        <label for="tcpIpFile">IP 资源</label>
+                                                    <div class="form-group wide" title="IP 资源文件：选择要扫描的目标 IP 列表（CIDR 格式文件）">
+                                                        <label for="tcpIpFile">IP 资源 <i class="fas fa-circle-info form-help-icon" title="选择要扫描的目标 IP 列表文件（CIDR 格式）"></i></label>
                                                         <select id="tcpIpFile"></select>
                                                     </div>
                                                     <div class="form-group wide">
-                                                        <label for="tcpTargetHost">目标主机</label>
-                                                        <input type="text" id="tcpTargetHost" value="www.youporn.com" autocomplete="off">
-                                                    </div>
-                                                    <div class="form-group">
-                                                        <label for="tcpPktMethod">报文方法</label>
-                                                        <select id="tcpPktMethod">
-                                                            <option value="PSH">PSH</option>
-                                                            <option value="PSH_ACK">PSH_ACK</option>
-                                                            <option value="SYN">SYN</option>
-                                                            <option value="SYN_PSH_ACK">SYN_PSH_ACK</option>
-                                                            <option value="SYN_PSH">SYN_PSH</option>
-                                                        </select>
-                                                    </div>
-                                                    <div class="form-group">
-                                                        <label>批量方法</label>
-                                                        <div id="tcpMethodChecks" class="proto-check-group tcp-method-checks">
-                                                            <label><input type="checkbox" value="PSH"> PSH</label>
-                                                            <label><input type="checkbox" value="PSH_ACK"> PSH_ACK</label>
-                                                            <label><input type="checkbox" value="SYN"> SYN</label>
-                                                            <label><input type="checkbox" value="SYN_PSH_ACK"> SYN_PSH_ACK</label>
-                                                            <label><input type="checkbox" value="SYN_PSH"> SYN_PSH</label>
+                                                        <label for="tcpTargetHost">目标主机 <i class="fas fa-circle-info form-help-icon" title="反射放大攻击的目标 Host 头。论文发现部分中间盒对特定敏感 Host 响应率更高"></i></label>
+                                                        <div class="target-host-combo">
+                                                            <input type="text" id="tcpTargetHost" value="www.youporn.com" autocomplete="off" list="tcpHostSuggestions" title="输入或选择目标主机地址，留空则使用默认值">
+                                                            <datalist id="tcpHostSuggestions">
+                                                                <option value="www.youporn.com" label="YouPorn（论文主要测试对象，响应率 11.4%）"></option>
+                                                                <option value="www.pornhub.com" label="PornHub（论文测试对象，响应率因中间盒而异）"></option>
+                                                                <option value="www.xvideos.com" label="XVideos（论文测试对象，部分中间盒有响应）"></option>
+                                                                <option value="www.pornhub.com:443" label="PornHub HTTPS（部分中间盒对 443 端口有响应）"></option>
+                                                            </datalist>
                                                         </div>
                                                     </div>
-                                                    <div class="form-group">
-                                                        <label for="tcpScanRate">资源获取速率</label>
+                                                    <div class="form-group wide" title="报文方法：按论文发现的 5 种 TCP 攻击序列发送，可多选批量测试">
+                                                        <label>报文方法 <i class="fas fa-circle-info form-help-icon" title="论文方法：PSH、PSH_ACK、SYN（含 GET payload）、SYN_PSH_ACK、SYN_PSH。勾选多项可批量扫描对比"></i></label>
+                                                        <div id="tcpMethodChecks" class="proto-check-group tcp-method-checks">
+                                                            <label title="PSH 标志：论文方法1，响应率较高，放大率中等"><input type="checkbox" value="PSH" checked> PSH</label>
+                                                            <label title="PSH_ACK 标志：论文方法2，与 PSH 类似但带 ACK"><input type="checkbox" value="PSH_ACK" checked> PSH_ACK</label>
+                                                            <label title="SYN 标志：论文方法5，SYN 包携带 GET payload，响应率 11.4%，最大放大 572x"><input type="checkbox" value="SYN" checked> SYN</label>
+                                                            <label title="SYN_PSH_ACK 标志：论文方法3，复合标志组合"><input type="checkbox" value="SYN_PSH_ACK"> SYN_PSH_ACK</label>
+                                                            <label title="SYN_PSH 标志：论文方法4，SYN+PSH 标志组合"><input type="checkbox" value="SYN_PSH"> SYN_PSH</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="form-group" title="资源获取速率：每秒发送的探测包数量，速率越高扫描越快但可能丢包">
+                                                        <label for="tcpScanRate">获取速率 <i class="fas fa-circle-info form-help-icon" title="ZMap 发包速率（包/秒），建议 2000-5000 之间，过高可能导致丢包"></i></label>
                                                         <input type="number" id="tcpScanRate" value="2500" min="1">
                                                     </div>
-                                                    <div class="form-group">
-                                                        <label for="tcpTtl">TTL</label>
+                                                    <div class="form-group" title="TTL：数据包生存时间，默认 255 为论文推荐值，利用路由环路放大">
+                                                        <label for="tcpTtl">TTL <i class="fas fa-circle-info form-help-icon" title="数据包 TTL，论文推荐 255（利用路由环路实现额外放大）。范围 1-255"></i></label>
                                                         <input type="number" id="tcpTtl" value="255" min="1" max="255">
                                                     </div>
-                                                    <div class="form-group">
-                                                        <label for="tcpScanCount">获取次数</label>
+                                                    <div class="form-group" title="获取次数：对每个 IP 重复扫描的次数，用于统计放大率稳定性">
+                                                        <label for="tcpScanCount">获取次数 <i class="fas fa-circle-info form-help-icon" title="每个目标 IP 重复扫描次数，用于多次统计计算中位数和变异系数"></i></label>
                                                         <input type="number" id="tcpScanCount" value="10" min="1" max="100">
                                                     </div>
-                                                    <div class="form-group">
-                                                        <label for="tcpResultLimit">结果限制</label>
+                                                    <div class="form-group" title="结果限制：最终输出的 IP 数量上限，0 表示不限制">
+                                                        <label for="tcpResultLimit">结果限制 <i class="fas fa-circle-info form-help-icon" title="扫描结果 IP 数量上限，0 表示不限制"></i></label>
                                                         <input type="number" id="tcpResultLimit" value="30" min="0">
                                                     </div>
-                                                    <div class="form-group">
-                                                        <label for="tcpLengthThreshold">长度阈值</label>
+                                                    <div class="form-group" title="长度阈值：响应包长度过滤，超过此值才被视为有效响应">
+                                                        <label for="tcpLengthThreshold">长度阈值 <i class="fas fa-circle-info form-help-icon" title="响应包字节长度阈值，超过才视为有效放大响应。默认 2000"></i></label>
                                                         <input type="number" id="tcpLengthThreshold" value="2000" min="0">
                                                     </div>
-                                                    <div class="form-group">
-                                                        <label for="tcpMinAmplification">最小放大率</label>
+                                                    <div class="form-group" title="最小放大率：优质 IP 的放大率下限，低于此值将被过滤">
+                                                        <label for="tcpMinAmplification">最小放大率 <i class="fas fa-circle-info form-help-icon" title="优质 IP 的最低放大率倍数（中位数），默认 2.0x"></i></label>
                                                         <input type="number" id="tcpMinAmplification" value="2.0" min="0" max="100" step="0.1">
                                                     </div>
-                                                    <div class="form-group">
-                                                        <label for="tcpMinSuccessRate">最小成功率</label>
+                                                    <div class="form-group" title="最小成功率：优质 IP 必须至少有此比例的扫描成功响应">
+                                                        <label for="tcpMinSuccessRate">最小成功率 <i class="fas fa-circle-info form-help-icon" title="优质 IP 必须达到的最低响应成功率百分比，默认 50%"></i></label>
                                                         <input type="number" id="tcpMinSuccessRate" value="50.0" min="0" max="100" step="1">
                                                     </div>
-                                                    <div class="form-group">
-                                                        <label for="tcpNetworkInterface">网卡接口</label>
+                                                    <div class="form-group" title="网卡接口：ZMap 发送数据包使用的网络接口">
+                                                        <label for="tcpNetworkInterface">网卡接口 <i class="fas fa-circle-info form-help-icon" title="ZMap 使用的网络接口名称，如 eth0、wlan0"></i></label>
                                                         <input type="text" id="tcpNetworkInterface" value="eth0">
                                                     </div>
                                                 </div>
 
-                                                <div class="proto-check-group tcp-dry-run-row">
-                                                    <label><input type="checkbox" id="tcpDryRun" checked> 模拟运行</label>
+                                                <div class="proto-check-group tcp-dry-run-row" title="模拟运行：不实际发包，使用 mock 数据走完整个流水线">
+                                                    <label><input type="checkbox" id="tcpDryRun" checked> 模拟运行 <i class="fas fa-circle-info form-help-icon" title="勾选后使用模拟数据运行完整流程，用于验证逻辑正确；取消勾选将进行真实网络扫描（需 root 权限）"></i></label>
                                                 </div>
 
                                                 <div class="action-buttons-cta">
