@@ -70,8 +70,11 @@ def create_testers() -> dict:
     }
 
 
+DEFAULT_SECRET_KEY = "your-secret-key-here-change-in-production"
+
+
 def create_app(
-    secret_key: str = "your-secret-key-here-change-in-production",
+    secret_key: str | None = None,
     testers_and_multi: dict | None = None,
 ) -> Tuple[Flask, GlobalState]:
     """构造 Flask 应用与全局运行期状态。
@@ -79,14 +82,19 @@ def create_app(
     参数
     ----
     secret_key:
-        Flask 的 session 密钥；生产环境请通过环境变量覆盖默认值。
+        Flask 的 session 密钥；未指定时依次取环境变量 ``PRESSURE_SECRET_KEY``
+        与开发用默认值。生产环境务必通过环境变量设置。
     testers_and_multi:
         可选，包含 ``testers`` 和 ``multi_tester`` 的字典，供测试注入 mock。
     """
     _configure_logging_basic()
 
     app = Flask(__name__)
-    app.secret_key = secret_key
+    app.secret_key = (
+        secret_key
+        or os.environ.get("PRESSURE_SECRET_KEY")
+        or DEFAULT_SECRET_KEY
+    )
     app.config["SESSION_TYPE"] = "filesystem"
     app.config["SESSION_PERMANENT"] = False
     app.config["SESSION_USE_SIGNER"] = True

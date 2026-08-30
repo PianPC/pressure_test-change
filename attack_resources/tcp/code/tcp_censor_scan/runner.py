@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +18,9 @@ import sys
 
 from .config import ScanConfig, load_config, repo_root
 from .metadata import now_iso, read_metadata, update_stage, write_metadata
+
+
+logger = logging.getLogger(__name__)
 
 
 TCP_FLAG_MAP = {
@@ -809,6 +814,6 @@ def _pipeline_log(path: Path) -> Iterator[Any]:
         line = f"[{now_iso()}] {message}"
         with path.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
-        print(line)
+        logger.info(line)
 
     yield log

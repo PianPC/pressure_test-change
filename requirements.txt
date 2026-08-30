@@ -5,9 +5,10 @@ dnspython==2.4.2
 scapy==2.5.0
 gunicorn==20.1.0
 geoip2==5.1.0
+# numpy 仅供 tcp_censor_scan/legacy_scripts/analyze_amplify_log.py 使用
 numpy==2.3.4
-flask_session
+flask_session==0.8.0
 requests==2.34.2
 browser_cookie3==0.16.2
 beautifulsoup4==4.12.3
-lxml>=4.9.0
+lxml==6.1.2
