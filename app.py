@@ -1155,10 +1155,6 @@ def get_system_info():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
-@app.route('/results')
-def results():
-    return render_template('results.html')
-
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'success': False, 'message': '资源未找到'}), 404

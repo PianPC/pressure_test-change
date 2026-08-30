@@ -36,3 +36,4 @@ vendor/weaponizing-censors/*/src/zmap
 vendor/weaponizing-censors/*/src/ztee
 vendor/weaponizing-censors/*/src/ziterate
 vendor/weaponizing-censors/*/src/ztests
+vendor/weaponizing-censors/*/lib/*.a
