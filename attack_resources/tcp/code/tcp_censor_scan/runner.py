@@ -57,6 +57,7 @@ def run_pipeline(config: ScanConfig | str | Path, run_dir: Path | None = None) -
             write_metadata(run_dir, metadata)
             log(f"FAILED: {exc}")
             _cleanup_if_requested(run_dir)
+            _cleanup_work_dir(run_dir)
             raise
 
     metadata = read_metadata(run_dir)
@@ -65,6 +66,7 @@ def run_pipeline(config: ScanConfig | str | Path, run_dir: Path | None = None) -
     metadata["current_stage"] = None
     write_metadata(run_dir, metadata)
     _cleanup_if_requested(run_dir)
+    _cleanup_work_dir(run_dir)
     return metadata
 
 
@@ -94,16 +96,17 @@ def prepare_zmap(cfg: ScanConfig, run_dir: Path, log) -> Path:
         update_stage(run_dir, "prepare_zmap", "skipped", reason="dry_run")
         return cfg.selected_zmap_root
 
-    work_root = run_dir / "work" / cfg.zmap_variant
-    log(f"Copying zmap source to isolated work dir: {work_root}")
-    shutil.copytree(cfg.selected_zmap_root, work_root, dirs_exist_ok=True)
-
-    module_path = work_root / "src" / "probe_modules" / "module_forbidden_scan.c"
-    if not module_path.exists():
-        raise FileNotFoundError(f"module_forbidden_scan.c not found: {module_path}")
-    _patch_forbidden_scan_module(module_path, cfg.target_host, TCP_FLAG_MAP[cfg.pkt_method])
-    update_stage(run_dir, "prepare_zmap", "completed", workdir=str(work_root), module=str(module_path))
-    return work_root
+    # The forbidden_scan probe module reads host/flags at runtime via
+    # --probe-args, so the shared pre-built zmap binary is used directly
+    # and no per-run source copy is needed.
+    zmap_bin = cfg.selected_zmap_root / "src" / "zmap"
+    if not _ensure_executable(zmap_bin):
+        raise FileNotFoundError(f"zmap executable not available: {zmap_bin}. Build zmap before running real scans.")
+    probe_args = f"host={cfg.target_host},flags={TCP_FLAG_MAP[cfg.pkt_method]}"
+    log(f"Using shared zmap build: {cfg.selected_zmap_root}")
+    log(f"Probe args: {probe_args}")
+    update_stage(run_dir, "prepare_zmap", "completed", workdir=str(cfg.selected_zmap_root), probe_args=probe_args)
+    return cfg.selected_zmap_root
 
 
 def run_zmap_scan(cfg: ScanConfig, run_dir: Path, zmap_workdir: Path, artifacts: dict[str, Path], log) -> None:
@@ -129,6 +132,7 @@ def run_zmap_scan(cfg: ScanConfig, run_dir: Path, zmap_workdir: Path, artifacts:
         "-f", "saddr,len,payloadlen,flags",
         "--output-module=csv",
         f"--rate={cfg.scan_rate}",
+        f"--probe-args=host={cfg.target_host},flags={TCP_FLAG_MAP[cfg.pkt_method]}",
     ]
     log("Running zmap: " + " ".join(command))
     _run_command(command, zmap_workdir, artifacts["scan_log"], run_dir / "zmap.pid")
@@ -426,29 +430,10 @@ def _save_artifacts(run_dir: Path, artifacts: dict[str, Path]) -> None:
     write_metadata(run_dir, metadata)
 
 
-def _patch_forbidden_scan_module(path: Path, host: str, tcp_flags: str) -> None:
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    output: list[str] = []
-    host_written = False
-    flags_written = False
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("#define HOST "):
-            if not host_written:
-                output.append(f'#define HOST "{host}"')
-                host_written = True
-            continue
-        if stripped.startswith("#define TCP_FLAGS "):
-            if not flags_written:
-                output.append(f"#define TCP_FLAGS {tcp_flags}")
-                flags_written = True
-            continue
-        output.append(line)
-    if not host_written:
-        output.insert(0, f'#define HOST "{host}"')
-    if not flags_written:
-        output.insert(1, f"#define TCP_FLAGS {tcp_flags}")
-    path.write_text("\n".join(output) + "\n", encoding="utf-8")
+def _cleanup_work_dir(run_dir: Path) -> None:
+    # Remove the per-run isolated zmap work dir left behind by older
+    # pipeline versions (no longer created since probe-args support).
+    shutil.rmtree(run_dir / "work", ignore_errors=True)
 
 
 def _run_command(command: list[str], cwd: Path, log_file: Path, pid_file: Path) -> None:
