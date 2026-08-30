@@ -78,6 +78,7 @@ class TestConfig:
     target_pps: int = 5000
     tcp_pkt_methods: List[str] = field(default_factory=list)
     protocol_sources: Dict[str, List[str]] = field(default_factory=dict)
+    ttl: int = 255  # TCP TTL，论文推荐255利用路由环路放大
 
 @dataclass
 class TestStats:
@@ -318,6 +319,8 @@ class GlobalState:
                     test_kwargs["source_files"] = source_files
                 elif config.single_method.value == "tcp":
                     test_kwargs["tcp_pkt_methods"] = config.tcp_pkt_methods
+                    test_kwargs["ttl"] = config.ttl
+                    test_kwargs["source_files"] = source_files
                 tester.run_test(**test_kwargs)
             with self.lock:
                 if self.stats.status == TestStatus.STOPPING:
@@ -845,6 +848,14 @@ def start_test():
         multi_protocol = data.get('multi_protocol', False)
         selected_protocols = data.get('selected_protocols', [])
         protocol_sources = data.get('protocol_sources', {})
+
+        # 解析并校验 TTL（默认255，论文推荐）
+        try:
+            raw_ttl = int(data.get('ttl', 255))
+        except (TypeError, ValueError):
+            raw_ttl = 255
+        ttl = max(1, min(255, raw_ttl))
+
         if multi_protocol:
             if not selected_protocols:
                 return jsonify({'success': False, 'message': '请至少选择一个协议'})
@@ -862,7 +873,8 @@ def start_test():
                 data_size_kb=int(data.get('data_size_kb', 300)),
                 target_pps=int(data.get('target_pps', 5000)),
                 tcp_pkt_methods=data.get('tcp_pkt_methods', []),
-                protocol_sources=protocol_sources
+                protocol_sources=protocol_sources,
+                ttl=ttl,
             )
         else:
             if not data.get('method'):
@@ -882,7 +894,8 @@ def start_test():
                 data_size_kb=int(data.get('data_size_kb', 300)),
                 target_pps=int(data.get('target_pps', 5000)),
                 tcp_pkt_methods=data.get('tcp_pkt_methods', []),
-                protocol_sources=data.get('protocol_sources', {})
+                protocol_sources=data.get('protocol_sources', {}),
+                ttl=ttl,
             )
         success, message = state.start_test(config)
         return jsonify({'success': success, 'message': message})

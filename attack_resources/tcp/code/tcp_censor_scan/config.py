@@ -45,6 +45,7 @@ class ScanConfig:
     python_bin: str = "python3"
     min_amplification: float = 2.0
     min_success_rate: float = 50.0
+    max_cv: float = 1.5  # 最大变异系数（std/avg），超过则视为不稳定被剔除
 
     @property
     def zmap_variant(self) -> str:
@@ -101,6 +102,7 @@ def load_config(path: str | Path, *, validate: bool = True) -> ScanConfig:
         ttl=_int(amplify.get("ttl", 64), "ttl", minimum=1, maximum=255),
         min_amplification=_float(amplify.get("min_amplification", 2.0), "min_amplification", minimum=0.0),
         min_success_rate=_float(amplify.get("min_success_rate", 50.0), "min_success_rate", minimum=0.0, maximum=100.0),
+        max_cv=_float(amplify.get("max_cv", 1.5), "max_cv", minimum=0.0),
         network_interface=_string(scan.get("network_interface", "eth0"), "network_interface"),
         output_root=_path(paths.get("output_root", repo_root() / "attack_resources" / "tcp" / "runs" / "tcp_censor_scan")),
         process_py=_path(scripts.get("process_py", repo_root() / "attack_resources" / "tcp" / "code" / "tcp_censor_scan" / "legacy_scripts" / "process_test_3.py")),
