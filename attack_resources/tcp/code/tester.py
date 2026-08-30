@@ -67,6 +67,8 @@ class TcpTester:
 
         # TCP 服务器配置（中间盒 IP 列表）
         self.servers_dir = Path('attack_resources/tcp/resources/ip_lists')
+        # 共享 IP 池（与 tcp 目录内容重合的国家列表统一存放在此）
+        self.shared_servers_dir = Path('attack_resources/shared/ip_lists')
         self.tcp_servers = []
 
         # 远程监控信息
@@ -287,12 +289,18 @@ class TcpTester:
                 if candidate.exists() and candidate.is_file():
                     loaded_paths.append(str(candidate))
                     servers.extend(_read_servers_from_file(candidate))
-                else:
-                    # 也允许传文件名（不带路径），从 servers_dir 中匹配
-                    named = self.servers_dir / str(Path(src).name)
+                    continue
+                # 也允许传文件名（不带路径），从 servers_dir 中匹配，
+                # 本地没有时回退到共享池（shared/ip_lists）
+                named_candidates = [
+                    self.servers_dir / str(Path(src).name),
+                    self.shared_servers_dir / str(Path(src).name),
+                ]
+                for named in named_candidates:
                     if named.exists() and named.is_file():
                         loaded_paths.append(str(named))
                         servers.extend(_read_servers_from_file(named))
+                        break
             self._last_source_description = f"指定来源({len(loaded_paths)}个文件)" if loaded_paths else "指定来源未找到匹配文件"
 
         # 情况 2：未指定来源，默认优先优质池 → 回退全部
@@ -317,8 +325,11 @@ class TcpTester:
             if found_qualified and servers:
                 self._last_source_description = "优质池(qualified_pool.txt)"
             else:
-                # 优质池为空或不存在：回退加载全部 .txt（含原始国家列表）
+                # 优质池为空或不存在：回退加载全部 .txt（含原始国家列表），
+                # 本地目录无文件时回退到共享池（shared/ip_lists）
                 all_txt_files = sorted(self.servers_dir.glob("*.txt"))
+                if not all_txt_files and self.shared_servers_dir.exists():
+                    all_txt_files = sorted(self.shared_servers_dir.glob("*.txt"))
                 for txt_file in all_txt_files:
                     try:
                         loaded_paths.append(str(txt_file))

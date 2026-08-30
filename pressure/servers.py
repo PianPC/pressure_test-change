@@ -21,7 +21,9 @@ from . import constants as _c
 from attack_resources.shared.ip_resource_catalog import (
     count_ip_entries,
     list_protocol_local_resources,
+    list_protocol_resources,
     resolve_protocol_local_resource_path,
+    resolve_protocol_resource_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,8 +52,20 @@ def get_default_server_file_content(method: str) -> str:
 
 
 def _list_server_file_sources(method: str) -> List[Dict[str, Any]]:
-    """返回协议 IP 列表文件的元信息（供文件管理路由使用）。"""
+    """返回协议 IP 列表文件的元信息（供文件管理路由使用）。
+
+    优先列出协议本地 ``resources/ip_lists/`` 下的文件；本地为空时回退到
+    共享池（``shared/ip_lists`` 中 protocols 包含该协议的文件）。这样
+    tcp 目录下与共享池完全重复的国家列表文件被去除后，前端文件选择
+    仍然可用。
+    """
     resources = list_protocol_local_resources(method, _c.ATTACK_RESOURCES_ROOT)
+    if not resources:
+        resources = [
+            item
+            for item in list_protocol_resources(method, _c.ATTACK_RESOURCES_ROOT)
+            if method in item.get("protocols", [])
+        ]
     return [
         {
             "id": item["id"],
@@ -127,6 +141,12 @@ def resolve_server_source(
         return None
     if source:
         resolved = resolve_protocol_local_resource_path(
+            method, source, _c.ATTACK_RESOURCES_ROOT
+        )
+        if resolved is not None:
+            return resolved
+        # 本地目录没有该标识符时，回退到共享池等位置解析
+        resolved = resolve_protocol_resource_path(
             method, source, _c.ATTACK_RESOURCES_ROOT
         )
         if resolved is not None:

@@ -424,63 +424,19 @@ def _build_dns_run_payload(run_id: str) -> dict[str, Any]:
 
 
 def _dns_stage_status_label(stage: str | None, is_running: bool) -> str:
-    if stage == "done":
-        return "\u5df2\u5b8c\u6210"
-    if stage == "error":
-        return "\u5931\u8d25"
-    if stage == "stopped":
-        return "\u5df2\u505c\u6b62"
-    if stage == "saving":
-        return "\u4fdd\u5b58\u4e2d" if is_running else "\u5df2\u4fdd\u5b58"
-    if stage == "filtering":
-        return "\u7b5b\u9009\u4e2d" if is_running else "\u5df2\u7b5b\u9009"
-    if stage == "scanning":
-        return "\u6d4b\u91cf\u4e2d" if is_running else "\u5df2\u6d4b\u91cf"
-    if stage == "loading":
-        return "\u52a0\u8f7d\u4e2d" if is_running else "\u5df2\u52a0\u8f7d"
-    return "\u8fd0\u884c\u4e2d" if is_running else "\u7a7a\u95f2"
+    return _stage_status_label(stage, is_running, "测量中", "已测量")
 
 
 def _normalize_dns_stage_status(stage_status: str | None, final_stage: str | None, current_stage: str | None, stage_key: str) -> str:
-    if stage_status in {"completed", "failed", "stopped", "running"}:
-        return stage_status
-    if final_stage == "done":
-        return "completed"
-    if final_stage == "error" and current_stage == stage_key:
-        return "failed"
-    if final_stage == "stopped" and current_stage == stage_key:
-        return "stopped"
-    return "pending"
+    return _normalize_stage_status(stage_status, final_stage, current_stage, stage_key)
 
 
 def _dns_get_qualified_ips(run_id: str, scanner: DNSResourceScanner | None) -> list[str]:
-    if scanner:
-        return scanner.get_qualified_ips()
-    ip_file = DNS_OUTPUT_ROOT / run_id / "qualified_ips.txt"
-    if not ip_file.exists():
-        return []
-    return [
-        line.strip()
-        for line in ip_file.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
+    return _get_qualified_ips_from(run_id, scanner, DNS_OUTPUT_ROOT)
 
 
 def _build_dns_runs_list() -> dict[str, Any]:
-    runs = []
-    for run in dns_list_run_dirs():
-        run_id = run["run_id"]
-        runs.append({
-            "run_id": run_id,
-            "proto": "dns",
-            "status": run.get("status", "idle"),
-            "is_running": dns_registry.is_running(run_id),
-            "primary_text": run_id,
-            "secondary_text": f"\u4f18\u8d28: {run.get('qualified_count', 0)} IPs",
-            "badge_text": (run.get("stage") or run.get("status") or "-").upper(),
-        })
-    active_run_ids = dns_registry.active_run_ids()
-    return {"runs": runs, "active_run_ids": active_run_ids, "running_count": len(active_run_ids)}
+    return _build_proto_runs_list("dns", dns_registry, dns_list_run_dirs)
 
 
 def _dns_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
@@ -574,6 +530,84 @@ def _dns_clear() -> dict[str, Any]:
         "deleted": deleted,
         "skipped": skipped,
     }
+
+
+# ── 三协议（dns/memcached/ntp）共用的 stage / 运行列表 / 优质 IP 读取逻辑 ──
+# TCP 是 zmap 扫描流程，stage 结构不同，不走这些公共实现。
+
+
+def _normalize_stage_status(
+    stage_status: str | None,
+    final_stage: str | None,
+    current_stage: str | None,
+    stage_key: str,
+) -> str:
+    if stage_status in {"completed", "failed", "stopped", "running"}:
+        return stage_status
+    if final_stage == "done":
+        return "completed"
+    if final_stage == "error" and current_stage == stage_key:
+        return "failed"
+    if final_stage == "stopped" and current_stage == stage_key:
+        return "stopped"
+    return "pending"
+
+
+def _stage_status_label(
+    stage: str | None,
+    is_running: bool,
+    scanning_active: str,
+    scanning_done: str,
+) -> str:
+    if stage == "done":
+        return "已完成"
+    if stage == "error":
+        return "失败"
+    if stage == "stopped":
+        return "已停止"
+    if stage == "saving":
+        return "保存中" if is_running else "已保存"
+    if stage == "filtering":
+        return "筛选中" if is_running else "已筛选"
+    if stage == "scanning":
+        return scanning_active if is_running else scanning_done
+    if stage == "loading":
+        return "加载中" if is_running else "已加载"
+    return "运行中" if is_running else "空闲"
+
+
+def _get_qualified_ips_from(
+    run_id: str, scanner: Any, output_root: Path
+) -> list[str]:
+    if scanner:
+        return scanner.get_qualified_ips()
+    ip_file = output_root / run_id / "qualified_ips.txt"
+    if not ip_file.exists():
+        return []
+    return [
+        line.strip()
+        for line in ip_file.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+
+
+def _build_proto_runs_list(
+    proto: str, registry: Any, list_run_dirs_fn: Any
+) -> dict[str, Any]:
+    runs = []
+    for run in list_run_dirs_fn():
+        run_id = run["run_id"]
+        runs.append({
+            "run_id": run_id,
+            "proto": proto,
+            "status": run.get("status", "idle"),
+            "is_running": registry.is_running(run_id),
+            "primary_text": run_id,
+            "secondary_text": f"优质: {run.get('qualified_count', 0)} IPs",
+            "badge_text": (run.get("stage") or run.get("status") or "-").upper(),
+        })
+    active_run_ids = registry.active_run_ids()
+    return {"runs": runs, "active_run_ids": active_run_ids, "running_count": len(active_run_ids)}
 
 
 class _ProtoAdapter:
@@ -824,63 +858,19 @@ def _build_memcached_run_payload(run_id: str) -> dict[str, Any]:
 
 
 def _memcached_stage_status_label(stage: str | None, is_running: bool) -> str:
-    if stage == "done":
-        return "\u5df2\u5b8c\u6210"
-    if stage == "error":
-        return "\u5931\u8d25"
-    if stage == "stopped":
-        return "\u5df2\u505c\u6b62"
-    if stage == "saving":
-        return "\u4fdd\u5b58\u4e2d" if is_running else "\u5df2\u4fdd\u5b58"
-    if stage == "filtering":
-        return "\u7b5b\u9009\u4e2d" if is_running else "\u5df2\u7b5b\u9009"
-    if stage == "scanning":
-        return "\u63a2\u6d4b\u4e2d" if is_running else "\u5df2\u63a2\u6d4b"
-    if stage == "loading":
-        return "\u52a0\u8f7d\u4e2d" if is_running else "\u5df2\u52a0\u8f7d"
-    return "\u8fd0\u884c\u4e2d" if is_running else "\u7a7a\u95f2"
+    return _stage_status_label(stage, is_running, "探测中", "已探测")
 
 
 def _normalize_memcached_stage_status(stage_status: str | None, final_stage: str | None, current_stage: str | None, stage_key: str) -> str:
-    if stage_status in {"completed", "failed", "stopped", "running"}:
-        return stage_status
-    if final_stage == "done":
-        return "completed"
-    if final_stage == "error" and current_stage == stage_key:
-        return "failed"
-    if final_stage == "stopped" and current_stage == stage_key:
-        return "stopped"
-    return "pending"
+    return _normalize_stage_status(stage_status, final_stage, current_stage, stage_key)
 
 
 def _memcached_get_qualified_ips(run_id: str, scanner: MemcachedResourceScanner | None) -> list[str]:
-    if scanner:
-        return scanner.get_qualified_ips()
-    ip_file = MEMCACHED_OUTPUT_ROOT / run_id / "qualified_ips.txt"
-    if not ip_file.exists():
-        return []
-    return [
-        line.strip()
-        for line in ip_file.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
+    return _get_qualified_ips_from(run_id, scanner, MEMCACHED_OUTPUT_ROOT)
 
 
 def _build_memcached_runs_list() -> dict[str, Any]:
-    runs = []
-    for run in memcached_list_run_dirs():
-        run_id = run["run_id"]
-        runs.append({
-            "run_id": run_id,
-            "proto": "memcached",
-            "status": run.get("status", "idle"),
-            "is_running": memcached_registry.is_running(run_id),
-            "primary_text": run_id,
-            "secondary_text": f"\u4f18\u8d28: {run.get('qualified_count', 0)} IPs",
-            "badge_text": (run.get("stage") or run.get("status") or "-").upper(),
-        })
-    active_run_ids = memcached_registry.active_run_ids()
-    return {"runs": runs, "active_run_ids": active_run_ids, "running_count": len(active_run_ids)}
+    return _build_proto_runs_list("memcached", memcached_registry, memcached_list_run_dirs)
 
 
 def _memcached_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
@@ -1135,63 +1125,19 @@ def _build_ntp_run_payload(run_id: str) -> dict[str, Any]:
 
 
 def _ntp_stage_status_label(stage: str | None, is_running: bool) -> str:
-    if stage == "done":
-        return "\u5df2\u5b8c\u6210"
-    if stage == "error":
-        return "\u5931\u8d25"
-    if stage == "stopped":
-        return "\u5df2\u505c\u6b62"
-    if stage == "saving":
-        return "\u4fdd\u5b58\u4e2d" if is_running else "\u5df2\u4fdd\u5b58"
-    if stage == "filtering":
-        return "\u7b5b\u9009\u4e2d" if is_running else "\u5df2\u7b5b\u9009"
-    if stage == "scanning":
-        return "\u63a2\u6d4b\u4e2d" if is_running else "\u5df2\u63a2\u6d4b"
-    if stage == "loading":
-        return "\u52a0\u8f7d\u4e2d" if is_running else "\u5df2\u52a0\u8f7d"
-    return "\u8fd0\u884c\u4e2d" if is_running else "\u7a7a\u95f2"
+    return _stage_status_label(stage, is_running, "探测中", "已探测")
 
 
 def _normalize_ntp_stage_status(stage_status: str | None, final_stage: str | None, current_stage: str | None, stage_key: str) -> str:
-    if stage_status in {"completed", "failed", "stopped", "running"}:
-        return stage_status
-    if final_stage == "done":
-        return "completed"
-    if final_stage == "error" and current_stage == stage_key:
-        return "failed"
-    if final_stage == "stopped" and current_stage == stage_key:
-        return "stopped"
-    return "pending"
+    return _normalize_stage_status(stage_status, final_stage, current_stage, stage_key)
 
 
 def _ntp_get_qualified_ips(run_id: str, scanner: NTPResourceScanner | None) -> list[str]:
-    if scanner:
-        return scanner.get_qualified_ips()
-    ip_file = NTP_OUTPUT_ROOT / run_id / "qualified_ips.txt"
-    if not ip_file.exists():
-        return []
-    return [
-        line.strip()
-        for line in ip_file.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
+    return _get_qualified_ips_from(run_id, scanner, NTP_OUTPUT_ROOT)
 
 
 def _build_ntp_runs_list() -> dict[str, Any]:
-    runs = []
-    for run in ntp_list_run_dirs():
-        run_id = run["run_id"]
-        runs.append({
-            "run_id": run_id,
-            "proto": "ntp",
-            "status": run.get("status", "idle"),
-            "is_running": ntp_registry.is_running(run_id),
-            "primary_text": run_id,
-            "secondary_text": f"优质: {run.get('qualified_count', 0)} IPs",
-            "badge_text": (run.get("stage") or run.get("status") or "-").upper(),
-        })
-    active_run_ids = ntp_registry.active_run_ids()
-    return {"runs": runs, "active_run_ids": active_run_ids, "running_count": len(active_run_ids)}
+    return _build_proto_runs_list("ntp", ntp_registry, ntp_list_run_dirs)
 
 
 def _ntp_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
