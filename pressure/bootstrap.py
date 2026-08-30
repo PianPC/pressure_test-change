@@ -89,7 +89,13 @@ def create_app(
     """
     _configure_logging_basic()
 
-    app = Flask(__name__)
+    # 模板与静态文件位于仓库根（templates/、static/），不在 pressure/ 包内；
+    # __init__.py 所在目录向上一级即项目根
+    app = Flask(
+        __name__,
+        template_folder=str(Path(__file__).resolve().parent.parent / "templates"),
+        static_folder=str(Path(__file__).resolve().parent.parent / "static"),
+    )
     app.secret_key = (
         secret_key
         or os.environ.get("PRESSURE_SECRET_KEY")
