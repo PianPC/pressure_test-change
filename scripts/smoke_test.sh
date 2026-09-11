@@ -128,6 +128,15 @@ for p in dns memcached ntp; do
     check_dynamic "$p-scan 扫描结果" "/api/$p-scan/runs/%s/results" "" "/api/$p-scan/runs"
 done
 
+echo "[6] 文件管理"
+check "项目根目录" "/api/files/root"
+check "目录树"     "/api/files/tree" '"entries"'
+
+echo "[7] 资源获取链路（自动抓取，不发起攻击流量）"
+# ipdeny：从公共数据源拉取 IP 列表。成功响应含 "ip_count"，失败（含代码 bug 如目录不存在）
+# 时 files 中只有 "error" 而无 "ip_count"，触发 WARN。
+check "ipdeny 自动获取" "/api/attack-resource/resources/fetch" '"ip_count"' "POST" '{"spider":"ipdeny","params":{"countries":["ad"]}}'
+
 echo "== 结果: $PASS 通过, $WARN 警告, $SKIP 跳过, $FAIL 失败 =="
 
 if [ $FAIL -gt 0 ]; then
@@ -140,6 +149,9 @@ if [ $FAIL -gt 0 ]; then
     echo "  [4] 组失败        → 扫描蓝图异常：协议 scanner 模块导入失败；"
     echo "      preflight 失败 → zmap 二进制缺失或未编译（build_zmap.sh）"
     echo "  [5] 组失败        → 运行记录读写异常（详情/日志/结果文件）"
+    echo "  [6] 组失败        → 文件管理蓝图异常：file_system_api 导入失败"
+    echo "  [7] 组 WARN        → 资源获取链路异常：爬虫代码 bug（如输出目录未创建）、"
+    echo "                      网络不通、或公共数据源改版。展开 error 详情判断根因"
     echo "  多组同时失败      → 优先查服务启动时的 Traceback（日志开头）"
     exit 1
 fi

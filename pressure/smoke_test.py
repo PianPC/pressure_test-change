@@ -150,6 +150,72 @@ def _check_dynamic(
     )
 
 
+def _check_resource_fetch(report: SmokeReport, group: str, name: str, spider: str) -> None:
+    """检查自动获取资源链路（ipdeny/shodan/fofa/sonar）。
+
+    这类端点虽为 POST，但只从公共数据源拉取 IP 列表，不发起攻击流量。
+    判断逻辑：
+    * success=true 且 files 非空、无 error → pass
+    * success=true 但 files 为空或含 error → warn（可能是网络/账号受限，
+      也可能是爬虫代码 bug，需人工查看 error 详情）
+    * success=false / HTTP 非 200 / 请求异常 → fail
+    """
+    import time
+
+    path = "/api/attack-resource/resources/fetch"
+    body = json.dumps({"spider": spider, "params": {"countries": ["ad"]}})
+    if spider in ("shodan", "fofa", "sonar"):
+        body = json.dumps({"spider": spider, "params": {"queries": ["tcp"], "limit": 1}})
+
+    started = time.perf_counter()
+    result = CheckResult(group=group, name=name, path=path, method="POST")
+    try:
+        resp = _fetch(report.base_url, path, "POST", body)
+        result.http_code = resp.status_code
+        result.duration_ms = int((time.perf_counter() - started) * 1000)
+
+        if resp.status_code != 200:
+            result.status = "fail"
+            result.message = f"HTTP {resp.status_code}"
+        else:
+            try:
+                data = resp.json()
+            except ValueError:
+                result.status = "fail"
+                result.message = "响应非合法 JSON"
+                report.results.append(result)
+                report.counts[result.status] = report.counts.get(result.status, 0) + 1
+                return
+
+            if not data.get("success"):
+                result.status = "fail"
+                result.message = f"success=false: {data.get('message', '')}"
+            else:
+                files = data.get("files", [])
+                errors = [f.get("error") for f in files if f.get("error")]
+                if not files:
+                    result.status = "warn"
+                    result.message = "API 正常但未返回任何文件"
+                elif errors:
+                    result.status = "warn"
+                    result.message = f"获取完成但 {len(errors)}/{len(files)} 个国家失败: {errors[0][:80]}"
+                else:
+                    ok = [f for f in files if f.get("ip_count", 0) > 0]
+                    if not ok:
+                        result.status = "warn"
+                        result.message = "API 正常但所有文件 ip_count 为 0"
+                    else:
+                        result.status = "pass"
+                        result.message = f"成功获取 {len(ok)}/{len(files)} 个资源"
+    except requests.RequestException as exc:
+        result.duration_ms = int((time.perf_counter() - started) * 1000)
+        result.status = "fail"
+        result.message = f"请求异常: {exc.__class__.__name__}"
+
+    report.results.append(result)
+    report.counts[result.status] = report.counts.get(result.status, 0) + 1
+
+
 def run_smoke_test(base_url: str) -> SmokeReport:
     """执行全端点冒烟测试并返回报告。"""
     import time
@@ -203,6 +269,15 @@ def run_smoke_test(base_url: str) -> SmokeReport:
         _check_dynamic(report, "动态端点深测", f"{p}-scan 运行日志", f"/api/{p}-scan/runs/%s/logs", f"/api/{p}-scan/runs")
     for p in ("dns", "memcached", "ntp"):
         _check_dynamic(report, "动态端点深测", f"{p}-scan 扫描结果", f"/api/{p}-scan/runs/%s/results", f"/api/{p}-scan/runs")
+
+    # [6] 文件管理
+    report.groups.append("文件管理")
+    _check(report, "文件管理", "项目根目录", "/api/files/root")
+    _check(report, "文件管理", "目录树", "/api/files/tree", nonempty_kw='"entries"')
+
+    # [7] 资源获取链路（自动抓取，不发起攻击流量）
+    report.groups.append("资源获取链路")
+    _check_resource_fetch(report, "资源获取链路", "ipdeny 自动获取", "ipdeny")
 
     report.total_ms = int((time.perf_counter() - started) * 1000)
     return report
