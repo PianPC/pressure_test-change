@@ -535,6 +535,25 @@ def create_pressure_blueprint(global_state: GlobalState) -> Blueprint:
             return jsonify({"success": False, "message": str(e)})
 
     # ------------------------------------------------------------------
+    # 冒烟测试
+    # ------------------------------------------------------------------
+
+    @bp.route("/api/smoke-test", methods=["GET"])
+    def run_smoke_test():
+        """执行全端点只读冒烟测试，返回每组端点的 PASS/WARN/FAIL/SKIP 结果。"""
+        from .smoke_test import run_smoke_test as _run_smoke
+
+        base_url = request.host_url
+        try:
+            report = _run_smoke(base_url)
+        except Exception as e:
+            return (
+                jsonify({"success": False, "message": f"冒烟测试执行失败: {str(e)}"}),
+                500,
+            )
+        return jsonify({"success": True, "report": report.to_dict()})
+
+    # ------------------------------------------------------------------
     # 错误处理器：绑定在 bp 上用 ``app_errorhandler``，对所有请求生效
     # ------------------------------------------------------------------
 

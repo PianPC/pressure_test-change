@@ -54,6 +54,10 @@
                     <span class="nav-step-indicator"><i class="fas fa-folder-tree" style="font-size:10px"></i></span>
                     <span class="nav-item-label">文件管理</span>
                 </a>
+                <a href="#" class="nav-item" data-view="smoke-test" title="冒烟测试">
+                    <span class="nav-step-indicator"><i class="fas fa-vial" style="font-size:10px"></i></span>
+                    <span class="nav-item-label">冒烟测试</span>
+                </a>
             </nav>
 
             <div class="sidebar-quick-launch">
@@ -1520,6 +1524,61 @@ NTP 放大率测量原理：
                     </div>
                 </div>
             </div>
+
+                <section class="view-pane" id="view-smoke-test">
+                    <div class="attack-resource-layout">
+                        <section class="panel attack-resource-overview">
+                            <div class="panel-heading">
+                                <div>
+                                    <h2><i class="fas fa-vial"></i> 部署冒烟测试</h2>
+                                </div>
+                                <div class="panel-actions">
+                                    <button type="button" id="smokeTestRunBtn" class="btn btn-primary"><i class="fas fa-play"></i>一键启动测试</button>
+                                </div>
+                            </div>
+                            <div class="monitor-note">
+                                <i class="fas fa-circle-info"></i>
+                                <span>对所有后端 API 端点执行只读健康检查，不发起任何攻击流量。覆盖基础服务、服务器 IP 管理、共享资源池、协议扫描模块及动态端点，帮助快速判断部署后功能是否能流畅运行。</span>
+                            </div>
+                            <div class="module-summary-grid compact" id="smokeTestSummary">
+                                <div class="module-summary-card">
+                                    <span>测试地址</span>
+                                    <strong id="smokeTestBaseUrl">-</strong>
+                                </div>
+                                <div class="module-summary-card">
+                                    <span>通过</span>
+                                    <strong id="smokeTestPass" style="color:var(--success,#33c192)">0</strong>
+                                </div>
+                                <div class="module-summary-card">
+                                    <span>警告</span>
+                                    <strong id="smokeTestWarn" style="color:var(--warning,#f5a623)">0</strong>
+                                </div>
+                                <div class="module-summary-card">
+                                    <span>失败</span>
+                                    <strong id="smokeTestFail" style="color:var(--danger,#ff4d4f)">0</strong>
+                                </div>
+                                <div class="module-summary-card">
+                                    <span>跳过</span>
+                                    <strong id="smokeTestSkip" style="color:var(--muted,#8c8c8c)">0</strong>
+                                </div>
+                                <div class="module-summary-card">
+                                    <span>耗时</span>
+                                    <strong id="smokeTestDuration">-</strong>
+                                </div>
+                            </div>
+                            <div id="smokeTestStatus" class="info-text">点击「一键启动测试」开始全端点健康检查。</div>
+                        </section>
+
+                        <section class="panel">
+                            <div class="panel-heading">
+                                <h2><i class="fas fa-list-check"></i> 检查明细</h2>
+                            </div>
+                            <div id="smokeTestResults" class="smoke-test-results">
+                                <div class="info-text">尚未执行测试。</div>
+                            </div>
+                        </section>
+                    </div>
+                </section>
         </main>
     </div>
 

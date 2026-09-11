@@ -1695,6 +1695,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initAttackResourceTaskFramework();
     initIpResourceManager();
     FileSystemUi.init();
+    initSmokeTest();
     toggleMultiProtocol();
     initConsoleFormPersistence();
     initSensitiveHostManager();
@@ -6810,3 +6811,128 @@ const FileSystemUi = (() => {
 
     return { init, load };
 })();
+
+// ============================================================================
+// 冒烟测试（部署健康检查）
+// ============================================================================
+const SmokeTestUi = (() => {
+    const STATUS_META = {
+        pass: { icon: "fa-circle-check", label: "通过", cls: "smoke-pass" },
+        warn: { icon: "fa-triangle-exclamation", label: "警告", cls: "smoke-warn" },
+        fail: { icon: "fa-circle-xmark", label: "失败", cls: "smoke-fail" },
+        skip: { icon: "fa-circle-minus", label: "跳过", cls: "smoke-skip" }
+    };
+
+    function init() {
+        const btn = document.getElementById("smokeTestRunBtn");
+        if (btn) btn.addEventListener("click", runSmokeTest);
+    }
+
+    async function runSmokeTest() {
+        const btn = document.getElementById("smokeTestRunBtn");
+        const statusEl = document.getElementById("smokeTestStatus");
+        const resultsEl = document.getElementById("smokeTestResults");
+        if (!btn || !statusEl || !resultsEl) return;
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>测试中...';
+        statusEl.textContent = "正在执行全端点健康检查，请稍候...";
+        resultsEl.innerHTML = '<div class="info-text"><i class="fas fa-spinner fa-spin"></i> 正在探测各端点...</div>';
+        resetSummary();
+
+        try {
+            const resp = await fetch("/api/smoke-test");
+            const data = await resp.json();
+            if (!resp.ok || !data.success) {
+                throw new Error(data.message || "冒烟测试执行失败");
+            }
+            renderReport(data.report);
+            const counts = data.report.counts;
+            if (counts.fail > 0) {
+                statusEl.innerHTML = `<i class="fas fa-circle-xmark" style="color:var(--danger,#ff4d4f)"></i> 测试完成：存在 ${counts.fail} 个失败项，请查看下方明细。`;
+            } else if (counts.warn > 0) {
+                statusEl.innerHTML = `<i class="fas fa-triangle-exclamation" style="color:var(--warning,#f5a623)"></i> 测试完成：全部端点可达，有 ${counts.warn} 个警告（数据为空，可能是新部署空池）。`;
+            } else {
+                statusEl.innerHTML = `<i class="fas fa-circle-check" style="color:var(--success,#33c192)"></i> 测试完成：后端 API 层健康，所有端点正常响应。`;
+            }
+        } catch (err) {
+            statusEl.innerHTML = `<i class="fas fa-circle-xmark" style="color:var(--danger,#ff4d4f)"></i> 测试失败：${escapeHtml(err.message)}`;
+            resultsEl.innerHTML = `<div class="info-text">请求 /api/smoke-test 时出错：${escapeHtml(err.message)}</div>`;
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-play"></i>一键启动测试';
+        }
+    }
+
+    function resetSummary() {
+        ["Pass", "Warn", "Fail", "Skip"].forEach((k) => {
+            const el = document.getElementById(`smokeTest${k}`);
+            if (el) el.textContent = "0";
+        });
+        const dur = document.getElementById("smokeTestDuration");
+        if (dur) dur.textContent = "-";
+        const url = document.getElementById("smokeTestBaseUrl");
+        if (url) url.textContent = "-";
+    }
+
+    function renderReport(report) {
+        const counts = report.counts || {};
+        document.getElementById("smokeTestPass").textContent = counts.pass || 0;
+        document.getElementById("smokeTestWarn").textContent = counts.warn || 0;
+        document.getElementById("smokeTestFail").textContent = counts.fail || 0;
+        document.getElementById("smokeTestSkip").textContent = counts.skip || 0;
+        document.getElementById("smokeTestDuration").textContent = `${(report.total_ms || 0)} ms`;
+        document.getElementById("smokeTestBaseUrl").textContent = report.base_url || "-";
+
+        const groups = report.groups || [];
+        const results = report.results || [];
+        const container = document.getElementById("smokeTestResults");
+        if (!container) return;
+
+        container.innerHTML = groups.map((group) => {
+            const items = results.filter((r) => r.group === group);
+            const groupFail = items.filter((r) => r.status === "fail").length;
+            const groupWarn = items.filter((r) => r.status === "warn").length;
+            const badge = groupFail > 0
+                ? `<span class="smoke-badge smoke-fail">${groupFail} 失败</span>`
+                : groupWarn > 0
+                ? `<span class="smoke-badge smoke-warn">${groupWarn} 警告</span>`
+                : `<span class="smoke-badge smoke-pass">全部通过</span>`;
+            const rows = items.map((r) => renderResultRow(r)).join("");
+            return `
+                <div class="smoke-group">
+                    <div class="smoke-group-head">
+                        <strong>${escapeHtml(group)}</strong>
+                        <span class="smoke-group-meta">${items.length} 项 · ${badge}</span>
+                    </div>
+                    <div class="smoke-rows">${rows}</div>
+                </div>
+            `;
+        }).join("");
+    }
+
+    function renderResultRow(r) {
+        const meta = STATUS_META[r.status] || STATUS_META.pass;
+        const http = r.http_code ? `<span class="smoke-http">HTTP ${r.http_code}</span>` : "";
+        const dur = r.duration_ms ? `<span class="smoke-dur">${r.duration_ms}ms</span>` : "";
+        const msg = r.message ? `<span class="smoke-msg">${escapeHtml(r.message)}</span>` : "";
+        return `
+            <div class="smoke-row ${meta.cls}">
+                <i class="fas ${meta.icon} smoke-icon"></i>
+                <div class="smoke-row-body">
+                    <div class="smoke-row-title">
+                        <span class="smoke-name">${escapeHtml(r.name)}</span>
+                        <span class="smoke-path">${escapeHtml(r.method)} ${escapeHtml(r.path)}</span>
+                    </div>
+                    <div class="smoke-row-meta">${http}${dur}${msg}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    return { init, run: runSmokeTest };
+})();
+
+function initSmokeTest() {
+    SmokeTestUi.init();
+}

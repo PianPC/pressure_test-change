@@ -1164,3 +1164,33 @@ input:checked+.toggle-slider::before{transform:translateX(20px);background:var(-
   .file-manager-editor-col{min-height:40vh}
   .file-list-header,.fs-row{grid-template-columns:1fr 70px 110px 80px}
 }
+
+/* ==========================================================================
+   冒烟测试结果
+   ========================================================================== */
+.smoke-test-results{display:flex;flex-direction:column;gap:16px}
+.smoke-group{border:1px solid var(--border-subtle);border-radius:var(--radius-sm);background:var(--bg-raised);overflow:hidden}
+.smoke-group-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-overlay);border-bottom:1px solid var(--border-subtle)}
+.smoke-group-head strong{font-size:14px}
+.smoke-group-meta{font-size:12px;color:var(--text-tertiary);display:flex;align-items:center;gap:8px}
+.smoke-rows{display:flex;flex-direction:column}
+.smoke-row{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border-subtle)}
+.smoke-row:last-child{border-bottom:none}
+.smoke-icon{font-size:14px;margin-top:2px;flex-shrink:0}
+.smoke-pass .smoke-icon{color:var(--success,#33c192)}
+.smoke-warn .smoke-icon{color:var(--warning,#f5a623)}
+.smoke-fail .smoke-icon{color:var(--danger,#ff4d4f)}
+.smoke-skip .smoke-icon{color:var(--text-tertiary,#8c8c8c)}
+.smoke-row-body{flex:1;min-width:0}
+.smoke-row-title{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.smoke-name{font-size:13px;font-weight:500}
+.smoke-path{font-size:12px;color:var(--text-tertiary);font-family:var(--font-mono,monospace)}
+.smoke-row-meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:3px;font-size:12px;color:var(--text-tertiary)}
+.smoke-http{color:var(--text-secondary)}
+.smoke-dur{color:var(--text-tertiary)}
+.smoke-msg{color:var(--warning,#f5a623)}
+.smoke-fail .smoke-msg{color:var(--danger,#ff4d4f)}
+.smoke-badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:500}
+.smoke-badge.smoke-pass{background:rgba(51,193,146,.15);color:var(--success,#33c192)}
+.smoke-badge.smoke-warn{background:rgba(245,166,35,.15);color:var(--warning,#f5a623)}
+.smoke-badge.smoke-fail{background:rgba(255,77,79,.15);color:var(--danger,#ff4d4f)}
