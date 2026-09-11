@@ -97,6 +97,7 @@ class ShodanSpider:
 
                 filename = f"{query_name}_{today_str}.txt"
                 output_path = base_path / output_dir / filename
+                output_path.parent.mkdir(parents=True, exist_ok=True)
 
                 with output_path.open("w", encoding="utf-8") as f:
                     f.write(f"# Shodan - {protocol} servers\n")
@@ -285,6 +286,7 @@ class ShodanSpider:
 
                 filename = f"{query_name}_{today_str}.txt"
                 output_path = base_path / output_dir / filename
+                output_path.parent.mkdir(parents=True, exist_ok=True)
 
                 with output_path.open("w", encoding="utf-8") as f:
                     f.write(f"# Shodan - {protocol} servers\n")

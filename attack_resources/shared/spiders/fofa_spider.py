@@ -191,6 +191,7 @@ class FOFASpider:
 
                 filename = f"{query_name}_{today_str}.txt"
                 output_path = base_path / output_dir / filename
+                output_path.parent.mkdir(parents=True, exist_ok=True)
 
                 with output_path.open("w", encoding="utf-8") as f:
                     f.write(f"# FOFA - {protocol} servers\n")
@@ -415,6 +416,7 @@ class FOFASpider:
                 all_ips = all_ips[:limit]
                 filename = f"{query_name}_{today_str}.txt"
                 output_path = base_path / output_dir / filename
+                output_path.parent.mkdir(parents=True, exist_ok=True)
 
                 with output_path.open("w", encoding="utf-8") as f:
                     f.write(f"# FOFA - {protocol} servers\n")
