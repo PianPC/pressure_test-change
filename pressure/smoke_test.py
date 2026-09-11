@@ -216,6 +216,143 @@ def _check_resource_fetch(report: SmokeReport, group: str, name: str, spider: st
     report.counts[result.status] = report.counts.get(result.status, 0) + 1
 
 
+def _check_pressure_test(report: SmokeReport, group: str, name: str) -> None:
+    """压力测试链路：以极小流量打回本机 127.0.0.1，启动后立即停止。
+
+    目的是验证 state.start_test / stop_test 链路与配置解析是否通畅，
+    而非实际压测。参数设置：duration=1 分钟、threads=1、target_pps=1、ttl=1，
+    启动后立刻调用 /api/test/stop，实际发包量极低且指向本机。
+
+    判断逻辑：
+    * start 与 stop 均 success=true → pass
+    * start 成功但 stop 失败 → warn（测试可能在后台继续跑）
+    * start 失败（如缺少 root 权限、无服务器 IP）→ warn（环境/配置问题，非代码 bug）
+    * HTTP 异常 / 非 200 → fail
+    """
+    import time
+
+    result = CheckResult(group=group, name=name, path="/api/test/start", method="POST")
+    started = time.perf_counter()
+    try:
+        body = json.dumps({
+            "target_ip": "127.0.0.1",
+            "method": "tcp",
+            "duration": 1,
+            "threads": 1,
+            "target_pps": 1,
+            "ttl": 1,
+        })
+        resp = _fetch(report.base_url, "/api/test/start", "POST", body)
+        result.http_code = resp.status_code
+
+        if resp.status_code != 200:
+            result.status = "fail"
+            result.message = f"start HTTP {resp.status_code}: {resp.text[:120]}"
+        else:
+            try:
+                data = resp.json()
+            except ValueError:
+                result.status = "fail"
+                result.message = "start 响应非合法 JSON"
+                report.results.append(result)
+                report.counts[result.status] = report.counts.get(result.status, 0) + 1
+                return
+
+            if not data.get("success"):
+                result.status = "warn"
+                result.message = f"start 未启动: {data.get('message', '')[:100]}"
+            else:
+                # 启动成功，立即停止
+                try:
+                    stop_resp = _fetch(report.base_url, "/api/test/stop", "POST", "{}")
+                    if stop_resp.status_code == 200:
+                        stop_data = stop_resp.json()
+                        if stop_data.get("success"):
+                            result.status = "pass"
+                            result.message = "启动并立即停止成功（小流量打回本机）"
+                        else:
+                            result.status = "warn"
+                            result.message = f"stop 未成功: {stop_data.get('message', '')[:80]}"
+                    else:
+                        result.status = "warn"
+                        result.message = f"stop HTTP {stop_resp.status_code}"
+                except requests.RequestException as exc:
+                    result.status = "warn"
+                    result.message = f"stop 请求异常: {exc.__class__.__name__}"
+    except requests.RequestException as exc:
+        result.status = "fail"
+        result.message = f"start 请求异常: {exc.__class__.__name__}"
+
+    result.duration_ms = int((time.perf_counter() - started) * 1000)
+    report.results.append(result)
+    report.counts[result.status] = report.counts.get(result.status, 0) + 1
+
+
+def _check_scan_start(report: SmokeReport, group: str, name: str, protocol: str, dry_run: bool = False) -> None:
+    """协议扫描链路：启动一次最小化扫描任务，验证启动链路是否通畅。
+
+    TCP 支持 dry_run（不发包），其余协议用 max_ips=1 / concurrency=1 等
+    最小参数，仅扫描 1 个候选 IP，发包量极低。只验证启动成功（异步线程），
+    不等待扫描完成。
+
+    判断逻辑：
+    * success=true → pass
+    * 400 '没有可用的 IP 候选文件' → warn（未配置 IP 池，非代码 bug）
+    * 其他 4xx/5xx → fail
+    * HTTP 异常 → fail
+    """
+    import time
+
+    path = f"/api/{protocol}-scan/runs"
+    payload: Dict[str, Any]
+    if protocol == "tcp":
+        payload = {"pkt_methods": ["SYN"], "dry_run": True, "scan_count": 1}
+    else:
+        payload = {"max_ips": 1, "concurrency": 1, "timeout_sec": 1}
+
+    result = CheckResult(group=group, name=name, path=path, method="POST")
+    started = time.perf_counter()
+    try:
+        resp = _fetch(report.base_url, path, "POST", json.dumps(payload))
+        result.http_code = resp.status_code
+
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+            except ValueError:
+                result.status = "fail"
+                result.message = "响应非合法 JSON"
+                report.results.append(result)
+                report.counts[result.status] = report.counts.get(result.status, 0) + 1
+                return
+
+            if data.get("success"):
+                run_id = data.get("run_id") or (data.get("run_ids") or [""])[0]
+                result.status = "pass"
+                result.message = f"扫描任务已启动 (run_id={run_id})" + (" [dry_run]" if dry_run else "")
+            else:
+                msg = data.get("message", "")
+                if "IP 候选文件" in msg or "ip_file" in msg:
+                    result.status = "warn"
+                    result.message = f"无可用 IP 文件: {msg[:80]}"
+                else:
+                    result.status = "fail"
+                    result.message = f"启动失败: {msg[:100]}"
+        elif resp.status_code == 400:
+            result.status = "warn"
+            result.message = f"参数/资源不足（HTTP 400）: {resp.text[:100]}"
+        else:
+            result.status = "fail"
+            result.message = f"HTTP {resp.status_code}: {resp.text[:100]}"
+    except requests.RequestException as exc:
+        result.status = "fail"
+        result.message = f"请求异常: {exc.__class__.__name__}"
+
+    result.duration_ms = int((time.perf_counter() - started) * 1000)
+    report.results.append(result)
+    report.counts[result.status] = report.counts.get(result.status, 0) + 1
+
+
 def run_smoke_test(base_url: str) -> SmokeReport:
     """执行全端点冒烟测试并返回报告。"""
     import time
@@ -278,6 +415,17 @@ def run_smoke_test(base_url: str) -> SmokeReport:
     # [7] 资源获取链路（自动抓取，不发起攻击流量）
     report.groups.append("资源获取链路")
     _check_resource_fetch(report, "资源获取链路", "ipdeny 自动获取", "ipdeny")
+
+    # [8] 压力测试链路（小流量打回本机 127.0.0.1，启动后立即停止）
+    report.groups.append("压力测试链路")
+    _check_pressure_test(report, "压力测试链路", "TCP 小流量压测本机")
+
+    # [9] 协议扫描链路（TCP 用 dry_run 不发包，其余最小参数扫 1 个 IP）
+    report.groups.append("协议扫描链路")
+    _check_scan_start(report, "协议扫描链路", "TCP 扫描 (dry_run)", "tcp", dry_run=True)
+    _check_scan_start(report, "协议扫描链路", "DNS 扫描 (max_ips=1)", "dns")
+    _check_scan_start(report, "协议扫描链路", "Memcached 扫描 (max_ips=1)", "memcached")
+    _check_scan_start(report, "协议扫描链路", "NTP 扫描 (max_ips=1)", "ntp")
 
     report.total_ms = int((time.perf_counter() - started) * 1000)
     return report

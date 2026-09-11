@@ -137,6 +137,22 @@ echo "[7] 资源获取链路（自动抓取，不发起攻击流量）"
 # 时 files 中只有 "error" 而无 "ip_count"，触发 WARN。
 check "ipdeny 自动获取" "/api/attack-resource/resources/fetch" '"ip_count"' "POST" '{"spider":"ipdeny","params":{"countries":["ad"]}}'
 
+echo "[8] 压力测试链路（小流量打回本机 127.0.0.1，启动后立即停止）"
+# duration=1分钟、threads=1、target_pps=1、ttl=1，启动后立刻 stop，实际发包量极低且指向本机。
+check "TCP 小流量压测启动" "/api/test/start" '"success":true' "POST" \
+    '{"target_ip":"127.0.0.1","method":"tcp","duration":1,"threads":1,"target_pps":1,"ttl":1}'
+check "TCP 小流量压测停止" "/api/test/stop" '"success":true' "POST" '{}'
+
+echo "[9] 协议扫描链路（TCP 用 dry_run 不发包，其余最小参数扫 1 个 IP）"
+check "TCP 扫描 dry_run"    "/api/tcp-scan/runs"        '"success":true' "POST" \
+    '{"pkt_methods":["SYN"],"dry_run":true,"scan_count":1}'
+check "DNS 扫描 max_ips=1"  "/api/dns-scan/runs"        '"success":true' "POST" \
+    '{"max_ips":1,"concurrency":1,"timeout_sec":1}'
+check "Memcached 扫描"      "/api/memcached-scan/runs"  '"success":true' "POST" \
+    '{"max_ips":1,"concurrency":1,"timeout_sec":1}'
+check "NTP 扫描"            "/api/ntp-scan/runs"        '"success":true' "POST" \
+    '{"max_ips":1,"concurrency":1,"timeout_sec":1}'
+
 echo "== 结果: $PASS 通过, $WARN 警告, $SKIP 跳过, $FAIL 失败 =="
 
 if [ $FAIL -gt 0 ]; then
@@ -152,6 +168,10 @@ if [ $FAIL -gt 0 ]; then
     echo "  [6] 组失败        → 文件管理蓝图异常：file_system_api 导入失败"
     echo "  [7] 组 WARN        → 资源获取链路异常：爬虫代码 bug（如输出目录未创建）、"
     echo "                      网络不通、或公共数据源改版。展开 error 详情判断根因"
+    echo "  [8] 组失败        → 压力测试链路异常：state.start_test/stop_test、配置解析、"
+    echo "                      发包线程启动。常见原因：缺少 root 权限、无可用服务器 IP"
+    echo "  [9] 组失败        → 协议扫描链路异常：scanner 模块、配置构建、run 目录创建。"
+    echo "                      若报 400 '无可用 IP 文件' 属 WARN/正常，需先配置 IP 池"
     echo "  多组同时失败      → 优先查服务启动时的 Traceback（日志开头）"
     exit 1
 fi
