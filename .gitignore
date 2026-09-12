@@ -37,3 +37,18 @@ vendor/weaponizing-censors/*/src/ztee
 vendor/weaponizing-censors/*/src/ziterate
 vendor/weaponizing-censors/*/src/ztests
 vendor/weaponizing-censors/*/lib/*.a
+
+# ── 运行时数据（扫描产物 / 自动生成 IP 池） ──
+# 各协议优质 IP 池（扫描后产生）
+attack_resources/*/qualified_pool/*.txt
+attack_resources/*/qualified_pool/*.json
+
+# 各协议资源文件（运行时生成 / 自动抓取填充）
+attack_resources/*/resources/ip_lists/*.txt
+
+# 共享资源池自动抓取
+attack_resources/shared/ip_lists/auto/
+
+# 本地临时调试脚本
+_check_*.sh
+_check_*.py
