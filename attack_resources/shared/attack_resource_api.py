@@ -164,7 +164,7 @@ def _text_artifact_descriptor(name: str, size: int, editable: bool | None = None
     }
 
 
-def _normalize_stage_status(status: str | None) -> str:
+def _normalize_tcp_stage_status(status: str | None) -> str:
     if status in {"completed", "failed", "stopped", "running", "pending", "skipped"}:
         return status
     return "pending"
@@ -197,7 +197,7 @@ def _build_tcp_run_payload(run_id: str) -> dict[str, Any]:
         normalized_stages.append({
             "key": stage_key,
             "label": stage_label,
-            "status": _normalize_stage_status(stage_state),
+            "status": _normalize_tcp_stage_status(stage_state),
         })
 
     files = summary.get("files", [])

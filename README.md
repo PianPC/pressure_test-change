@@ -89,7 +89,30 @@ git fetch origin
 git reset --hard origin/trae/ui-simplify
 
 git pull origin trae/ui-simplify
+
+# 1. 拉取远程最新
+git fetch origin
+
+# 2. 切换到 main 分支（如果已在 main 上可跳过）
+git checkout main
+
+# 3. 拉取并合并到最新提交
+git pull origin main
+
+# 4. 确认信息
+git log --oneline -1
 ```
+
+如果服务器上有未提交的本地改动导致 git pull 被阻塞，先暂存：
+
+```bash
+git stash        # 暂存本地改动
+
+git pull origin main
+
+git stash pop    # 恢复（如有冲突需手动解决）
+```
+
 
 让AI合并分支时提示词
 ```bash

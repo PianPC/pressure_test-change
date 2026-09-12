@@ -576,6 +576,14 @@ def _check_path(key: str, path: Path, label: str) -> dict[str, Any]:
 
 def _check_root_privilege() -> dict[str, Any]:
     """检查是否具备 root 权限（zmap 真实扫描需要）。"""
+    if platform.system().lower().startswith("win"):
+        return {
+            "key": "root_privilege",
+            "label": "Root 权限（zmap 真实扫描必备）",
+            "ok": True,
+            "path": "Windows 平台跳过",
+            "message": "Windows 平台跳过 root 检查",
+        }
     is_root = os.geteuid() == 0
     return {
         "key": "root_privilege",
