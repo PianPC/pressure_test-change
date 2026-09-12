@@ -41,7 +41,8 @@ rm -rf vendor/weaponizing-censors/zmap/{build,CMakeCache.txt,CMakeFiles} \
 
 ```bash
 python -m venv venv
-pip install -r requirments.txt
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
 启动脚本
