@@ -5972,14 +5972,22 @@ class AttackResourceTaskController {
             container.textContent = "暂无结果预览。";
             return;
         }
+        // 缓存判断：同一 runId 已加载过优质 IP 详情则直接复用，避免轮询导致表格闪烁
+        if (this._qualifiedLoadedRunId === this.currentRunId && this._qualifiedIpData && this._qualifiedIpData.length) {
+            this._renderQualifiedTable(container, this._qualifiedIpData);
+            return;
+        }
         container.innerHTML = '<span class="info-text">加载优质 IP 详情…</span>';
         try {
             const resp = await fetch(`/api/attack-resource/${this.proto}/runs/${encodeURIComponent(this.currentRunId)}/qualified-details`);
             const data = await resp.json();
             if (!data.success || !data.qualified_ips || !data.qualified_ips.length) {
                 container.textContent = "暂无优质 IP。完整结果可通过输出文件查看。";
+                this._qualifiedLoadedRunId = this.currentRunId;
+                this._qualifiedIpData = null;
                 return;
             }
+            this._qualifiedLoadedRunId = this.currentRunId;
             this._renderQualifiedTable(container, data.qualified_ips);
         } catch (err) {
             container.textContent = `加载失败：${err.message}`;
@@ -6183,6 +6191,8 @@ class AttackResourceTaskController {
     renderEmptyState() {
         this.currentRun = null;
         this.currentRunId = null;
+        this._qualifiedLoadedRunId = null;
+        this._qualifiedIpData = null;
         this.renderSummaryCards({
             status: "idle",
             run_id: "-",
