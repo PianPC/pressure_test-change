@@ -15,6 +15,7 @@ from flask import Blueprint, jsonify, request
 from attack_resources.shared.ip_resource_catalog import list_protocol_resources, resolve_protocol_resource_path
 from attack_resources.shared import credential_store
 from attack_resources.shared.spiders import ShodanSpider, FOFASpider
+from attack_resources.shared.task_queue import queue_manager
 from attack_resources.tcp.code.routes import (
     DEFAULT_CONFIG_PATH as TCP_DEFAULT_CONFIG_PATH,
     TCP_OUTPUT_ROOT,
@@ -258,7 +259,14 @@ def _build_tcp_runs_list() -> dict[str, Any]:
             "badge_text": run.get("pkt_method") or "-",
         })
     active_run_ids = tcp_scan_registry.active_run_ids()
-    return {"runs": runs, "active_run_ids": active_run_ids, "running_count": len(active_run_ids)}
+    return {
+        "runs": runs,
+        "active_run_ids": active_run_ids,
+        "running_count": len(active_run_ids),
+        "queued_runs": queue_manager.get_queue("tcp"),
+        "queue_events": queue_manager.get_events("tcp"),
+        "queue_config": queue_manager.get_config().get("tcp", {}),
+    }
 
 
 def _tcp_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
@@ -269,30 +277,15 @@ def _tcp_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     except (ConfigError, ValueError) as exc:
         return {"success": False, "message": str(exc)}, 400
 
+    # 入队（不在此处做预检——出队启动时再校验）
     for config in configs:
-        if not config.dry_run:
-            report = tcp_preflight_check(config)
-            if not report["ok"]:
-                return {"success": False, "message": "\u9884\u68c0\u672a\u901a\u8fc7", "report": report}, 400
-
-    for config in configs:
-        metadata = tcp_prepare_run_metadata(config)
-        run_id = metadata["run_id"]
+        task_payload = {**payload, "pkt_method": config.pkt_method}
+        run_id = queue_manager.enqueue("tcp", task_payload)
         created.append({"run_id": run_id, "pkt_method": config.pkt_method, "target_host": config.target_host})
-
-        def worker(cfg: TcpScanConfig = config, current_run_id: str = run_id) -> None:
-            try:
-                tcp_run_pipeline(cfg, run_dir=TCP_OUTPUT_ROOT / current_run_id)
-            except Exception as exc:  # pragma: no cover - defensive thread path
-                tcp_scan_registry.set_error(current_run_id, f"{exc}\n{traceback.format_exc()}")
-
-        thread = Thread(target=worker, daemon=True)
-        tcp_scan_registry.register(run_id, thread)
-        thread.start()
 
     return {
         "success": True,
-        "message": "TCP \u8d44\u6e90\u83b7\u53d6\u4efb\u52a1\u5df2\u521b\u5efa",
+        "message": "TCP 资源获取任务已加入队列",
         "run_ids": [item["run_id"] for item in created],
         "runs": created,
     }, 200
@@ -444,63 +437,28 @@ def _dns_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     if not ip_file:
         available = _list_protocol_resources("dns")
         if not available:
-            return {"success": False, "message": "\u6ca1\u6709\u53ef\u7528\u7684 IP \u5019\u9009\u6587\u4ef6"}, 400
+            return {"success": False, "message": "没有可用的 IP 候选文件"}, 400
         ip_file = available[0]["path"]
+        payload["ip_file"] = ip_file
     resolved_ip_file = _resolve_protocol_resource("dns", ip_file)
     if resolved_ip_file is None or not resolved_ip_file.exists():
-        return {"success": False, "message": f"IP \u6587\u4ef6\u4e0d\u5b58\u5728: {ip_file}"}, 400
+        return {"success": False, "message": f"IP 文件不存在: {ip_file}"}, 400
 
+    # 校验配置（不创建目录，仅检查参数合法性）
     domains_str = str(payload.get("test_domains", "")).strip()
     if domains_str:
         test_domains = [item.strip() for item in domains_str.replace(",", "\n").splitlines() if item.strip()]
     else:
         test_domains = DEFAULT_TEST_DOMAINS.copy()
+    query_type = str(payload.get("query_type", "TXT")).upper()
+    if query_type not in DNS_TYPE_MAP:
+        return {"success": False, "message": f"不支持的查询类型: {query_type}"}, 400
 
-    config = DnsScanConfig(
-        ip_file=str(resolved_ip_file),
-        output_dir=str(DNS_OUTPUT_ROOT / dns_generate_run_id()),
-        test_domains=test_domains,
-        query_type=str(payload.get("query_type", "TXT")).upper(),
-        use_dnssec=dns_bool(payload.get("use_dnssec", True)),
-        timeout_sec=dns_float_or(payload.get("timeout_sec"), 3.0),
-        concurrency=dns_int_or(payload.get("concurrency"), 80),
-        min_amplification=dns_float_or(payload.get("min_amplification"), 3.0),
-        min_reliability=dns_float_or(payload.get("min_reliability"), 50.0),
-        max_ips=dns_int_or(payload.get("max_ips"), 0),
-    )
-    if config.query_type not in DNS_TYPE_MAP:
-        return {"success": False, "message": f"\u4e0d\u652f\u6301\u7684\u67e5\u8be2\u7c7b\u578b: {config.query_type}"}, 400
-
-    run_id = Path(config.output_dir).name
-    os.makedirs(config.output_dir, exist_ok=True)
-    log_path = Path(config.output_dir) / "pipeline.log"
-    config_dict = dns_build_config_dict(config)
-    scanner = DNSResourceScanner()
-
-    def log_persister(message: str) -> None:
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(message + "\n")
-
-    def scan_worker() -> None:
-        try:
-            scanner.run_scan(config, log_callback=log_persister)
-        except Exception as exc:  # pragma: no cover - defensive thread path
-            dns_registry.set_error(run_id, f"{exc}\n{traceback.format_exc()}")
-        finally:
-            stats_file = Path(config.output_dir) / "final_stats.json"
-            try:
-                final_stats = scanner.get_stats()
-                final_stats.setdefault("config", config_dict)
-                stats_file.write_text(json.dumps(final_stats, ensure_ascii=False, indent=2), encoding="utf-8")
-            except Exception:
-                pass
-
-    thread = Thread(target=scan_worker, daemon=True)
-    dns_registry.register(run_id, scanner, thread, config)
-    thread.start()
+    # 入队
+    run_id = queue_manager.enqueue("dns", payload)
     return {
         "success": True,
-        "message": "DNS \u8d44\u6e90\u83b7\u53d6\u4efb\u52a1\u5df2\u521b\u5efa",
+        "message": "DNS 资源获取任务已加入队列",
         "run_ids": [run_id],
         "runs": [{"run_id": run_id}],
     }, 200
@@ -607,7 +565,14 @@ def _build_proto_runs_list(
             "badge_text": (run.get("stage") or run.get("status") or "-").upper(),
         })
     active_run_ids = registry.active_run_ids()
-    return {"runs": runs, "active_run_ids": active_run_ids, "running_count": len(active_run_ids)}
+    return {
+        "runs": runs,
+        "active_run_ids": active_run_ids,
+        "running_count": len(active_run_ids),
+        "queued_runs": queue_manager.get_queue(proto),
+        "queue_events": queue_manager.get_events(proto),
+        "queue_config": queue_manager.get_config().get(proto, {}),
+    }
 
 
 class _ProtoAdapter:
@@ -672,8 +637,11 @@ class TcpAdapter(_ProtoAdapter):
         stopped = tcp_stop_run(run_id, TCP_OUTPUT_ROOT, cleanup=cleanup)
         if not stopped and cleanup:
             cleaned = tcp_cleanup_run_artifacts(run_id, TCP_OUTPUT_ROOT)
-            return {"success": cleaned, "message": "已清理任务产物" if cleaned else "\u672a\u627e\u5230\u6b63\u5728\u8fd0\u884c\u7684\u8fdb\u7a0b"}
-        return {"success": stopped, "message": "\u6b63\u5728\u505c\u6b62 TCP \u626b\u63cf" if stopped else "\u672a\u627e\u5230\u6b63\u5728\u8fd0\u884c\u7684\u8fdb\u7a0b"}
+            queue_manager.try_dispatch("tcp")
+            return {"success": cleaned, "message": "已清理任务产物" if cleaned else "未找到正在运行的进程"}
+        if stopped:
+            queue_manager.try_dispatch("tcp")
+        return {"success": stopped, "message": "正在停止 TCP 扫描" if stopped else "未找到正在运行的进程"}
 
     def get_results(self, run_id: str) -> dict[str, Any]:
         run = _build_tcp_run_payload(run_id)
@@ -719,6 +687,7 @@ class DnsAdapter(_ProtoAdapter):
         scanner = dns_registry.get_scanner(run_id)
         if scanner and scanner.is_running:
             scanner.stop()
+            queue_manager.try_dispatch("dns")
             return {"success": True, "message": "正在停止 DNS 资源扫描…"}
         return {"success": False, "message": "没有正在运行的扫描"}
 
@@ -878,58 +847,23 @@ def _memcached_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     if not ip_file:
         available = _list_protocol_resources("memcached")
         if not available:
-            return {"success": False, "message": "\u6ca1\u6709\u53ef\u7528\u7684 IP \u5019\u9009\u6587\u4ef6"}, 400
+            return {"success": False, "message": "没有可用的 IP 候选文件"}, 400
         ip_file = available[0]["path"]
+        payload["ip_file"] = ip_file
     resolved_ip_file = _resolve_protocol_resource("memcached", ip_file)
     if resolved_ip_file is None or not resolved_ip_file.exists():
-        return {"success": False, "message": f"IP \u6587\u4ef6\u4e0d\u5b58\u5728: {ip_file}"}, 400
+        return {"success": False, "message": f"IP 文件不存在: {ip_file}"}, 400
 
-    config = MemcachedScanConfig(
-        ip_file=str(resolved_ip_file),
-        output_dir=str(MEMCACHED_OUTPUT_ROOT / memcached_generate_run_id()),
-        cmd_type=str(payload.get("cmd_type", "get")).lower(),
-        data_size_kb=memcached_int_or(payload.get("data_size_kb"), 300),
-        timeout_sec=memcached_float_or(payload.get("timeout_sec"), 3.0),
-        concurrency=memcached_int_or(payload.get("concurrency"), 50),
-        min_amplification=memcached_float_or(payload.get("min_amplification"), 10.0),
-        min_reliability=memcached_float_or(payload.get("min_reliability"), 50.0),
-        max_ips=memcached_int_or(payload.get("max_ips"), 0),
-        memcached_port=memcached_int_or(payload.get("memcached_port"), 11211),
-    )
+    # 校验配置（不创建目录）
+    cmd_type = str(payload.get("cmd_type", "get")).lower()
+    if cmd_type not in MEMCACHED_CMD_TYPES:
+        return {"success": False, "message": f"不支持的命令类型: {cmd_type}"}, 400
 
-    if config.cmd_type not in MEMCACHED_CMD_TYPES:
-        return {"success": False, "message": f"\u4e0d\u652f\u6301\u7684\u547d\u4ee4\u7c7b\u578b: {config.cmd_type}"}, 400
-
-    run_id = Path(config.output_dir).name
-    os.makedirs(config.output_dir, exist_ok=True)
-    log_path = Path(config.output_dir) / "pipeline.log"
-    config_dict = memcached_build_config_dict(config)
-    scanner = MemcachedResourceScanner()
-
-    def log_persister(message: str) -> None:
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(message + "\n")
-
-    def scan_worker() -> None:
-        try:
-            scanner.run_scan(config, log_callback=log_persister)
-        except Exception as exc:
-            memcached_registry.set_error(run_id, f"{exc}\n{traceback.format_exc()}")
-        finally:
-            stats_file = Path(config.output_dir) / "final_stats.json"
-            try:
-                final_stats = scanner.get_stats()
-                final_stats.setdefault("config", config_dict)
-                stats_file.write_text(json.dumps(final_stats, ensure_ascii=False, indent=2), encoding="utf-8")
-            except Exception:
-                pass
-
-    thread = Thread(target=scan_worker, daemon=True)
-    memcached_registry.register(run_id, scanner, thread, config)
-    thread.start()
+    # 入队
+    run_id = queue_manager.enqueue("memcached", payload)
     return {
         "success": True,
-        "message": "Memcached \u8d44\u6e90\u626b\u63cf\u5df2\u542f\u52a8",
+        "message": "Memcached 资源获取任务已加入队列",
         "run_ids": [run_id],
         "runs": [{"run_id": run_id}],
     }, 200
@@ -987,8 +921,9 @@ class MemcachedAdapter(_ProtoAdapter):
         scanner = memcached_registry.get_scanner(run_id)
         if scanner and scanner.is_running:
             scanner.stop()
-            return {"success": True, "message": "\u6b63\u5728\u505c\u6b62 Memcached \u8d44\u6e90\u626b\u63cf..."}
-        return {"success": False, "message": "\u6ca1\u6709\u6b63\u5728\u8fd0\u884c\u7684\u626b\u63cf\u4efb\u52a1"}
+            queue_manager.try_dispatch("memcached")
+            return {"success": True, "message": "正在停止 Memcached 资源扫描..."}
+        return {"success": False, "message": "没有正在运行的扫描任务"}
 
     def get_results(self, run_id: str) -> dict[str, Any]:
         scanner = memcached_registry.get_scanner(run_id)
@@ -1147,55 +1082,21 @@ def _ntp_start(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
         if not available:
             return {"success": False, "message": "没有可用的 IP 候选文件"}, 400
         ip_file = available[0]["path"]
+        payload["ip_file"] = ip_file
     resolved_ip_file = _resolve_protocol_resource("ntp", ip_file)
     if resolved_ip_file is None or not resolved_ip_file.exists():
         return {"success": False, "message": f"IP 文件不存在: {ip_file}"}, 400
 
+    # 校验配置（不创建目录）
     probe_action = str(payload.get("probe_action", "both")).strip().lower()
     if probe_action not in PROBE_ACTIONS:
         probe_action = "both"
 
-    config = NtpScanConfig(
-        ip_file=str(resolved_ip_file),
-        output_dir=str(NTP_OUTPUT_ROOT / ntp_generate_run_id()),
-        probe_action=probe_action,
-        timeout_sec=ntp_float_or(payload.get("timeout_sec"), 3.0),
-        concurrency=ntp_int_or(payload.get("concurrency"), 50),
-        min_amplification=ntp_float_or(payload.get("min_amplification"), 50.0),
-        min_availability=ntp_float_or(payload.get("min_availability"), 30.0),
-        max_ips=ntp_int_or(payload.get("max_ips"), 0),
-    )
-
-    run_id = Path(config.output_dir).name
-    os.makedirs(config.output_dir, exist_ok=True)
-    log_path = Path(config.output_dir) / "pipeline.log"
-    config_dict = ntp_build_config_dict(config)
-    scanner = NTPResourceScanner()
-
-    def log_persister(message: str) -> None:
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(message + "\n")
-
-    def scan_worker() -> None:
-        try:
-            scanner.run_scan(config, log_callback=log_persister)
-        except Exception as exc:  # pragma: no cover - defensive thread path
-            ntp_registry.set_error(run_id, f"{exc}\n{traceback.format_exc()}")
-        finally:
-            stats_file = Path(config.output_dir) / "final_stats.json"
-            try:
-                final_stats = scanner.get_stats()
-                final_stats.setdefault("config", config_dict)
-                stats_file.write_text(json.dumps(final_stats, ensure_ascii=False, indent=2), encoding="utf-8")
-            except Exception:
-                pass
-
-    thread = Thread(target=scan_worker, daemon=True)
-    ntp_registry.register(run_id, scanner, thread, config)
-    thread.start()
+    # 入队
+    run_id = queue_manager.enqueue("ntp", payload)
     return {
         "success": True,
-        "message": "NTP 资源获取任务已创建",
+        "message": "NTP 资源获取任务已加入队列",
         "run_ids": [run_id],
         "runs": [{"run_id": run_id}],
     }, 200
@@ -1254,6 +1155,7 @@ class NtpAdapter(_ProtoAdapter):
         scanner = ntp_registry.get_scanner(run_id)
         if scanner and scanner.is_running:
             scanner.stop()
+            queue_manager.try_dispatch("ntp")
             return {"success": True, "message": "正在停止 NTP 资源扫描…"}
         return {"success": False, "message": "没有正在运行的扫描"}
 
@@ -1379,6 +1281,55 @@ def attack_resource_results(proto: str, run_id: str):
         return jsonify({"success": False, "message": f"Protocol not implemented: {proto}"}), 501
     except FileNotFoundError:
         return jsonify({"success": False, "message": "Run not found"}), 404
+
+
+# ── 队列管理端点 ──────────────────────────────────────────────
+
+
+@attack_resource_bp.route("/<proto>/queue/<run_id>/cancel", methods=["POST"])
+def attack_resource_queue_cancel(proto: str, run_id: str):
+    if proto not in ("tcp", "dns", "ntp", "memcached"):
+        return jsonify({"success": False, "message": f"Protocol not supported: {proto}"}), 400
+    cancelled = queue_manager.cancel(proto, run_id)
+    if cancelled:
+        return jsonify({"success": True, "message": f"已取消排队任务 {run_id}"})
+    return jsonify({"success": False, "message": f"未找到排队任务 {run_id}（可能已启动或已完成）"})
+
+
+@attack_resource_bp.route("/<proto>/queue/<run_id>/move", methods=["POST"])
+def attack_resource_queue_move(proto: str, run_id: str):
+    if proto not in ("tcp", "dns", "ntp", "memcached"):
+        return jsonify({"success": False, "message": f"Protocol not supported: {proto}"}), 400
+    payload = request.get_json(silent=True) or {}
+    direction = str(payload.get("direction", "")).lower()
+    if direction not in ("up", "down"):
+        return jsonify({"success": False, "message": "direction 必须为 up 或 down"}), 400
+    moved = queue_manager.move(proto, run_id, direction)
+    if moved:
+        return jsonify({"success": True, "message": f"任务 {run_id} 已{direction == 'up' and '上移' or '下移'}"})
+    return jsonify({"success": False, "message": f"无法移动任务 {run_id}（可能已在队首/队尾或不存在）"})
+
+
+@attack_resource_bp.route("/queue-config", methods=["GET"])
+def attack_resource_queue_config_get():
+    return jsonify({"success": True, "config": queue_manager.get_config()})
+
+
+@attack_resource_bp.route("/queue-config", methods=["PUT"])
+def attack_resource_queue_config_update():
+    payload = request.get_json(silent=True) or {}
+    new_limits = {}
+    for proto in ("tcp", "dns", "ntp", "memcached"):
+        val = payload.get(proto)
+        if val is not None:
+            try:
+                new_limits[proto] = max(1, int(val))
+            except (TypeError, ValueError):
+                return jsonify({"success": False, "message": f"{proto} 并发上限必须为正整数"}), 400
+    if not new_limits:
+        return jsonify({"success": False, "message": "未提供任何并发上限配置"}), 400
+    updated = queue_manager.update_config(new_limits)
+    return jsonify({"success": True, "message": "队列配置已更新", "config": updated})
 
 
 # ── 统一优质 IP 详情 ──────────────────────────────────────────

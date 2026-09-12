@@ -774,6 +774,23 @@ input:checked+.toggle-slider::before{transform:translateX(20px);background:var(-
 .tcp-run-item-main span,.tcp-run-item-meta span{font-size:10px;word-break:break-word}
 .tcp-run-item-meta{display:grid;gap:2px;text-align:right;color:var(--text-tertiary);font-size:10px}
 
+/* 任务队列排队项 & 状态栏 */
+.queue-item{border-color:var(--border-warning, #f59e0b);background:var(--bg-warning-soft, #fffbeb);cursor:default}
+.queue-item:hover{background:var(--bg-warning-hover, #fef3c7)}
+.queue-actions{display:flex;gap:4px;align-items:center}
+.queue-actions button{padding:2px 6px;font-size:11px;line-height:1.2}
+.queue-status-bar{
+  display:flex;justify-content:space-between;align-items:center;gap:8px;
+  padding:6px 10px;margin-bottom:6px;
+  border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
+  background:var(--bg-overlay-hover);
+  font-size:11px;
+}
+.queue-status-info{display:flex;gap:12px;color:var(--text-secondary)}
+.queue-status-info strong{color:var(--text-brand)}
+.queue-status-config{display:flex;align-items:center;gap:4px}
+.queue-status-config label{font-size:10px;color:var(--text-tertiary)}
+
 .tcp-run-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:12px}
 .tcp-run-meta-item{
   padding:9px 10px;

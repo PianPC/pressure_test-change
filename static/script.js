@@ -5380,6 +5380,9 @@ class AttackResourceTaskController {
         this.currentRun = null;
         this.runs = [];
         this.activeRunIds = [];
+        this.queuedRuns = [];
+        this.queueEvents = [];
+        this.queueConfig = {};
         this.pollTimer = null;
     }
 
@@ -5654,7 +5657,11 @@ class AttackResourceTaskController {
             if (!data.success) throw new Error(data.message || "加载任务列表失败");
             this.runs = Array.isArray(data.runs) ? data.runs : [];
             this.activeRunIds = Array.isArray(data.active_run_ids) ? data.active_run_ids : [];
+            this.queuedRuns = Array.isArray(data.queued_runs) ? data.queued_runs : [];
+            this.queueEvents = Array.isArray(data.queue_events) ? data.queue_events : [];
+            this.queueConfig = data.queue_config || {};
             this.renderRunList();
+            this.renderQueueStatusBar();
             const preferred = this.pickPreferredRun();
             if (!preferred) {
                 this.renderEmptyState();
@@ -5665,7 +5672,7 @@ class AttackResourceTaskController {
             this.currentRunId = preferred.run_id;
             this.renderRunList();
             await this.loadRunDetail(this.currentRunId);
-            if (!this.activeRunIds.length) this.stopPolling();
+            if (!this.activeRunIds.length && !this.queuedRuns.length) this.stopPolling();
             else this.startPolling();
             this.syncLegacyState();
             updateWorkflowIndicators();
@@ -5687,11 +5694,31 @@ class AttackResourceTaskController {
     renderRunList() {
         const container = this._getElement("run-list");
         if (!container) return;
-        if (!this.runs.length) {
+        if (!this.runs.length && !this.queuedRuns.length) {
             container.innerHTML = `<div class="info-text">暂无 ${this.config.displayName} 资源获取任务。</div>`;
             return;
         }
-        container.innerHTML = this.runs.map((run) => {
+        // 排队任务渲染在顶部
+        const queuedHtml = this.queuedRuns.map((task) => {
+            const pos = task.queue_position || 0;
+            const summary = task.payload_summary || {};
+            const ipFile = summary.ip_file ? summary.ip_file.split("/").pop() : "-";
+            const pktInfo = summary.pkt_method || summary.query_type || summary.probe_action || "-";
+            return `
+                <div class="tcp-run-item queue-item" data-queue-run-id="${escapeHtml(task.run_id)}">
+                    <span class="tcp-run-item-main">
+                        <span>排队中 #${pos} — ${escapeHtml(task.run_id)}</span>
+                        <span>${escapeHtml(ipFile)} / ${escapeHtml(pktInfo)}</span>
+                    </span>
+                    <span class="tcp-run-item-meta queue-actions">
+                        <button type="button" class="btn btn-outline btn-sm queue-move-btn" data-queue-move="up" data-queue-run-id="${escapeHtml(task.run_id)}" title="上移">▲</button>
+                        <button type="button" class="btn btn-outline btn-sm queue-move-btn" data-queue-move="down" data-queue-run-id="${escapeHtml(task.run_id)}" title="下移">▼</button>
+                        <button type="button" class="btn btn-danger btn-sm queue-cancel-btn" data-queue-run-id="${escapeHtml(task.run_id)}" title="取消">✕</button>
+                    </span>
+                </div>
+            `;
+        }).join("");
+        const runsHtml = this.runs.map((run) => {
             const active = run.run_id === this.currentRunId;
             const statusText = getAttackResourceStatusText(run.status);
             return `
@@ -5707,6 +5734,8 @@ class AttackResourceTaskController {
                 </button>
             `;
         }).join("");
+        container.innerHTML = queuedHtml + runsHtml;
+        // 绑定运行中任务点击
         container.querySelectorAll("[data-run-id]").forEach((item) => {
             item.addEventListener("click", async () => {
                 this.currentRunId = item.getAttribute("data-run-id");
@@ -5716,6 +5745,105 @@ class AttackResourceTaskController {
                 updateWorkflowIndicators();
             });
         });
+        // 绑定排队任务操作按钮
+        container.querySelectorAll(".queue-move-btn").forEach((btn) => {
+            btn.addEventListener("click", async (e) => {
+                e.stopPropagation();
+                const runId = btn.getAttribute("data-queue-run-id");
+                const direction = btn.getAttribute("data-queue-move");
+                await this.moveQueueTask(runId, direction);
+            });
+        });
+        container.querySelectorAll(".queue-cancel-btn").forEach((btn) => {
+            btn.addEventListener("click", async (e) => {
+                e.stopPropagation();
+                const runId = btn.getAttribute("data-queue-run-id");
+                await this.cancelQueueTask(runId);
+            });
+        });
+    }
+
+    renderQueueStatusBar() {
+        const panel = this.getPanel();
+        if (!panel) return;
+        let bar = panel.querySelector(".queue-status-bar");
+        const cfg = this.queueConfig || {};
+        const running = cfg.running || 0;
+        const maxC = cfg.max_concurrent || 0;
+        const queued = cfg.queued || 0;
+        if (!maxC && !queued) return;
+        if (!bar) {
+            bar = document.createElement("div");
+            bar.className = "queue-status-bar";
+            const list = this._getElement("run-list");
+            if (list && list.parentNode) {
+                list.parentNode.insertBefore(bar, list);
+            } else {
+                panel.prepend(bar);
+            }
+        }
+        bar.innerHTML = `
+            <div class="queue-status-info">
+                <span>运行中 <strong>${running}</strong> / ${maxC}</span>
+                <span>排队 <strong>${queued}</strong></span>
+            </div>
+            <div class="queue-status-config">
+                <label>并发上限</label>
+                <input type="number" min="1" max="10" value="${maxC}" class="queue-max-input" data-proto="${this.proto}" style="width: 50px;" />
+                <button type="button" class="btn btn-outline btn-sm queue-save-btn" data-proto="${this.proto}">保存</button>
+            </div>
+        `;
+        const saveBtn = bar.querySelector(".queue-save-btn");
+        if (saveBtn) {
+            saveBtn.onclick = async () => {
+                const input = bar.querySelector(".queue-max-input");
+                const val = parseInt(input?.value || "3", 10);
+                await this.updateQueueConfig({ [this.proto]: val });
+            };
+        }
+    }
+
+    async cancelQueueTask(runId) {
+        try {
+            const response = await fetch(`/api/attack-resource/${this.proto}/queue/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || "取消失败");
+            showNotification(data.message || "已取消排队任务", "success");
+            await this.refresh();
+        } catch (error) {
+            showNotification(`${this.config.displayName} 取消排队任务失败：${error.message}`, "error");
+        }
+    }
+
+    async moveQueueTask(runId, direction) {
+        try {
+            const response = await fetch(`/api/attack-resource/${this.proto}/queue/${encodeURIComponent(runId)}/move`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ direction }),
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || "移动失败");
+            await this.refresh();
+        } catch (error) {
+            showNotification(`${this.config.displayName} 调整排队顺序失败：${error.message}`, "error");
+        }
+    }
+
+    async updateQueueConfig(limits) {
+        try {
+            const response = await fetch("/api/attack-resource/queue-config", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(limits),
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.message || "配置更新失败");
+            showNotification(data.message || "队列配置已更新", "success");
+            await this.refresh();
+        } catch (error) {
+            showNotification(`${this.config.displayName} 队列配置更新失败：${error.message}`, "error");
+        }
     }
 
     async loadRunDetail(runId) {

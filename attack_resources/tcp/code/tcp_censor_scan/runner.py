@@ -431,9 +431,10 @@ def _write_qualified_ips(
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def prepare_run(cfg: ScanConfig) -> Path:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_id = f"{timestamp}_{cfg.ip_file.stem}_{cfg.pkt_method}_{_safe_host(cfg.target_host)}"
+def prepare_run(cfg: ScanConfig, run_id: str | None = None) -> Path:
+    if run_id is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_id = f"{timestamp}_{cfg.ip_file.stem}_{cfg.pkt_method}_{_safe_host(cfg.target_host)}"
     run_dir = cfg.output_root / run_id
     suffix = 1
     while run_dir.exists():

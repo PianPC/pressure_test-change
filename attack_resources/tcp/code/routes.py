@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, request
 
 from attack_resources.shared.ip_resource_catalog import resolve_protocol_resource_path
 from attack_resources.shared.qualified_pool import aggregate_quality_ips
+from attack_resources.shared.task_queue import queue_manager
 from attack_resources.tcp.code.tcp_censor_scan import (
     cleanup_run_artifacts,
     load_config,
@@ -101,11 +102,17 @@ def tcp_scan_preflight():
 def tcp_scan_runs():
     runs = list_runs(TCP_OUTPUT_ROOT)
     active_run_ids = tcp_scan_registry.active_run_ids()
+    queued_runs = queue_manager.get_queue("tcp")
+    queue_events = queue_manager.get_events("tcp")
+    queue_cfg = queue_manager.get_config()
     return jsonify({
         "success": True,
         "runs": runs,
         "active_run_ids": active_run_ids,
         "running_count": len(active_run_ids),
+        "queued_runs": queued_runs,
+        "queue_events": queue_events,
+        "queue_config": queue_cfg.get("tcp", {}),
     })
 
 
@@ -138,53 +145,27 @@ def tcp_scan_clear_runs():
 def tcp_scan_start():
     payload = request.get_json(silent=True) or {}
     methods = payload.get("pkt_methods") or [payload.get("pkt_method")]
-    created: list[dict[str, Any]] = []
 
+    # 参数校验（快速失败，不在此处做预检——出队启动时再校验）
     try:
         configs = [_config_from_request({**payload, "pkt_method": method}) for method in methods if method]
     except (ConfigError, ValueError) as exc:
         return jsonify({"success": False, "message": str(exc)}), 400
 
+    # 入队（同批保持连续顺序）
+    created: list[dict[str, Any]] = []
     for config in configs:
-        if not config.dry_run:
-            report = preflight_check(config)
-            if not report["ok"]:
-                return jsonify({"success": False, "message": "预检未通过", "report": report}), 400
-
-    for config in configs:
-        metadata = _prepare_run_metadata(config)
-        run_id = metadata["run_id"]
+        task_payload = {**payload, "pkt_method": config.pkt_method}
+        run_id = queue_manager.enqueue("tcp", task_payload)
         created.append({
             "run_id": run_id,
             "pkt_method": config.pkt_method,
             "target_host": config.target_host,
         })
 
-        def worker(cfg: ScanConfig = config, current_run_id: str = run_id) -> None:
-            try:
-                run_pipeline(cfg, run_dir=TCP_OUTPUT_ROOT / current_run_id)
-                try:
-                    task_qualified_ips_path = os.path.join(
-                        str(TCP_OUTPUT_ROOT / current_run_id), "qualified_ips.txt"
-                    )
-                    agg_result = aggregate_quality_ips("tcp", task_qualified_ips_path)
-                    logger.info(
-                        "已聚合 %d 个优质 IP 到 tcp 质量池，总计 %d 个",
-                        agg_result.get("added_count", 0),
-                        agg_result.get("total_count", 0),
-                    )
-                except Exception as agg_exc:
-                    logger.error("聚合优质 IP 到 tcp 质量池失败: %s", agg_exc)
-            except Exception as exc:
-                tcp_scan_registry.set_error(current_run_id, f"{exc}\n{traceback.format_exc()}")
-
-        thread = Thread(target=worker, daemon=True)
-        tcp_scan_registry.register(run_id, thread)
-        thread.start()
-
     return jsonify({
         "success": True,
-        "message": "TCP 扫描任务已创建",
+        "message": "TCP 扫描任务已加入队列",
         "run_ids": [item["run_id"] for item in created],
         "runs": created,
     })
@@ -222,7 +203,10 @@ def tcp_scan_stop(run_id: str):
     stopped = stop_run(run_id, TCP_OUTPUT_ROOT, cleanup=cleanup)
     if not stopped and cleanup:
         cleaned = cleanup_run_artifacts(run_id, TCP_OUTPUT_ROOT)
+        queue_manager.try_dispatch("tcp")
         return jsonify({"success": cleaned, "message": "已清理任务产物" if cleaned else "No running process found"})
+    if stopped:
+        queue_manager.try_dispatch("tcp")
     return jsonify({"success": stopped, "message": "Stopping TCP scan" if stopped else "No running process found"})
 
 
@@ -332,3 +316,65 @@ def _float_or(value, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+# ── 队列调度接入 ──────────────────────────────────────────
+
+
+def launch_tcp_run(payload: dict[str, Any], run_id: str) -> bool:
+    """队列调度器调用的启动函数：重新解析配置→预检→prepare_run→起线程→注册。
+
+    成功返回 True，失败返回 False（调度器会标记 failed_to_start 并继续下一个）。
+    """
+    try:
+        config = _config_from_request(payload)
+    except (ConfigError, ValueError) as exc:
+        logger.error("TCP 任务配置失败 %s: %s", run_id, exc)
+        return False
+
+    # 出队时重新执行预检（环境可能在排队期间变化）
+    if not config.dry_run:
+        try:
+            report = preflight_check(config)
+        except Exception as exc:
+            logger.error("TCP 预检异常 %s: %s", run_id, exc)
+            return False
+        if not report["ok"]:
+            logger.error("TCP 预检未通过 %s", run_id)
+            return False
+
+    try:
+        prepare_run(config, run_id=run_id)
+    except Exception as exc:
+        logger.error("TCP 创建运行目录失败 %s: %s", run_id, exc)
+        return False
+
+    def worker(cfg: ScanConfig = config, current_run_id: str = run_id) -> None:
+        try:
+            run_pipeline(cfg, run_dir=TCP_OUTPUT_ROOT / current_run_id)
+            try:
+                task_qualified_ips_path = os.path.join(
+                    str(TCP_OUTPUT_ROOT / current_run_id), "qualified_ips.txt"
+                )
+                agg_result = aggregate_quality_ips("tcp", task_qualified_ips_path)
+                logger.info(
+                    "已聚合 %d 个优质 IP 到 tcp 质量池，总计 %d 个",
+                    agg_result.get("added_count", 0),
+                    agg_result.get("total_count", 0),
+                )
+            except Exception as agg_exc:
+                logger.error("聚合优质 IP 到 tcp 质量池失败: %s", agg_exc)
+        except Exception as exc:
+            tcp_scan_registry.set_error(current_run_id, f"{exc}\n{traceback.format_exc()}")
+        finally:
+            queue_manager.on_task_finished("tcp")
+
+    thread = Thread(target=worker, daemon=True)
+    tcp_scan_registry.register(run_id, thread)
+    thread.start()
+    return True
+
+
+# 注册到队列管理器
+queue_manager.register_launcher("tcp", launch_tcp_run)
+queue_manager.register_running_counter("tcp", lambda: len(tcp_scan_registry.active_run_ids()))

@@ -39,6 +39,7 @@ from attack_resources.shared.ip_resource_catalog import (
     resolve_protocol_resource_path,
 )
 from attack_resources.shared.qualified_pool import aggregate_quality_ips
+from attack_resources.shared.task_queue import queue_manager
 
 logger = logging.getLogger(__name__)
 
@@ -277,11 +278,17 @@ def create_scan_blueprint(
         output_root = current_output_root()
         runs = _list_run_dirs(output_root, registry)
         active = registry.active_run_ids()
+        queued_runs = queue_manager.get_queue(spec.protocol)
+        queue_events = queue_manager.get_events(spec.protocol)
+        queue_cfg = queue_manager.get_config()
         return jsonify({
             "success": True,
             "runs": runs,
             "active_run_ids": active,
             "running_count": len(active),
+            "queued_runs": queued_runs,
+            "queue_events": queue_events,
+            "queue_config": queue_cfg.get(spec.protocol, {}),
         })
 
     @bp.route("/runs/<run_id>", methods=["GET"])
@@ -366,6 +373,7 @@ def create_scan_blueprint(
         scanner = registry.get_scanner(run_id)
         if scanner and scanner.is_running:
             scanner.stop()
+            queue_manager.try_dispatch(spec.protocol)
             return jsonify({
                 "success": True,
                 "message": f"正在停止 {spec.display_name} 资源扫描 …",
@@ -457,17 +465,17 @@ def create_scan_blueprint(
 
     @bp.route("/runs", methods=["POST"])
     def start_scan():
-        """启动一次协议资源扫描"""
-        output_root = current_output_root()
+        """启动一次协议资源扫描（入队，由调度器按额度启动）"""
         payload = request.get_json(silent=True) or {}
 
+        # 参数校验（快速失败）——出队启动时会重新校验
         ip_file = str(payload.get("ip_file") or "")
         if not ip_file:
-            # 尝试从共享目录查找
             available = _list_ip_files(spec.protocol, spec.attack_resources_root)
             if not available:
                 return jsonify({"success": False, "message": "没有可用的 IP 候选文件"}), 400
             ip_file = available[0]["path"]
+            payload["ip_file"] = ip_file
 
         resolved_ip_file = _resolve_ip_file(
             spec.protocol, spec.attack_resources_root, ip_file
@@ -475,17 +483,53 @@ def create_scan_blueprint(
         if resolved_ip_file is None or not resolved_ip_file.exists():
             return jsonify({"success": False, "message": f"IP 文件不存在: {ip_file}"}), 400
 
-        run_id = _generate_run_id(spec.run_id_prefix)
-        output_dir = str(output_root / run_id)
-
-        config, error = spec.build_config(resolved_ip_file, output_dir, payload)
+        # 校验配置（不创建目录，仅检查参数合法性）
+        output_root = current_output_root()
+        dummy_output_dir = str(output_root / "__dummy_check__")
+        config, error = spec.build_config(resolved_ip_file, dummy_output_dir, payload)
         if error is not None:
             message, status = error
             return jsonify({"success": False, "message": message}), status
 
-        scanner = spec.scanner_factory()
+        # 入队
+        run_id = queue_manager.enqueue(spec.protocol, payload)
+        return jsonify({
+            "success": True,
+            "message": f"{spec.display_name} 资源扫描任务已加入队列",
+            "run_id": run_id,
+            "ip_file": os.path.basename(str(resolved_ip_file)),
+            "config": spec.config_to_dict(config),
+            "total_ips": 0,
+        })
 
-        # 日志持久化
+    def _launch_scan(payload: Dict[str, Any], run_id: str) -> bool:
+        """队列调度器调用的启动函数。
+
+        出队时重新解析配置→创建输出目录→起线程→注册。
+        成功返回 True，失败返回 False。
+        """
+        output_root = current_output_root()
+
+        # 重新解析 IP 文件（排队期间可能已被删除）
+        ip_file = str(payload.get("ip_file") or "")
+        if not ip_file:
+            logger.error("%s 任务启动失败 %s: 缺少 ip_file", spec.protocol, run_id)
+            return False
+        resolved_ip_file = _resolve_ip_file(
+            spec.protocol, spec.attack_resources_root, ip_file
+        )
+        if resolved_ip_file is None or not resolved_ip_file.exists():
+            logger.error("%s 任务启动失败 %s: IP 文件不存在 %s", spec.protocol, run_id, ip_file)
+            return False
+
+        output_dir = str(output_root / run_id)
+        config, error = spec.build_config(resolved_ip_file, output_dir, payload)
+        if error is not None:
+            message, _ = error
+            logger.error("%s 任务配置失败 %s: %s", spec.protocol, run_id, message)
+            return False
+
+        scanner = spec.scanner_factory()
         os.makedirs(output_dir, exist_ok=True)
         log_path = os.path.join(output_dir, "pipeline.log")
         config_dict = spec.config_to_dict(config)
@@ -520,19 +564,17 @@ def create_scan_blueprint(
                         json.dump(final_stats, f, ensure_ascii=False, indent=2)
                 except Exception:
                     pass
+                # 通知队列管理器任务结束
+                queue_manager.on_task_finished(spec.protocol)
 
         thread = Thread(target=scan_worker, daemon=True)
         registry.register(run_id, scanner, thread, config)
         thread.start()
+        return True
 
-        return jsonify({
-            "success": True,
-            "message": f"{spec.display_name} 资源扫描已启动",
-            "run_id": run_id,
-            "ip_file": os.path.basename(str(resolved_ip_file)),
-            "config": config_dict,
-            "total_ips": 0,
-        })
+    # 注册到队列管理器
+    queue_manager.register_launcher(spec.protocol, _launch_scan)
+    queue_manager.register_running_counter(spec.protocol, lambda: len(registry.active_run_ids()))
 
     if register_extra_routes is not None:
         register_extra_routes(bp)

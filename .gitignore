@@ -24,8 +24,12 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Local API credentials (runtime-generated, never commit)
+# 本地 API credentials (runtime-generated, never commit)
 attack_resources/shared/api_credentials.json
+
+# 任务队列运行时状态（队列状态 + 并发上限配置）
+attack_resources/shared/queue_state.json
+attack_resources/shared/queue_config.json
 
 # ZMap build artifacts and binaries (machine-specific, must rebuild on each device)
 vendor/weaponizing-censors/*/build/

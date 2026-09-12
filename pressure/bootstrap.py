@@ -117,6 +117,10 @@ def create_app(
     app.register_blueprint(create_pressure_blueprint(state))
     register_protocol_blueprints(app)
 
+    # 初始化任务队列管理器（恢复持久化队列 + 启动 watcher 兜底线程）
+    from attack_resources.shared.task_queue import queue_manager
+    queue_manager.start_watcher()
+
     # 暴露 state 到 app.extensions，便于测试或蓝图内需要时访问
     app.extensions["pressure_state"] = state
 
