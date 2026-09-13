@@ -3,6 +3,12 @@ let selectedProtocols = [];
 let isMultiProtocol = false;
 let ppsChart = null;
 let ppsDataPoints = [];
+const chartData = {
+    pps: { points: [], label: "发送速率 (pps)", color: "#40e7ff", yTitle: "PPS" },
+    bandwidth: { points: [], label: "出向带宽 (Mbps)", color: "#32F08C", yTitle: "Mbps" },
+    amplification: { points: [], label: "放大倍数 (x)", color: "#ffbd5c", yTitle: "x" }
+};
+let currentChartMetric = "pps";
 let latencyChart = null;
 let latencyDataPoints = [];
 let latencyMonitorInterval = null;
@@ -15,7 +21,8 @@ let currentProto = "tcp";
 let serverGlobe = null;
 let lastGeoPoints = [];
 let lastGeoAreas = [];
-let serverMapMode = "3d";
+let serverMapMode = "2d";
+let globeScriptPromise = null;
 let serverMapShapes = null;
 let serverMap2dZoomTransform = null;
 let isGeoMapLoading = false;
@@ -316,7 +323,7 @@ const ApiCredentialUi = (() => {
         '<strong>更换场景</strong>：若当前 API key 余额不足或失效，直接在下方输入框填入新的 Email 和 API Key，点击「替换保存」即可覆盖。无需先清除。'
     ];
     const FOFA_COOKIE_AUTO_GUIDE = [
-        '<strong style="color:#ff9800;">⚠️ 提示：FOFA 使用服务端渲染，Cookie 模式可获取数据但受 web_query 配额限制（免费账号约 300 次/天）。如配额耗尽，请改用 API 密钥或等待次日刷新。</strong>',
+        '<strong style="color:var(--status-warning);">⚠️ 提示：FOFA 使用服务端渲染，Cookie 模式可获取数据但受 web_query 配额限制（免费账号约 300 次/天）。如配额耗尽，请改用 API 密钥或等待次日刷新。</strong>',
         '在浏览器中访问 <a href="https://fofa.info" target="_blank" rel="noopener noreferrer">https://fofa.info</a> 并登录账号',
         '确保登录成功',
         '回到本页面点击下方「保存/替换」按钮，系统自动读取浏览器中的 FOFA cookie',
@@ -325,7 +332,7 @@ const ApiCredentialUi = (() => {
         '<strong>注意：Cookie 过期后重新执行①-⑤即可替换。如遇 Cloudflare 拦截，请改用 API 密钥。</strong>'
     ];
     const FOFA_COOKIE_MANUAL_GUIDE = [
-        '<strong style="color:#ff9800;">⚠️ 提示：FOFA 使用服务端渲染，Cookie 模式可获取数据但受 web_query 配额限制（免费账号约 300 次/天）。如配额耗尽，请改用 API 密钥或等待次日刷新。</strong>',
+        '<strong style="color:var(--status-warning);">⚠️ 提示：FOFA 使用服务端渲染，Cookie 模式可获取数据但受 web_query 配额限制（免费账号约 300 次/天）。如配额耗尽，请改用 API 密钥或等待次日刷新。</strong>',
         '在浏览器中访问 <a href="https://fofa.info" target="_blank" rel="noopener noreferrer">https://fofa.info</a> 并登录',
         '按 F12 打开开发者工具，切换到 Network 标签',
         '刷新页面，在请求列表中点击任意一个请求',
@@ -425,7 +432,7 @@ const ApiCredentialUi = (() => {
         const srcData = (credentialStatusCache?.credentials?.[source]) || {};
         const configured = isCurrentMethodConfigured(srcData);
         if (configured) {
-            el.innerHTML = `<span style="color:green;">当前方式已配置。输入新值将<strong>替换</strong>旧配置。</span>`;
+            el.innerHTML = `<span style="color:var(--status-success);">当前方式已配置。输入新值将<strong>替换</strong>旧配置。</span>`;
         } else {
             el.innerHTML = `<span style="color:var(--text-tertiary);">当前方式未配置。</span>`;
         }
@@ -550,12 +557,12 @@ const ApiCredentialUi = (() => {
             const values = getFormValues();
             if (source === 'fofa') {
                 if (!values.email || !values.key) {
-                    statusEl.innerHTML = '<span style="color:red;">请先填写 Email 和 API Key</span>';
+                    statusEl.innerHTML = '<span style="color:var(--status-error);">请先填写 Email 和 API Key</span>';
                     return;
                 }
             } else {
                 if (!values.api_key) {
-                    statusEl.innerHTML = '<span style="color:red;">请先填写 API Key</span>';
+                    statusEl.innerHTML = '<span style="color:var(--status-error);">请先填写 API Key</span>';
                     return;
                 }
             }
@@ -563,28 +570,28 @@ const ApiCredentialUi = (() => {
             const result = await ApiCredentialManager.testCredentials(source, values);
             let html = '';
             if (result.success && result.valid) {
-                html = `<span style="color:green;">API 密钥有效${result.user ? '，账号: ' + escapeHtml(result.user) : ''}</span>`;
+                html = `<span style="color:var(--status-success);">API 密钥有效${result.user ? '，账号: ' + escapeHtml(result.user) : ''}</span>`;
                 if (source === 'shodan' && result.query_credits !== undefined) {
                     html += `<div style="margin-top:4px;color:var(--text-secondary);">Plan: ${escapeHtml(String(result.plan || '-'))} | 查询额度: ${result.query_credits} | 扫描额度: ${result.scan_credits}</div>`;
                 }
             } else if (result.success && !result.valid) {
-                html = `<span style="color:red;">API 密钥无效: ${escapeHtml(result.error || '凭据无效')}</span>`;
+                html = `<span style="color:var(--status-error);">API 密钥无效: ${escapeHtml(result.error || '凭据无效')}</span>`;
             } else {
-                html = `<span style="color:red;">请求失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
+                html = `<span style="color:var(--status-error);">请求失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
             }
             if (result.warning) {
-                html += `<div style="margin-top:6px;color:#ff9800;font-size:13px;">⚠️ ${escapeHtml(result.warning)}</div>`;
+                html += `<div style="margin-top:6px;color:var(--status-warning);font-size:13px;">⚠️ ${escapeHtml(result.warning)}</div>`;
             }
             statusEl.innerHTML = html;
         } else {
             statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在测试 Cookie 登录态...</span>';
             const result = await ApiCredentialManager.testCookies(source);
             if (result.success && result.valid) {
-                statusEl.innerHTML = `<span style="color:green;">Cookie 有效，页面含 ${result.ip_count || 0} 个 IP</span>`;
+                statusEl.innerHTML = `<span style="color:var(--status-success);">Cookie 有效，页面含 ${result.ip_count || 0} 个 IP</span>`;
             } else if (result.success && !result.valid) {
-                statusEl.innerHTML = `<span style="color:red;">Cookie 无效: ${escapeHtml(result.error || '登录态失效')}</span>`;
+                statusEl.innerHTML = `<span style="color:var(--status-error);">Cookie 无效: ${escapeHtml(result.error || '登录态失效')}</span>`;
             } else {
-                statusEl.innerHTML = `<span style="color:red;">请求失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
+                statusEl.innerHTML = `<span style="color:var(--status-error);">请求失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
             }
         }
     }
@@ -599,12 +606,12 @@ const ApiCredentialUi = (() => {
             const values = getFormValues();
             if (source === 'fofa') {
                 if (!values.email || !values.key) {
-                    statusEl.innerHTML = '<span style="color:red;">请填写 Email 和 API Key</span>';
+                    statusEl.innerHTML = '<span style="color:var(--status-error);">请填写 Email 和 API Key</span>';
                     return;
                 }
             } else {
                 if (!values.api_key) {
-                    statusEl.innerHTML = '<span style="color:red;">请填写 API Key</span>';
+                    statusEl.innerHTML = '<span style="color:var(--status-error);">请填写 API Key</span>';
                     return;
                 }
             }
@@ -616,37 +623,37 @@ const ApiCredentialUi = (() => {
             statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在保存...</span>';
             const result = await ApiCredentialManager.saveCredentials(source, values);
             if (!result.success) {
-                statusEl.innerHTML = `<span style="color:red;">保存失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
+                statusEl.innerHTML = `<span style="color:var(--status-error);">保存失败: ${escapeHtml(result.message || result.error || '未知错误')}</span>`;
                 return;
             }
             if (result.valid) {
-                statusEl.innerHTML = `<span style="color:green;">${label} API 密钥已保存</span>`;
+                statusEl.innerHTML = `<span style="color:var(--status-success);">${label} API 密钥已保存</span>`;
             } else {
-                statusEl.innerHTML = `<span style="color:orange;">密钥已保存，但测试失败: ${escapeHtml(result.error || '未知错误')}。可稍后重试或更换。</span>`;
+                statusEl.innerHTML = `<span style="color:var(--status-warning);">密钥已保存，但测试失败: ${escapeHtml(result.error || '未知错误')}。可稍后重试或更换。</span>`;
             }
         } else if (currentMethod === 'cookie-auto') {
             statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在从浏览器自动获取 Cookie...</span>';
             const result = await ApiCredentialManager.autoExtractCookies(source);
             if (!result.success) {
-                statusEl.innerHTML = `<span style="color:red;">自动获取失败: ${escapeHtml(result.message || '未知错误')}</span>`;
+                statusEl.innerHTML = `<span style="color:var(--status-error);">自动获取失败: ${escapeHtml(result.message || '未知错误')}</span>`;
                 return;
             }
-            statusEl.innerHTML = `<span style="color:green;">${label} Cookie 已自动获取并保存（${result.count || 0} 项）</span>`;
+            statusEl.innerHTML = `<span style="color:var(--status-success);">${label} Cookie 已自动获取并保存（${result.count || 0} 项）</span>`;
         } else {
             const values = getFormValues();
             if (!values.cookie_string || !values.cookie_string.trim()) {
-                statusEl.innerHTML = '<span style="color:red;">请粘贴 Cookie 字符串</span>';
+                statusEl.innerHTML = '<span style="color:var(--status-error);">请粘贴 Cookie 字符串</span>';
                 return;
             }
             statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在保存 Cookie...</span>';
             const result = await ApiCredentialManager.saveCookies(source, values.cookie_string);
             if (!result.success) {
-                statusEl.innerHTML = `<span style="color:red;">保存失败: ${escapeHtml(result.message || '未知错误')}</span>`;
+                statusEl.innerHTML = `<span style="color:var(--status-error);">保存失败: ${escapeHtml(result.message || '未知错误')}</span>`;
                 return;
             }
-            let html = `<span style="color:green;">${label} Cookie 已保存</span>`;
+            let html = `<span style="color:var(--status-success);">${label} Cookie 已保存</span>`;
             if (result.warning) {
-                html += `<div style="margin-top:6px;color:#ff9800;font-size:13px;">⚠️ ${escapeHtml(result.warning)}</div>`;
+                html += `<div style="margin-top:6px;color:var(--status-warning);font-size:13px;">⚠️ ${escapeHtml(result.warning)}</div>`;
             }
             statusEl.innerHTML = html;
         }
@@ -673,18 +680,18 @@ const ApiCredentialUi = (() => {
             statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在清除...</span>';
             const result = await ApiCredentialManager.clearCredentials(source);
             if (result.success) {
-                statusEl.innerHTML = `<span style="color:green;">${label} API 密钥已清除</span>`;
+                statusEl.innerHTML = `<span style="color:var(--status-success);">${label} API 密钥已清除</span>`;
             } else {
-                statusEl.innerHTML = `<span style="color:red;">清除失败: ${escapeHtml(result.message || '未知错误')}</span>`;
+                statusEl.innerHTML = `<span style="color:var(--status-error);">清除失败: ${escapeHtml(result.message || '未知错误')}</span>`;
             }
         } else {
             if (!confirm(`确定要清除已保存的 ${label} Cookie 吗？（API 密钥不受影响）`)) return;
             statusEl.innerHTML = '<span style="color:var(--text-tertiary);">正在清除...</span>';
             const result = await ApiCredentialManager.clearCookies(source);
             if (result.success) {
-                statusEl.innerHTML = `<span style="color:green;">${label} Cookie 已清除</span>`;
+                statusEl.innerHTML = `<span style="color:var(--status-success);">${label} Cookie 已清除</span>`;
             } else {
-                statusEl.innerHTML = `<span style="color:red;">清除失败: ${escapeHtml(result.message || '未知错误')}</span>`;
+                statusEl.innerHTML = `<span style="color:var(--status-error);">清除失败: ${escapeHtml(result.message || '未知错误')}</span>`;
             }
         }
         await renderMethodStatus();
@@ -1012,7 +1019,7 @@ const IPResourceUi = (() => {
             const configured = source === 'sonar' ? true : isSourceConfigured(source);
             if (!configured) {
                 container.innerHTML = `
-                    <div class="form-group" style="background:rgba(255,80,80,0.12);border:1px solid rgba(255,80,80,0.5);padding:8px 12px;border-radius:4px;color:#ff6b6b;">
+                    <div class="form-group source-unconfigured">
                         <div>该数据源需要 API 密钥，当前未配置。</div>
                         <button type="button" id="ipResourceFetchConfigBtn" class="btn btn-primary" style="margin-top:6px;">立即配置</button>
                     </div>`;
@@ -1081,24 +1088,24 @@ const IPResourceUi = (() => {
 
                 if (successCount === 0) {
                     // 全部失败：橙色警告，不自动关闭
-                    let html = `<span style="color:#ff9800;">⚠️ 获取完成，但未提取到任何 IP（可能是免费账号受限或网站改版）</span>`;
+                    let html = `<span style="color:var(--status-warning);">⚠️ 获取完成，但未提取到任何 IP（可能是免费账号受限或网站改版）</span>`;
                     if (failedFiles.length > 0) {
                         html += `<details style="margin-top:8px;">
-                            <summary style="cursor:pointer;color:var(--accent-primary);font-size:13px;">查看失败详情</summary>
+                            <summary style="cursor:pointer;color:var(--text-brand);font-size:13px;">查看失败详情</summary>
                             <div style="margin-top:6px;padding:8px;background:rgba(255,255,255,0.05);border-radius:4px;font-size:12px;color:var(--text-secondary);max-height:200px;overflow-y:auto;">
-                                ${failedFiles.map(f => `<div style="margin-bottom:4px;"><strong>${escapeHtml(f.protocol || '?')}:</strong> <span style="color:#ff9800;">${escapeHtml(f.error || 'ip_count=0')}</span></div>`).join('')}
+                                ${failedFiles.map(f => `<div style="margin-bottom:4px;"><strong>${escapeHtml(f.protocol || '?')}:</strong> <span style="color:var(--status-warning);">${escapeHtml(f.error || 'ip_count=0')}</span></div>`).join('')}
                             </div>
                         </details>`;
                     }
                     statusEl.innerHTML = html;
                 } else if (successCount < files.length) {
                     // 部分成功：黄色提示，3 秒后关闭
-                    let html = `<span style="color:#ffeb3b;">⚠️ 获取完成，成功 ${successCount}/${files.length} 个资源（部分失败）</span>`;
+                    let html = `<span style="color:var(--status-warning);">⚠️ 获取完成，成功 ${successCount}/${files.length} 个资源（部分失败）</span>`;
                     if (failedFiles.length > 0) {
                         html += `<details style="margin-top:8px;">
-                            <summary style="cursor:pointer;color:var(--accent-primary);font-size:13px;">查看失败详情</summary>
+                            <summary style="cursor:pointer;color:var(--text-brand);font-size:13px;">查看失败详情</summary>
                             <div style="margin-top:6px;padding:8px;background:rgba(255,255,255,0.05);border-radius:4px;font-size:12px;color:var(--text-secondary);max-height:200px;overflow-y:auto;">
-                                ${failedFiles.map(f => `<div style="margin-bottom:4px;"><strong>${escapeHtml(f.protocol || '?')}:</strong> <span style="color:#ff9800;">${escapeHtml(f.error || 'ip_count=0')}</span></div>`).join('')}
+                                ${failedFiles.map(f => `<div style="margin-bottom:4px;"><strong>${escapeHtml(f.protocol || '?')}:</strong> <span style="color:var(--status-warning);">${escapeHtml(f.error || 'ip_count=0')}</span></div>`).join('')}
                             </div>
                         </details>`;
                     }
@@ -1109,7 +1116,7 @@ const IPResourceUi = (() => {
                     }, 3000);
                 } else {
                     // 全部成功：绿色，1.5 秒后关闭（原行为）
-                    statusEl.innerHTML = `<span style="color:green;">获取完成！成功 ${successCount}/${files.length} 个资源</span>`;
+                    statusEl.innerHTML = `<span style="color:var(--status-success);">获取完成！成功 ${successCount}/${files.length} 个资源</span>`;
                     setTimeout(() => {
                         closeFetch();
                         loadResourceList();
@@ -1124,7 +1131,7 @@ const IPResourceUi = (() => {
                     if (errorLower.includes('cookie') || errorLower.includes('登录态')) {
                         method = 'cookie-auto';
                     }
-                    statusEl.innerHTML = `<span style="color:red;">获取失败: ${errMsg}</span><br><a href="#" id="fetchReconfigLink" style="color:var(--accent-primary);font-size:13px;">点击此处重新配置/更换凭据</a>`;
+                    statusEl.innerHTML = `<span style="color:var(--status-error);">获取失败: ${errMsg}</span><br><a href="#" id="fetchReconfigLink" style="color:var(--text-brand);font-size:13px;">点击此处重新配置/更换凭据</a>`;
                     const link = document.getElementById('fetchReconfigLink');
                     if (link) {
                         link.addEventListener('click', (ev) => {
@@ -1133,11 +1140,11 @@ const IPResourceUi = (() => {
                         });
                     }
                 } else {
-                    statusEl.innerHTML = `<span style="color:red;">获取失败: ${errMsg}</span>`;
+                    statusEl.innerHTML = `<span style="color:var(--status-error);">获取失败: ${errMsg}</span>`;
                 }
             }
         } catch (e) {
-            statusEl.innerHTML = `<span style="color:red;">获取失败: ${escapeHtml(e.message)}</span>`;
+            statusEl.innerHTML = `<span style="color:var(--status-error);">获取失败: ${escapeHtml(e.message)}</span>`;
         }
     }
 
@@ -1348,11 +1355,6 @@ const ATTACK_RESOURCE_FIELD_MAPS = {
     }
 };
 
-const LATENCY_FIELD_MAP = {
-    target_ip: "#latencyTargetIp",
-    port: "#latencyPort"
-};
-
 // 输出文件作用描述字典
 // TCP 文件名含动态 stem 和 pkt_method，用前缀/后缀模式匹配
 // DNS/NTP/Memcached 文件名固定，用精确匹配
@@ -1458,6 +1460,7 @@ function saveUiState() {
 function restoreUiState() {
     const state = FormPersistence.load("session:ui_state", "session");
     if (!state) return false;
+    if (state.currentView === "latency") state.currentView = "console";
     if (state.currentView && document.getElementById(`view-${state.currentView}`)) {
         currentView = state.currentView;
     }
@@ -1526,19 +1529,40 @@ function initUiStatePersistence() {
         if (trigger) {
             setTimeout(saveUiState, 0);
         }
+        const tabBtn = e.target.closest(".results-tab-btn");
+        if (tabBtn) {
+            const tabs = tabBtn.closest(".results-tabs");
+            if (!tabs) return;
+            const target = tabBtn.dataset.resultsTab;
+            tabs.querySelectorAll(".results-tab-btn").forEach((b) => b.classList.toggle("active", b === tabBtn));
+            tabs.querySelectorAll(".results-tab-pane").forEach((p) => p.classList.toggle("active", p.dataset.resultsPane === target));
+            if (target === "log") {
+                const logBox = tabs.querySelector(".tcp-log-box");
+                if (logBox) logBox.scrollTop = logBox.scrollHeight;
+            }
+            setTimeout(saveUiState, 0);
+        }
+        const chartTabBtn = e.target.closest(".chart-tab-btn");
+        if (chartTabBtn) {
+            const target = chartTabBtn.dataset.chart;
+            if (!target || target === currentChartMetric) return;
+            currentChartMetric = target;
+            document.querySelectorAll(".chart-tab-btn").forEach((b) => b.classList.toggle("active", b === chartTabBtn));
+            refreshChart();
+        }
     });
 
+    if (state?.currentView === "latency") state.currentView = "console";
     if (state && state.currentView && document.getElementById(`view-${state.currentView}`)) {
         setTimeout(() => navigateToView(state.currentView), 0);
     }
 }
 
-const WORKFLOW_STEP_ORDER = ["pool", "resource", "console", "latency"];
+const WORKFLOW_STEP_ORDER = ["pool", "resource", "console"];
 const VIEW_TO_WORKFLOW_STEP = {
     "attack-resources": "resource",
     servers: "pool",
-    console: "console",
-    latency: "latency"
+    console: "console"
 };
 
 const MAX_PPS_POINTS = 40;
@@ -1656,6 +1680,29 @@ const latencyTimeoutBandPlugin = {
     }
 };
 
+const latencyBaselinePlugin = {
+    id: "latencyBaseline",
+    afterDatasetsDraw(chart) {
+        if (baselineLatency === null) return;
+        const { ctx, chartArea, scales } = chart;
+        const y = scales.y?.getPixelForValue(baselineLatency);
+        if (!ctx || !chartArea || !isFinite(y) || y < chartArea.top || y > chartArea.bottom) return;
+        ctx.save();
+        ctx.strokeStyle = "rgba(92,255,177,0.5)";
+        ctx.setLineDash([6, 4]);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(chartArea.left, y);
+        ctx.lineTo(chartArea.right, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = "rgba(92,255,177,0.85)";
+        ctx.font = "10px sans-serif";
+        ctx.fillText(`基准 ${baselineLatency.toFixed(1)} ms`, chartArea.left + 6, y - 4);
+        ctx.restore();
+    }
+};
+
 function findPreviousNumericIndex(data, startIndex) {
     for (let index = startIndex - 1; index >= 0; index -= 1) {
         if (typeof data[index] === "number") return index;
@@ -1685,7 +1732,6 @@ document.addEventListener("DOMContentLoaded", () => {
     initParticles();
     initChart();
     initLatencyChart();
-    initServerGlobe();
     setupNavigation();
     initUiStatePersistence();
     initProtocolCheckboxes();
@@ -1699,7 +1745,6 @@ document.addEventListener("DOMContentLoaded", () => {
     toggleMultiProtocol();
     initConsoleFormPersistence();
     initSensitiveHostManager();
-    initLatencyFormPersistence();
     loadAllServerCounts();
     loadServerGeoMap();
     pollStatus();
@@ -1851,8 +1896,6 @@ function bindControls() {
     document.getElementById("duration")?.addEventListener("input", updateWorkflowIndicators);
     document.getElementById("threads")?.addEventListener("input", updateWorkflowIndicators);
     document.getElementById("target_pps")?.addEventListener("input", updateWorkflowIndicators);
-    document.getElementById("latencyTargetIp")?.addEventListener("input", updateWorkflowIndicators);
-    document.getElementById("latencyPort")?.addEventListener("input", updateWorkflowIndicators);
     document.getElementById("tcpIpFile")?.addEventListener("change", updateWorkflowIndicators);
     document.getElementById("tcpTargetHost")?.addEventListener("input", updateWorkflowIndicators);
     document.getElementById("tcpPktMethod")?.addEventListener("change", updateWorkflowIndicators);
@@ -1922,8 +1965,7 @@ function stepToView(step) {
     return {
         resource: "attack-resources",
         pool: "servers",
-        console: "console",
-        latency: "latency"
+        console: "console"
     }[step] || "dashboard";
 }
 
@@ -1970,7 +2012,6 @@ function getWorkflowState() {
     const resourceTotal = getCurrentResourceTotal();
     const configReady = isConsoleConfigReady();
     const hasRunningConfig = Boolean(latestStatusSnapshot?.config?.target_ip);
-    const hasLatencySample = latencyDataPoints.some((point) => point.value !== undefined);
     const filterTitle = document.getElementById("serverFilterTitle")?.innerText || "全部资源";
 
     let resourceState = "not_started";
@@ -1978,7 +2019,7 @@ function getWorkflowState() {
         resourceState = "in_progress";
     } else if (hasTcpRecord) {
         resourceState = "completed";
-    } else if ((configReady || hasRunningConfig || currentView === "console" || currentView === "latency") && resourceTotal > 0) {
+    } else if ((configReady || hasRunningConfig || currentView === "console") && resourceTotal > 0) {
         resourceState = "optional";
     }
 
@@ -1998,20 +2039,10 @@ function getWorkflowState() {
         consoleState = "completed";
     }
 
-    let latencyState = "not_started";
-    if (isMonitoringLatency) {
-        latencyState = "in_progress";
-    } else if (hasLatencySample) {
-        latencyState = "completed";
-    } else if ((configReady || hasRunningConfig) && currentView === "console") {
-        latencyState = "optional";
-    }
-
     const steps = {
         resource: { uiState: resourceState },
         pool: { uiState: poolState },
-        console: { uiState: consoleState },
-        latency: { uiState: latencyState }
+        console: { uiState: consoleState }
     };
 
     const currentStep = VIEW_TO_WORKFLOW_STEP[currentView]
@@ -2101,19 +2132,11 @@ function renderConsoleSummary() {
 }
 
 function renderLatencySummary() {
-    const latencyTarget = document.getElementById("latencyTargetIp")?.value.trim()
-        || document.getElementById("target_ip")?.value.trim()
-        || "未指定";
-    const port = document.getElementById("latencyPort")?.value || document.getElementById("target_port")?.value || "80";
-    const latest = document.getElementById("latestLatency")?.innerText || "-- ms";
-    const baseline = document.getElementById("autoPingBefore")?.innerText || "-- ms";
-    const status = isMonitoringLatency ? "监控中" : (latencyDataPoints.length ? "已采样" : "未启动");
-    setText("latencySummaryTarget", latencyTarget === "未指定" ? "未指定" : `${latencyTarget}:${port}`);
-    setText("latencySummaryStatus", status);
-    setText("latencySummaryBaseline", baseline);
-    setText("latencySummaryLatest", latest);
-    setText("workflowSummaryLatencyState", status);
-    setText("workflowSummaryLatencyLatest", latest);
+    const badge = document.getElementById("latencyModeBadge");
+    if (!badge) return;
+    const attacking = latestStatusSnapshot?.status === "running";
+    badge.textContent = attacking ? "压测中" : (isMonitoringLatency ? "仅监测" : "未启动");
+    badge.classList.toggle("is-running", attacking);
 }
 
 function isConsoleConfigReady() {
@@ -2239,6 +2262,13 @@ function updateProtoSourceButtonLabel(proto) {
     } else {
         label.textContent = `${selected.length} 个文件`;
     }
+}
+
+function updateMultiProtoSourceLabel(proto, sources) {
+    if (Array.isArray(sources)) {
+        multiProtoSelectedSources[proto] = sources;
+    }
+    updateProtoSourceButtonLabel(proto);
 }
 
 async function applyMultiProtoSourceSelection(proto) {
@@ -2676,7 +2706,10 @@ async function loadTcpRunLog(runId) {
     const data = await response.json();
     if (data.success) {
         const box = document.getElementById("tcpPipelineLog");
-        if (box) box.textContent = data.log || "";
+        if (box) {
+            box.textContent = data.log || "";
+            autoExpandLogPanel(box, Boolean((data.log || "").trim()));
+        }
     }
 }
 
@@ -2684,7 +2717,7 @@ function renderTcpSummary(summary) {
     currentTcpSummary = summary;
     const status = summary.status || "unknown";
     const config = summary.config || {};
-    setText("tcpStatus", getTcpStatusText(status));
+    setTaskStatusBadge("tcpStatus", status, getTcpStatusText(status));
     setText("tcpRunId", summary.run_id || "-");
     setText("tcpRunMethod", config.pkt_method || "-");
     setText("tcpRunHost", config.target_host || "-");
@@ -2700,14 +2733,12 @@ function renderTcpMeta(summary) {
     const container = document.getElementById("tcpRunMeta");
     if (!container) return;
     const items = [
-        ["当前阶段", getTcpStageText(summary.current_stage || "-")],
         ["开始时间", summary.started_at || "-"],
         ["结束时间", summary.ended_at || "-"],
         ["模拟运行", summary.config?.dry_run ? "是" : "否"],
         ["最小放大率", summary.config?.min_amplification ?? "-"],
         ["最小成功率", summary.config?.min_success_rate ?? "-"],
-        ["停止请求", summary.stop_requested ? "已请求" : "未请求"],
-        ["失败原因", summary.error || summary.runtime_error || "-"]
+        ["停止请求", summary.stop_requested ? "已请求" : "未请求"]
     ];
     container.innerHTML = items.map(([label, value]) => `
         <div class="tcp-run-meta-item">
@@ -2721,24 +2752,19 @@ function renderTcpArtifacts(files) {
     const container = document.getElementById("tcpArtifacts");
     if (!container) return;
     if (!files.length) {
-        container.innerHTML = `<div class="info-text">暂无输出文件。</div>`;
+        container.innerHTML = `<div class="empty-state">暂无输出文件</div>`;
         return;
     }
     container.innerHTML = files.map((file) => {
         const desc = getFileDescription(file.name, "tcp");
-        const infoIcon = desc
-            ? `<span class="file-info-icon" data-tooltip="${escapeHtml(desc)}" title="">ℹ️</span>`
-            : "";
         return `<button type="button" class="tcp-artifact-item tcp-file-button" data-file-name="${escapeHtml(file.name)}">
-            <span>${escapeHtml(file.name)}</span>${infoIcon}
-            <strong>${formatBytes(file.bytes || 0)}</strong>
+            <span class="artifact-name">${escapeHtml(file.name)}</span>
+            <span class="artifact-size">${formatBytes(file.bytes || 0)}</span>
+            ${desc ? `<span class="artifact-desc">${escapeHtml(desc)}</span>` : ""}
         </button>`;
     }).join("");
     container.querySelectorAll("[data-file-name]").forEach((item) => {
         item.addEventListener("click", () => openTcpFileModal(item.getAttribute("data-file-name")));
-    });
-    container.querySelectorAll(".file-info-icon").forEach((icon) => {
-        icon.addEventListener("click", (e) => e.stopPropagation());
     });
 }
 
@@ -2746,10 +2772,20 @@ function renderTcpStages(stages, currentStage) {
     const container = document.getElementById("tcpStages");
     if (!container) return;
     const order = ["prepare_zmap", "run_zmap_scan", "process_scan_csv", "extract_ips", "run_amplification_test", "analyze_amplification_log"];
-    container.innerHTML = order.map((stage) => {
+    const parts = [];
+    order.forEach((stage, idx) => {
         const state = stages[stage]?.status || (stage === currentStage ? "running" : "pending");
-        return `<div class="tcp-stage-item"><span>${getTcpStageText(stage)}</span><strong>${escapeHtml(getTcpStatusText(state))}</strong></div>`;
-    }).join("");
+        const cls = state === "completed" ? "is-complete" : (state === "running" ? "is-active" : "");
+        const icon = state === "completed" ? '<i class="fas fa-check"></i>'
+                    : state === "running" ? '<i class="fas fa-spinner"></i>'
+                    : (idx + 1);
+        parts.push(`<div class="step-node ${cls}"><span class="step-icon">${icon}</span><span class="step-label">${escapeHtml(getTcpStageText(stage))}</span></div>`);
+        if (idx < order.length - 1) {
+            const lineCls = state === "completed" ? "is-complete" : "";
+            parts.push(`<div class="step-line ${lineCls}"></div>`);
+        }
+    });
+    container.innerHTML = parts.join("");
 }
 
 function renderTcpRuntimeError(summary) {
@@ -2762,7 +2798,7 @@ function renderTcpRuntimeError(summary) {
 function renderTcpEmptyState() {
     currentTcpRunId = null;
     currentTcpSummary = null;
-    setText("tcpStatus", "空闲");
+    setTaskStatusBadge("tcpStatus", "idle", "空闲");
     setText("tcpRunId", "-");
     setText("tcpRunMethod", "-");
     setText("tcpRunHost", "-");
@@ -2969,9 +3005,9 @@ function initChart() {
         data: {
             labels: [],
             datasets: [{
-                label: "发送速率 (pps)",
+                label: chartData.pps.label,
                 data: [],
-                borderColor: "#40e7ff",
+                borderColor: chartData.pps.color,
                 backgroundColor: "rgba(64, 231, 255, 0.12)",
                 borderWidth: 2,
                 tension: 0.28,
@@ -3003,7 +3039,7 @@ function initLatencyChart() {
                 spanGaps: false
             }]
         },
-        plugins: [latencyTimeoutBandPlugin],
+        plugins: [latencyTimeoutBandPlugin, latencyBaselinePlugin],
         options: {
             ...baseChartOptions("延迟 (ms)"),
             scales: {
@@ -3597,6 +3633,24 @@ function setMapStatus(message, loading = false, hide = false) {
     status.style.borderLeft = loading ? "4px solid var(--cyan)" : "1px solid rgba(143, 168, 199, 0.2)";
 }
 
+// 按需加载 globe.gl（约 600KB）：仅首次切换到 3D 时注入，后续复用缓存
+function loadGlobeScript() {
+    if (window.Globe) return Promise.resolve();
+    if (globeScriptPromise) return globeScriptPromise;
+    globeScriptPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://unpkg.com/globe.gl";
+        script.async = true;
+        script.onload = () => resolve();
+        script.onerror = () => {
+            globeScriptPromise = null;
+            reject(new Error("3D 地图库加载失败"));
+        };
+        document.head.appendChild(script);
+    });
+    return globeScriptPromise;
+}
+
 function initServerGlobe() {
     const container = document.getElementById("serverGlobe");
     if (!container) return;
@@ -3604,6 +3658,7 @@ function initServerGlobe() {
         setMapStatus("3D 地图库加载失败，仍可切换 2D 查看资源区域。", false);
         return;
     }
+    if (serverGlobe) return;
     serverGlobe = window.Globe()(container)
         .backgroundColor("rgba(0,0,0,0)")
         .globeImageUrl("//unpkg.com/three-globe/example/img/earth-blue-marble.jpg")
@@ -3678,7 +3733,7 @@ async function loadServerGeoMap() {
         renderServerWorkspace();
         if (isEmpty) {
             setMapStatus(data.message || "暂无该协议的质量 IP，请先执行扫描任务", false);
-        } else if (!window.Globe) {
+        } else if (serverMapMode === "3d" && !window.Globe) {
             setMapStatus("3D 地图库加载失败，已保留资源区域统计。", false);
         } else if (!lastGeoAreas.length) {
             setMapStatus("当前资源池没有可显示的国家或省份区域。", false);
@@ -3729,8 +3784,33 @@ async function ensureServerMapShapes() {
     return serverMapShapes;
 }
 
-function switchServerMapMode(mode) {
-    serverMapMode = mode === "2d" ? "2d" : "3d";
+async function switchServerMapMode(mode) {
+    const target = mode === "2d" ? "2d" : "3d";
+    // 首次切到 3D：懒加载 globe.gl，按钮进入 loading 态
+    if (target === "3d" && !window.Globe) {
+        const loadingBtn = document.querySelector('.map-view-btn[data-map-view="3d"]');
+        const originalHtml = loadingBtn ? loadingBtn.innerHTML : "";
+        if (loadingBtn) {
+            loadingBtn.disabled = true;
+            loadingBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 3D';
+        }
+        try {
+            await loadGlobeScript();
+        } catch (error) {
+            setMapStatus(error.message || "3D 地图库加载失败，仍可使用 2D 视图。", false);
+            if (loadingBtn) {
+                loadingBtn.disabled = false;
+                loadingBtn.innerHTML = originalHtml;
+            }
+            return;
+        }
+        if (loadingBtn) {
+            loadingBtn.disabled = false;
+            loadingBtn.innerHTML = originalHtml;
+        }
+    }
+    if (target === "3d") initServerGlobe();
+    serverMapMode = target;
     document.querySelectorAll(".map-view-btn").forEach((btn) => {
         btn.classList.toggle("active", btn.dataset.mapView === serverMapMode);
     });
@@ -3743,7 +3823,7 @@ function renderServerMap() {
     if (globe) globe.hidden = serverMapMode !== "3d";
     if (map2d) map2d.hidden = serverMapMode !== "2d";
     const features = buildAreaFeatures();
-    if (serverMapMode === "3d") renderServerMap3d(features);
+    if (serverMapMode === "3d" && serverGlobe) renderServerMap3d(features);
     if (serverMapMode === "2d") renderServerMap2d(features);
 }
 
@@ -3964,21 +4044,49 @@ function formatGeoReason(reason) {
     }[reason] || reason || "未知原因";
 }
 
-function addChartData(pps) {
+function addChartData(pps, mbps, amplification) {
+    pushChartPoint("pps", pps);
+    pushChartPoint("bandwidth", mbps);
+    pushChartPoint("amplification", amplification);
+    refreshChart();
+}
+
+function pushChartPoint(metric, value) {
+    const arr = chartData[metric].points;
+    arr.push(value);
+    if (arr.length > MAX_PPS_POINTS) arr.shift();
+}
+
+function refreshChart() {
     if (!ppsChart) return;
-    ppsDataPoints.push(pps);
-    if (ppsDataPoints.length > MAX_PPS_POINTS) ppsDataPoints.shift();
-    ppsChart.data.labels = ppsDataPoints.map((_, index) => index + 1);
-    ppsChart.data.datasets[0].data = [...ppsDataPoints];
+    const m = chartData[currentChartMetric];
+    ppsChart.data.labels = m.points.map((_, i) => i + 1);
+    ppsChart.data.datasets[0].data = [...m.points];
+    ppsChart.data.datasets[0].label = m.label;
+    ppsChart.data.datasets[0].borderColor = m.color;
+    ppsChart.data.datasets[0].backgroundColor = hexToRgba(m.color, 0.12);
+    if (ppsChart.options?.scales?.y?.title) {
+        ppsChart.options.scales.y.title.text = m.yTitle;
+    }
     ppsChart.update("none");
 }
 
+function hexToRgba(hex, alpha) {
+    const m = /^#([0-9a-f]{6})$/i.exec(hex);
+    if (!m) return `rgba(64,231,255,${alpha})`;
+    const r = parseInt(m[1].slice(0, 2), 16);
+    const g = parseInt(m[1].slice(2, 4), 16);
+    const b = parseInt(m[1].slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function resetChart() {
-    ppsDataPoints = [];
+    chartData.pps.points = [];
+    chartData.bandwidth.points = [];
+    chartData.amplification.points = [];
+    ppsDataPoints = chartData.pps.points;
     if (!ppsChart) return;
-    ppsChart.data.labels = [];
-    ppsChart.data.datasets[0].data = [];
-    ppsChart.update();
+    refreshChart();
 }
 
 function initProtocolCheckboxes() {
@@ -4032,7 +4140,7 @@ function renderSensitiveHostList() {
     const container = document.getElementById("tcpSensitiveHostList");
     if (!container) return;
     if (!tcpSensitiveHosts.length) {
-        container.innerHTML = `<span class="info-text" style="font-size:10px">暂无敏感地址，请添加</span>`;
+        container.innerHTML = `<span class="info-text">暂无敏感地址，请添加</span>`;
         return;
     }
     container.innerHTML = tcpSensitiveHosts.map((host) => `
@@ -4329,7 +4437,6 @@ async function startTest() {
         }
     }
 
-    syncLatencyTarget(data.target_ip, data.target_port);
     resetLatencyBaseline();
     attackStartTimeForLatency = Date.now() / 1000;
     if (!isMonitoringLatency) startLatencyMonitoring();
@@ -4417,15 +4524,19 @@ function updateStatusDisplay(status) {
     latestStatusSnapshot = status;
     if (status.status === "running") {
         setStatusTag("running", "运行中");
+        setMetricsStatusBadge("running", "运行中");
         setRunningControls(true);
     } else if (status.status === "stopping") {
         setStatusTag("stopping", "停止中");
+        setMetricsStatusBadge("stopping", "停止中");
         setRunningControls(true, true);
     } else if (status.status === "error") {
         setStatusTag("stopping", "异常");
+        setMetricsStatusBadge("error", "异常");
         setRunningControls(false);
     } else {
         setStatusTag("idle", "待命中");
+        setMetricsStatusBadge("idle", "待命");
         setRunningControls(false);
     }
 
@@ -4458,7 +4569,9 @@ function updateStatusDisplay(status) {
         }
     }
 
-    if (pps > 0) addChartData(pps);
+    if (pps > 0) addChartData(pps, mbps, amplification);
+    const emptyHint = document.getElementById("ppsChartEmptyHint");
+    if (emptyHint) emptyHint.hidden = chartData.pps.points.length > 0;
     renderProtocolStats(status);
     updateWorkflowIndicators();
 }
@@ -4470,8 +4583,19 @@ function renderProtocolStats(status) {
 
     const protocols = status.config?.method === "multi" ? (status.config.multi_protocols || []) : [];
     if (!protocols.length) {
-        section.style.display = "none";
-        grid.innerHTML = "";
+        section.style.display = "block";
+        grid.innerHTML = `
+          <div class="protocol-stat-card protocol-stat-placeholder">
+            <div class="protocol-stat-header">
+              <div class="protocol-icon" style="background:var(--bg-overlay-active);color:var(--text-tertiary)">
+                <i class="fas fa-circle-info"></i>
+              </div>
+              <span class="protocol-stat-name">单协议模式</span>
+            </div>
+            <div class="protocol-stat-values">
+              <div class="protocol-stat-hint">仅聚合 PPS 与带宽，切换为多协议可查看分协议战报</div>
+            </div>
+          </div>`;
         return;
     }
 
@@ -4515,21 +4639,20 @@ async function updateDetailedSystemInfo() {
         const response = await fetch("/api/system/info");
         const data = await response.json();
         if (!data.success) return;
-        setText("cpuDetail", `${Number(data.cpu_percent || 0).toFixed(1)}%`);
-        setText("memDetail", `${Number(data.memory?.percent || 0).toFixed(1)}%`);
-        setText("memUsedDetail", `${(Number(data.memory?.used || 0) / 1024 / 1024).toFixed(0)}`);
-        setText("memTotalDetail", `${(Number(data.memory?.total || 0) / 1024 / 1024).toFixed(0)}`);
-        setText("netSent", `${(Number(data.network?.bytes_sent || 0) / 1024 / 1024).toFixed(1)}`);
-        setText("netRecv", `${(Number(data.network?.bytes_recv || 0) / 1024 / 1024).toFixed(1)}`);
+        const usedMb = Number(data.memory?.used || 0) / 1024 / 1024;
+        const totalMb = Number(data.memory?.total || 0) / 1024 / 1024;
+        setText("netSent", (Number(data.network?.bytes_sent || 0) / 1024 / 1024).toFixed(1));
+        setText("netRecv", (Number(data.network?.bytes_recv || 0) / 1024 / 1024).toFixed(1));
+        const memStat = document.getElementById("memStat");
+        if (memStat) memStat.title = `内存 已用 ${usedMb.toFixed(0)} / 总 ${totalMb.toFixed(0)} MB`;
     } catch (error) {
         console.warn("系统资源更新失败", error);
     }
 }
 
 async function measureLatency() {
-    const target = document.getElementById("latencyTargetIp")?.value.trim()
-        || document.getElementById("target_ip")?.value.trim();
-    const port = readNumber("latencyPort", 80);
+    const target = document.getElementById("target_ip")?.value.trim();
+    const port = readNumber("target_port", 80);
     if (!target) return null;
     try {
         const data = await postJson("/api/tcping", { target, port, timeout: 3 });
@@ -4543,7 +4666,10 @@ async function startLatencyMonitoring() {
     if (latencyMonitorInterval) clearInterval(latencyMonitorInterval);
     isMonitoringLatency = true;
     isLatencySamplePending = false;
-    if (!attackStartTimeForLatency) attackStartTimeForLatency = Date.now() / 1000;
+    // 未在压测中时以本次监控开始时刻为时间轴基准，使 x 轴从 0 秒起算
+    if (latestStatusSnapshot?.status !== "running" || !attackStartTimeForLatency) {
+        attackStartTimeForLatency = Date.now() / 1000;
+    }
     latencyDataPoints = [];
     if (latencyChart) {
         latencyChart.data.labels = [];
@@ -4554,7 +4680,6 @@ async function startLatencyMonitoring() {
 
     sampleLatencyOnce();
     latencyMonitorInterval = setInterval(sampleLatencyOnce, 1000);
-    saveLatencyFormPersist();
     updateWorkflowIndicators();
 }
 
@@ -4576,72 +4701,6 @@ function resetLatencyBaseline() {
     setText("latestLatency", "-- ms");
     setText("latencyTrend", "--");
     updateWorkflowIndicators();
-}
-
-function syncLatencyTarget(ip, port) {
-    const latencyTarget = document.getElementById("latencyTargetIp");
-    const latencyPort = document.getElementById("latencyPort");
-    if (latencyTarget) latencyTarget.value = ip;
-    if (latencyPort) latencyPort.value = port;
-    saveLatencyFormSession();
-}
-
-function saveLatencyFormSession() {
-    const fields = {};
-    const ipEl = document.getElementById("latencyTargetIp");
-    const portEl = document.getElementById("latencyPort");
-    if (ipEl) fields.target_ip = ipEl.value;
-    if (portEl) fields.port = portEl.value;
-    FormPersistence.save("session:latency_form", fields, "session");
-}
-
-function restoreLatencyFormSession() {
-    const data = FormPersistence.load("session:latency_form", "session");
-    if (!data) return false;
-    const ipEl = document.getElementById("latencyTargetIp");
-    const portEl = document.getElementById("latencyPort");
-    if (ipEl && data.target_ip !== undefined) ipEl.value = data.target_ip;
-    if (portEl && data.port !== undefined) portEl.value = data.port;
-    return true;
-}
-
-function saveLatencyFormPersist() {
-    const fields = {};
-    const ipEl = document.getElementById("latencyTargetIp");
-    const portEl = document.getElementById("latencyPort");
-    if (ipEl) fields.target_ip = ipEl.value;
-    if (portEl) fields.port = portEl.value;
-    FormPersistence.save("persist:last_successful:latency", fields, "local");
-}
-
-function restoreLatencyFormPersist() {
-    const data = FormPersistence.load("persist:last_successful:latency", "local");
-    if (!data) return false;
-    const ipEl = document.getElementById("latencyTargetIp");
-    const portEl = document.getElementById("latencyPort");
-    if (ipEl && data.target_ip !== undefined) ipEl.value = data.target_ip;
-    if (portEl && data.port !== undefined) portEl.value = data.port;
-    return true;
-}
-
-function initLatencyFormPersistence() {
-    const ipEl = document.getElementById("latencyTargetIp");
-    const portEl = document.getElementById("latencyPort");
-    if (!ipEl && !portEl) return;
-
-    const hasSession = restoreLatencyFormSession();
-    if (!hasSession) {
-        restoreLatencyFormPersist();
-    }
-
-    if (ipEl) {
-        ipEl.addEventListener("input", saveLatencyFormSession);
-        ipEl.addEventListener("change", saveLatencyFormSession);
-    }
-    if (portEl) {
-        portEl.addEventListener("input", saveLatencyFormSession);
-        portEl.addEventListener("change", saveLatencyFormSession);
-    }
 }
 
 function updateLatencyDisplay(latency, isTimeout = false) {
@@ -4749,6 +4808,16 @@ function setText(id, value) {
     if (el) el.innerText = value;
 }
 
+function setTaskStatusBadge(id, statusKey, displayText) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerText = displayText;
+    el.classList.remove("is-running", "is-error");
+    const k = String(statusKey || "").toLowerCase();
+    if (k === "running" || k === "stopping" || k === "active") el.classList.add("is-running");
+    else if (k === "failed" || k === "error") el.classList.add("is-error");
+}
+
 function escapeHtml(value) {
     return String(value ?? "")
         .replace(/&/g, "&amp;")
@@ -4756,6 +4825,16 @@ function escapeHtml(value) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+}
+
+// 流水线日志面板：有实际内容时自动展开（不自动收起，保留用户手动展开的状态）
+function autoExpandLogPanel(logElement, hasContent) {
+    if (!hasContent || !logElement) return;
+    const section = logElement.closest(".collapsible-section");
+    if (!section || section.classList.contains("open")) return;
+    section.classList.add("open");
+    const trigger = section.querySelector(".collapsible-trigger");
+    if (trigger) trigger.setAttribute("aria-expanded", "true");
 }
 
 function setRunningControls(isRunning, isStopping = false) {
@@ -4772,6 +4851,16 @@ function setStatusTag(state, text) {
     if (state === "running") tag.classList.add("running");
     if (state === "stopping") tag.classList.add("stopping");
     tag.innerText = text;
+}
+
+function setMetricsStatusBadge(state, text) {
+    const badge = document.getElementById("metricsStatus");
+    if (!badge) return;
+    badge.classList.remove("is-running", "is-stopping", "is-error");
+    if (state === "running") badge.classList.add("is-running");
+    else if (state === "stopping") badge.classList.add("is-stopping");
+    else if (state === "error") badge.classList.add("is-error");
+    badge.innerText = text;
 }
 
 function getMethodText(method) {
@@ -5041,13 +5130,11 @@ function renderDnsRunList(runs, activeIds) {
 }
 
 function renderDnsEmptyState() {
-    setText("dnsStatus", "空闲");
+    setTaskStatusBadge("dnsStatus", "idle", "空闲");
     setText("dnsRunId", "-");
     setText("dnsStage", "-");
     setText("dnsProgress", "0/0");
-    document.getElementById("dnsStageList").innerHTML = [
-        "加载候选 IP 列表", "多域名放大率测量", "按放大率+可靠性筛选", "保存优质 IP 列表"
-    ].map((s) => `<div class="tcp-stage-item"><span>${s}</span><strong>待开始</strong></div>`).join("");
+    renderDnsStages({}, false);
     setText("dnsPipelineLog", "尚未选择 DNS 资源获取任务。");
     document.getElementById("dnsRuntimeError").textContent = "";
     document.getElementById("dnsArtifacts").innerHTML = "";
@@ -5076,32 +5163,37 @@ function renderDnsStages(stats = {}, isRunning = false) {
     const currentStage = stats.current_stage || "";
     const finalStage = stats.stage || "";
 
-    stageList.innerHTML = stages.map((stageName, index) => {
+    const parts = [];
+    stages.forEach((stageName, index) => {
         const persistedStatus = stageStates[stageName]?.status;
-        let state = "待开始";
+        let nodeCls = "";
+        let icon = index + 1;
 
-        if (persistedStatus === "completed") {
-            state = "已完成";
+        if (persistedStatus === "completed" || finalStage === "done") {
+            nodeCls = "is-complete"; icon = '<i class="fas fa-check"></i>';
         } else if (persistedStatus === "failed") {
-            state = "失败";
+            nodeCls = "is-error"; icon = '<i class="fas fa-xmark"></i>';
         } else if (persistedStatus === "stopped") {
-            state = "已停止";
+            nodeCls = ""; icon = '<i class="fas fa-pause"></i>';
         } else if (persistedStatus === "running" || (isRunning && currentStage === stageName)) {
-            state = "进行中";
-        } else if (finalStage === "done") {
-            state = "已完成";
+            nodeCls = "is-active"; icon = '<i class="fas fa-spinner"></i>';
         } else if (finalStage === "error") {
             const failedIndex = stages.indexOf(currentStage);
-            if (failedIndex > index) state = "已完成";
-            else if (failedIndex === index) state = "失败";
+            if (failedIndex > index) { nodeCls = "is-complete"; icon = '<i class="fas fa-check"></i>'; }
+            else if (failedIndex === index) { nodeCls = "is-error"; icon = '<i class="fas fa-xmark"></i>'; }
         } else if (finalStage === "stopped") {
             const stoppedIndex = stages.indexOf(currentStage);
-            if (stoppedIndex > index) state = "已完成";
-            else if (stoppedIndex === index) state = "已停止";
+            if (stoppedIndex > index) { nodeCls = "is-complete"; icon = '<i class="fas fa-check"></i>'; }
+            else if (stoppedIndex === index) { icon = '<i class="fas fa-pause"></i>'; }
         }
 
-        return `<div class="tcp-stage-item"><span>${stageLabels[index]}</span><strong>${state}</strong></div>`;
-    }).join("");
+        parts.push(`<div class="step-node ${nodeCls}"><span class="step-icon">${icon}</span><span class="step-label">${stageLabels[index]}</span></div>`);
+        if (index < stages.length - 1) {
+            const lineCls = nodeCls === "is-complete" ? "is-complete" : "";
+            parts.push(`<div class="step-line ${lineCls}"></div>`);
+        }
+    });
+    stageList.innerHTML = parts.join("");
 }
 
 function renderDnsQualifiedPreview(qualifiedIps = []) {
@@ -5149,7 +5241,8 @@ async function loadDnsRunDetail(runId) {
         const running = data.is_running;
         currentDnsSummary = data;
 
-        setText("dnsStatus", getDnsStageStatusText(s.stage || "", running));
+        const dnsStatusKey = running ? "running" : (s.stage === "done" ? "completed" : s.stage === "error" ? "failed" : s.stage === "stopped" ? "stopped" : "idle");
+        setTaskStatusBadge("dnsStatus", dnsStatusKey, getDnsStageStatusText(s.stage || "", running));
         setText("dnsRunId", runId);
         setText("dnsStage", (s.stage || "-").toUpperCase());
         setText("dnsProgress", `${s.tested || 0}/${s.total_tasks || s.total_ips || 0}`);
@@ -5159,21 +5252,16 @@ async function loadDnsRunDetail(runId) {
         if (dnsStartBtn) dnsStartBtn.disabled = running;
 
         // 日志
+        let dnsLogText = s.log_tail || "";
         if (running) {
             try {
                 const logResp = await fetch(`/api/dns-scan/runs/${runId}/logs?tail=200`);
                 const logData = await logResp.json();
-                if (logData.success) {
-                    setText("dnsPipelineLog", logData.log || s.log_tail || "");
-                } else {
-                    setText("dnsPipelineLog", s.log_tail || "");
-                }
-            } catch (e) {
-                setText("dnsPipelineLog", s.log_tail || "");
-            }
-        } else {
-            setText("dnsPipelineLog", s.log_tail || "");
+                if (logData.success && logData.log) dnsLogText = logData.log;
+            } catch (e) { /* 回退到 log_tail */ }
         }
+        setText("dnsPipelineLog", dnsLogText);
+        autoExpandLogPanel(document.getElementById("dnsPipelineLog"), dnsLogText.trim().length > 0);
 
         // 优质预览
         try {
@@ -5194,17 +5282,11 @@ async function loadDnsRunDetail(runId) {
         dnsArtifactsEl.innerHTML = artifacts.length
             ? artifacts.map((a) => {
                 const desc = getFileDescription(a.name, "dns");
-                const infoIcon = desc
-                    ? `<span class="file-info-icon" data-tooltip="${escapeHtml(desc)}" title="">ℹ️</span>`
-                    : "";
-                return `<button type="button" class="tcp-artifact-item tcp-file-button" data-dns-file-name="${escapeHtml(a.name)}"><span>${escapeHtml(a.name)}</span>${infoIcon}<strong>${formatBytes(a.size)}</strong></button>`;
+                return `<button type="button" class="tcp-artifact-item tcp-file-button" data-dns-file-name="${escapeHtml(a.name)}"><span class="artifact-name">${escapeHtml(a.name)}</span><span class="artifact-size">${formatBytes(a.size)}</span>${desc ? `<span class="artifact-desc">${escapeHtml(desc)}</span>` : ""}</button>`;
             }).join("")
-            : `<div class="info-text">暂无输出文件</div>`;
+            : `<div class="empty-state">暂无输出文件</div>`;
         document.querySelectorAll("[data-dns-file-name]").forEach((item) => {
             item.addEventListener("click", () => openDnsFileModal(item.getAttribute("data-dns-file-name")));
-        });
-        dnsArtifactsEl.querySelectorAll(".file-info-icon").forEach((icon) => {
-            icon.addEventListener("click", (e) => e.stopPropagation());
         });
 
         document.getElementById("dnsRuntimeError").textContent = data.runtime_error ? `失败原因：${data.runtime_error}` : "";
@@ -5863,7 +5945,10 @@ class AttackResourceTaskController {
             const data = await response.json();
             if (data.success) {
                 const logBox = this._getElement("pipeline-log");
-                if (logBox) logBox.textContent = data.log || this.config.emptyLogText;
+                if (logBox) {
+                    logBox.textContent = data.log || this.config.emptyLogText;
+                    autoExpandLogPanel(logBox, Boolean((data.log || "").trim()));
+                }
             }
         } catch (error) {
             console.warn(`${this.config.displayName} 日志加载失败`, error);
@@ -5895,8 +5980,13 @@ class AttackResourceTaskController {
 
     renderSummaryCards(run) {
         const values = this.config.getSummaryValues(run);
+        const rawStatus = run?.status;
         Object.entries(this.config.summaryCardIds).forEach(([key, id]) => {
-            setText(id, values[key] ?? "-");
+            if (key === "status") {
+                setTaskStatusBadge(id, rawStatus, values[key] ?? "-");
+            } else {
+                setText(id, values[key] ?? "-");
+            }
         });
     }
 
@@ -5914,36 +6004,50 @@ class AttackResourceTaskController {
     renderStages(stages) {
         const container = this._getElement("stage-list");
         if (!container) return;
-        container.innerHTML = stages.map((stage) => `
-            <div class="tcp-stage-item">
-                <span>${escapeHtml(stage.label || stage.key || "-")}</span>
-                <strong>${escapeHtml(getAttackResourceStatusText(stage.status))}</strong>
-            </div>
-        `).join("");
+        if (!stages || !stages.length) {
+            container.innerHTML = "";
+            return;
+        }
+        const parts = [];
+        stages.forEach((stage, idx) => {
+            const status = stage.status || "pending";
+            let nodeCls = "";
+            let icon = idx + 1;
+            if (status === "completed" || status === "done") {
+                nodeCls = "is-complete"; icon = '<i class="fas fa-check"></i>';
+            } else if (status === "failed" || status === "error") {
+                nodeCls = "is-error"; icon = '<i class="fas fa-xmark"></i>';
+            } else if (status === "stopped") {
+                icon = '<i class="fas fa-pause"></i>';
+            } else if (status === "running" || status === "active") {
+                nodeCls = "is-active"; icon = '<i class="fas fa-spinner"></i>';
+            }
+            parts.push(`<div class="step-node ${nodeCls}"><span class="step-icon">${icon}</span><span class="step-label">${escapeHtml(stage.label || stage.key || "-")}</span></div>`);
+            if (idx < stages.length - 1) {
+                const lineCls = nodeCls === "is-complete" ? "is-complete" : "";
+                parts.push(`<div class="step-line ${lineCls}"></div>`);
+            }
+        });
+        container.innerHTML = parts.join("");
     }
 
     renderArtifacts(artifacts) {
         const container = this._getElement("artifact-list");
         if (!container) return;
         if (!artifacts.length) {
-            container.innerHTML = `<div class="info-text">暂无输出文件。</div>`;
+            container.innerHTML = `<div class="empty-state">暂无输出文件</div>`;
             return;
         }
         container.innerHTML = artifacts.map((artifact) => {
             const desc = getFileDescription(artifact.name, this.proto);
-            const infoIcon = desc
-                ? `<span class="file-info-icon" data-tooltip="${escapeHtml(desc)}" title="">ℹ️</span>`
-                : "";
             return `<button type="button" class="tcp-artifact-item tcp-file-button" data-file-name="${escapeHtml(artifact.name)}">
-                <span>${escapeHtml(artifact.name)}</span>${infoIcon}
-                <strong>${formatBytes(artifact.size || 0)}</strong>
+                <span class="artifact-name">${escapeHtml(artifact.name)}</span>
+                <span class="artifact-size">${formatBytes(artifact.size || 0)}</span>
+                ${desc ? `<span class="artifact-desc">${escapeHtml(desc)}</span>` : ""}
             </button>`;
         }).join("");
         container.querySelectorAll("[data-file-name]").forEach((item) => {
             item.addEventListener("click", () => this.openFile(item.getAttribute("data-file-name")));
-        });
-        container.querySelectorAll(".file-info-icon").forEach((icon) => {
-            icon.addEventListener("click", (e) => e.stopPropagation());
         });
     }
 
@@ -6004,28 +6108,27 @@ class AttackResourceTaskController {
         const amplificationLabel = isTcp ? "包长度" : "放大率";
 
         container.innerHTML = `
-            <div class="qualified-toolbar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-                <label style="font-size:12px;color:var(--text-secondary);">${amplificationLabel} ≥</label>
-                <input type="number" id="${this.proto}QualFilter" value="0" min="0" step="0.1" style="width:70px;padding:2px 6px;font-size:12px;background:var(--bg-base-secondary);border:1px solid var(--border-neutral-l1);border-radius:4px;color:var(--text-default);">
-                <label style="font-size:12px;color:var(--text-secondary);">延迟 ≤</label>
-                <input type="number" id="${this.proto}QualLatencyFilter" value="9999" min="0" step="10" style="width:70px;padding:2px 6px;font-size:12px;background:var(--bg-base-secondary);border:1px solid var(--border-neutral-l1);border-radius:4px;color:var(--text-default);">
-                <span style="flex:1;"></span>
-                <span id="${this.proto}QualCount" style="font-size:12px;color:var(--text-secondary);">共 ${ips.length} 个</span>
-                <button type="button" class="ds-btn ds-btn--brand ds-btn--sm" id="${this.proto}AddPoolBtn" disabled style="opacity:0.5;">
-                    <i class="fas fa-plus" style="margin-right:4px;"></i>添加选中到资源池
+            <div class="qualified-toolbar">
+                <label for="${this.proto}QualFilter">${amplificationLabel} ≥</label>
+                <input type="number" id="${this.proto}QualFilter" value="0" min="0" step="0.1">
+                <label for="${this.proto}QualLatencyFilter">延迟 ≤</label>
+                <input type="number" id="${this.proto}QualLatencyFilter" value="9999" min="0" step="10">
+                <span class="qualified-count" id="${this.proto}QualCount">共 ${ips.length} 个</span>
+                <button type="button" class="btn btn-primary btn-sm" id="${this.proto}AddPoolBtn" disabled>
+                    <i class="fas fa-plus"></i>添加选中到资源池
                 </button>
             </div>
-            <div class="qualified-table-wrap" style="overflow-x:auto;max-height:320px;overflow-y:auto;border:1px solid var(--border-neutral-l1);border-radius:6px;">
-                <table class="qualified-ip-table" style="width:100%;border-collapse:collapse;font-size:12px;">
-                    <thead style="position:sticky;top:0;background:var(--bg-base-secondary);z-index:1;">
+            <div class="qualified-table-wrap">
+                <table class="qualified-ip-table">
+                    <thead>
                         <tr>
-                            <th style="padding:6px 8px;text-align:left;width:32px;"><input type="checkbox" id="${this.proto}QualSelectAll"></th>
-                            <th style="padding:6px 8px;text-align:left;cursor:pointer;" data-sort="ip">IP 地址</th>
-                            ${isTcp ? '' : `<th style="padding:6px 8px;text-align:right;cursor:pointer;" data-sort="amplification">放大率</th>`}
-                            ${isTcp ? '' : `<th style="padding:6px 8px;text-align:right;cursor:pointer;" data-sort="latency_ms">延迟(ms)</th>`}
-                            ${isTcp ? '<th style="padding:6px 8px;text-align:right;cursor:pointer;" data-sort="len">总长度</th>' : ''}
-                            <th style="padding:6px 8px;text-align:left;">状态</th>
-                            <th style="padding:6px 8px;text-align:left;">详情</th>
+                            <th class="check-col"><input type="checkbox" id="${this.proto}QualSelectAll" aria-label="全选"></th>
+                            <th data-sort="ip">IP 地址</th>
+                            ${isTcp ? '' : `<th class="num" data-sort="amplification">放大率</th>`}
+                            ${isTcp ? '' : `<th class="num" data-sort="latency_ms">延迟(ms)</th>`}
+                            ${isTcp ? '<th class="num" data-sort="len">总长度</th>' : ''}
+                            <th>状态</th>
+                            <th>详情</th>
                         </tr>
                     </thead>
                     <tbody id="${this.proto}QualTbody"></tbody>
@@ -6105,7 +6208,7 @@ class AttackResourceTaskController {
         const filtered = this._getFilteredSortedIps();
 
         tbody.innerHTML = filtered.map((item) => {
-            const status = item.responded ? '<span style="color:var(--status-success-default);">✓ 响应</span>' : '<span style="color:var(--text-tertiary);">—</span>';
+            const status = item.responded ? '<span class="qual-status-responded">✓ 响应</span>' : '<span class="qual-status-none">—</span>';
             let detail = "";
             if (isTcp) {
                 detail = `flags: ${escapeHtml(item.extra?.flags || "-")} · count: ${item.extra?.count ?? "-"}`;
@@ -6119,15 +6222,15 @@ class AttackResourceTaskController {
             const amp = isTcp
                 ? `${item.extra?.len ?? "-"}`
                 : (item.amplification !== null ? `${item.amplification.toFixed(1)}x` : "-");
-            const lat = isTcp ? "" : `<td style="padding:4px 8px;text-align:right;">${item.latency_ms ?? "-"}</td>`;
-            return `<tr style="border-bottom:1px solid var(--border-neutral-l1);">
-                <td style="padding:4px 8px;"><input type="checkbox" value="${escapeHtml(item.ip)}" class="qual-ip-check"></td>
-                <td style="padding:4px 8px;font-family:monospace;">${escapeHtml(item.ip)}</td>
-                ${isTcp ? '' : `<td style="padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums;">${amp}</td>`}
-                ${isTcp ? `<td style="padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums;">${amp}</td>` : ''}
+            const lat = isTcp ? "" : `<td class="num">${item.latency_ms ?? "-"}</td>`;
+            return `<tr>
+                <td class="check-col"><input type="checkbox" value="${escapeHtml(item.ip)}" class="qual-ip-check" aria-label="选择 ${escapeHtml(item.ip)}"></td>
+                <td class="ip-cell">${escapeHtml(item.ip)}</td>
+                ${isTcp ? '' : `<td class="num">${amp}</td>`}
+                ${isTcp ? `<td class="num">${amp}</td>` : ''}
                 ${lat}
-                <td style="padding:4px 8px;">${status}</td>
-                <td style="padding:4px 8px;font-size:11px;color:var(--text-tertiary);">${detail}</td>
+                <td>${status}</td>
+                <td class="detail-cell">${detail}</td>
             </tr>`;
         }).join("");
 
@@ -6147,10 +6250,9 @@ class AttackResourceTaskController {
         const btn = document.getElementById(`${this.proto}AddPoolBtn`);
         if (btn) {
             btn.disabled = checked.length === 0;
-            btn.style.opacity = checked.length === 0 ? "0.5" : "1";
             btn.innerHTML = checked.length > 0
-                ? `<i class="fas fa-plus" style="margin-right:4px;"></i>添加 ${checked.length} 个到资源池`
-                : `<i class="fas fa-plus" style="margin-right:4px;"></i>添加选中到资源池`;
+                ? `<i class="fas fa-plus"></i>添加 ${checked.length} 个到资源池`
+                : `<i class="fas fa-plus"></i>添加选中到资源池`;
         }
     }
 
@@ -6533,7 +6635,6 @@ function getWorkflowState() {
     const resourceTotal = getCurrentResourceTotal();
     const configReady = isConsoleConfigReady();
     const hasRunningConfig = Boolean(latestStatusSnapshot?.config?.target_ip);
-    const hasLatencySample = latencyDataPoints.some((point) => point.value !== undefined);
     const filterTitle = document.getElementById("serverFilterTitle")?.innerText || "全部资源";
 
     let resourceState = "not_started";
@@ -6541,7 +6642,7 @@ function getWorkflowState() {
         resourceState = "in_progress";
     } else if (hasResourceRecord) {
         resourceState = "completed";
-    } else if ((configReady || hasRunningConfig || currentView === "console" || currentView === "latency") && resourceTotal > 0) {
+    } else if ((configReady || hasRunningConfig || currentView === "console") && resourceTotal > 0) {
         resourceState = "optional";
     }
 
@@ -6561,20 +6662,10 @@ function getWorkflowState() {
         consoleState = "completed";
     }
 
-    let latencyState = "not_started";
-    if (isMonitoringLatency) {
-        latencyState = "in_progress";
-    } else if (hasLatencySample) {
-        latencyState = "completed";
-    } else if ((configReady || hasRunningConfig) && currentView === "console") {
-        latencyState = "optional";
-    }
-
     const steps = {
         resource: { uiState: resourceState },
         pool: { uiState: poolState },
-        console: { uiState: consoleState },
-        latency: { uiState: latencyState }
+        console: { uiState: consoleState }
     };
 
     const currentStep = VIEW_TO_WORKFLOW_STEP[currentView]
@@ -6749,7 +6840,7 @@ const FileSystemUi = (() => {
             const size = e.type === "dir" ? "—" : formatSize(e.size);
             return `
             <div class="fs-row${e.type === "dir" ? " is-dir" : ""}" data-path="${escapeHtml(e.path)}" data-type="${e.type}" data-name="${escapeHtml(e.name)}">
-                <span class="fs-name"><i class="fas ${icon}"></i> ${escapeHtml(e.name)}</span>
+                <span class="fs-name"><i class="fas ${icon}"></i> <span>${escapeHtml(e.name)}</span></span>
                 <span class="fs-size">${size}</span>
                 <span class="fs-modified">${formatTime(e.modified)}</span>
                 <span class="fs-row-actions">
@@ -6973,9 +7064,9 @@ const SmokeTestUi = (() => {
         if (!btn || !statusEl || !resultsEl) return;
 
         btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>测试中...';
-        statusEl.textContent = "正在执行全端点健康检查，请稍候...";
-        resultsEl.innerHTML = '<div class="info-text"><i class="fas fa-spinner fa-spin"></i> 正在探测各端点...</div>';
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>测试中…';
+        statusEl.textContent = "正在执行全端点健康检查，请稍候…";
+        resultsEl.innerHTML = '<div class="info-text"><i class="fas fa-spinner fa-spin"></i> 正在探测各端点…</div>';
         resetSummary();
 
         try {
@@ -6987,14 +7078,14 @@ const SmokeTestUi = (() => {
             renderReport(data.report);
             const counts = data.report.counts;
             if (counts.fail > 0) {
-                statusEl.innerHTML = `<i class="fas fa-circle-xmark" style="color:var(--danger,#ff4d4f)"></i> 测试完成：存在 ${counts.fail} 个失败项，请查看下方明细。`;
+                statusEl.innerHTML = `<i class="fas fa-circle-xmark smoke-status-icon-fail"></i> 测试完成：存在 ${counts.fail} 个失败项，请查看下方明细。`;
             } else if (counts.warn > 0) {
-                statusEl.innerHTML = `<i class="fas fa-triangle-exclamation" style="color:var(--warning,#f5a623)"></i> 测试完成：全部端点可达，有 ${counts.warn} 个警告（数据为空，可能是新部署空池）。`;
+                statusEl.innerHTML = `<i class="fas fa-triangle-exclamation smoke-status-icon-warn"></i> 测试完成：全部端点可达，有 ${counts.warn} 个警告（数据为空，可能是新部署空池）。`;
             } else {
-                statusEl.innerHTML = `<i class="fas fa-circle-check" style="color:var(--success,#33c192)"></i> 测试完成：后端 API 层健康，所有端点正常响应。`;
+                statusEl.innerHTML = `<i class="fas fa-circle-check smoke-status-icon-pass"></i> 测试完成：后端 API 层健康，所有端点正常响应。`;
             }
         } catch (err) {
-            statusEl.innerHTML = `<i class="fas fa-circle-xmark" style="color:var(--danger,#ff4d4f)"></i> 测试失败：${escapeHtml(err.message)}`;
+            statusEl.innerHTML = `<i class="fas fa-circle-xmark smoke-status-icon-fail"></i> 测试失败：${escapeHtml(err.message)}`;
             resultsEl.innerHTML = `<div class="info-text">请求 /api/smoke-test 时出错：${escapeHtml(err.message)}</div>`;
         } finally {
             btn.disabled = false;
