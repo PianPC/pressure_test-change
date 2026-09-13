@@ -5718,6 +5718,21 @@ class AttackResourceTaskController {
         }
     }
 
+    async deleteRun(runId) {
+        if (!runId) return;
+        if (!confirm(`确定删除任务记录 ${runId} 及其所有产物？`)) return;
+        try {
+            const response = await fetch(`${this.config.apiBase}/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || "删除失败");
+            if (runId === this.currentRunId) this.currentRunId = null;
+            showNotification(data.message || "已删除记录", "success");
+            await this.refresh();
+        } catch (error) {
+            showNotification(`${this.config.displayName} 删除记录失败：${error.message}`, "error");
+        }
+    }
+
     startPolling() {
         this.stopPolling();
         this.pollTimer = setInterval(() => {
@@ -5803,15 +5818,17 @@ class AttackResourceTaskController {
         const runsHtml = this.runs.map((run) => {
             const active = run.run_id === this.currentRunId;
             const statusText = getAttackResourceStatusText(run.status);
+            const running = run.status === "running";
             return `
                 <button type="button" class="tcp-run-item ${active ? "active" : ""}" data-run-id="${escapeHtml(run.run_id)}">
                     <span class="tcp-run-item-main">
-                        <span>${escapeHtml(run.primary_text || run.run_id)}</span>
-                        <span>${escapeHtml(run.secondary_text || "-")}</span>
+                        <span class="run-primary">${escapeHtml(run.primary_text || run.run_id)}</span>
+                        <span class="run-secondary">${escapeHtml(run.secondary_text || "-")}</span>
                     </span>
                     <span class="tcp-run-item-meta">
-                        <span>${escapeHtml(run.badge_text || "-")}</span>
-                        <strong>${escapeHtml(statusText)}</strong>
+                        <span class="run-badge">${escapeHtml(run.badge_text || "-")}</span>
+                        <strong class="run-status">${escapeHtml(statusText)}</strong>
+                        ${running ? "" : `<button type="button" class="run-delete-btn" data-delete-run-id="${escapeHtml(run.run_id)}" title="删除此记录"><i class="fas fa-times"></i></button>`}
                     </span>
                 </button>
             `;
@@ -5825,6 +5842,14 @@ class AttackResourceTaskController {
                 await this.loadRunDetail(this.currentRunId);
                 this.syncLegacyState();
                 updateWorkflowIndicators();
+            });
+        });
+        // 绑定单条记录删除按钮
+        container.querySelectorAll(".run-delete-btn").forEach((btn) => {
+            btn.addEventListener("click", async (e) => {
+                e.stopPropagation();
+                const runId = btn.getAttribute("data-delete-run-id");
+                await this.deleteRun(runId);
             });
         });
         // 绑定排队任务操作按钮

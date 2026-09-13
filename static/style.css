@@ -914,9 +914,27 @@ input:checked+.toggle-slider::before{transform:translateX(20px);background:var(-
 .tcp-run-item{cursor:pointer}
 .tcp-run-item.active{border-color:var(--border-brand);background:var(--bg-brand-soft)}
 
-.tcp-run-item-main{display:grid;gap:2px;min-width:0}
-.tcp-run-item-main span,.tcp-run-item-meta span{font-size:11px;word-break:break-word}
-.tcp-run-item-meta{display:grid;gap:2px;text-align:right;color:var(--text-tertiary);font-size:11px}
+.tcp-run-item-main{display:flex;gap:8px;align-items:baseline;min-width:0;flex-wrap:wrap}
+.tcp-run-item-main .run-primary{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--text-primary);font-family:var(--font-mono);font-size:11px;
+}
+.tcp-run-item-main .run-secondary{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--text-tertiary);font-size:11px;flex:1 1 auto;
+}
+.tcp-run-item-meta{display:flex;gap:6px;align-items:center;justify-content:flex-end;color:var(--text-tertiary);font-size:11px;flex-shrink:0}
+.tcp-run-item-meta .run-badge{color:var(--text-secondary);white-space:nowrap}
+.tcp-run-item-meta .run-status{white-space:nowrap}
+.run-delete-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:18px;height:18px;padding:0;
+  border:none;border-radius:50%;
+  background:transparent;color:var(--text-tertiary);
+  font-size:10px;cursor:pointer;
+  margin-left:2px;
+}
+.run-delete-btn:hover{background:var(--status-error, #ef4444);color:#fff}
 
 /* 任务队列排队项 & 状态栏 */
 .queue-item{border-color:var(--border-warning, #f59e0b);background:var(--bg-warning-soft, #fffbeb);cursor:default}

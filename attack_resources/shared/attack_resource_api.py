@@ -313,6 +313,50 @@ def _tcp_clear() -> dict[str, Any]:
     }
 
 
+def _tcp_delete_run(run_id: str) -> dict[str, Any]:
+    if not run_id:
+        return {"success": False, "message": "缺少 run_id"}
+    if run_id in tcp_scan_registry.active_run_ids():
+        return {
+            "success": False,
+            "message": "任务运行中，无法删除，请先停止",
+            "skipped": [run_id],
+        }
+    deleted = tcp_cleanup_run_artifacts(run_id, TCP_OUTPUT_ROOT)
+    if not deleted:
+        return {"success": False, "message": "任务不存在或已被清理"}
+    tcp_scan_registry.forget([run_id])
+    return {
+        "success": True,
+        "message": f"已删除任务记录 {run_id}",
+        "deleted": [run_id],
+    }
+
+
+def _delete_proto_run(proto: str, run_id: str, output_root: Path, registry: Any) -> dict[str, Any]:
+    if not run_id:
+        return {"success": False, "message": "缺少 run_id"}
+    if run_id in registry.active_run_ids():
+        return {
+            "success": False,
+            "message": "任务运行中，无法删除，请先停止",
+            "skipped": [run_id],
+        }
+    run_dir = output_root / run_id
+    if not run_dir.exists():
+        return {"success": False, "message": "任务不存在或已被清理"}
+    try:
+        shutil.rmtree(str(run_dir))
+    except Exception as exc:
+        return {"success": False, "message": f"删除失败：{exc}"}
+    registry.forget([run_id])
+    return {
+        "success": True,
+        "message": f"已删除任务记录 {run_id}",
+        "deleted": [run_id],
+    }
+
+
 def _build_dns_run_payload(run_id: str) -> dict[str, Any]:
     scanner = dns_registry.get_scanner(run_id)
     run_dir = DNS_OUTPUT_ROOT / run_id
@@ -591,6 +635,9 @@ class _ProtoAdapter:
     def clear_runs(self) -> dict[str, Any]:
         raise NotImplementedError
 
+    def delete_run(self, run_id: str) -> dict[str, Any]:
+        raise NotImplementedError
+
     def get_run(self, run_id: str) -> dict[str, Any]:
         raise NotImplementedError
 
@@ -625,6 +672,9 @@ class TcpAdapter(_ProtoAdapter):
 
     def clear_runs(self) -> dict[str, Any]:
         return _tcp_clear()
+
+    def delete_run(self, run_id: str) -> dict[str, Any]:
+        return _tcp_delete_run(run_id)
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         return _build_tcp_run_payload(run_id)
@@ -676,6 +726,9 @@ class DnsAdapter(_ProtoAdapter):
 
     def clear_runs(self) -> dict[str, Any]:
         return _dns_clear()
+
+    def delete_run(self, run_id: str) -> dict[str, Any]:
+        return _delete_proto_run("dns", run_id, DNS_OUTPUT_ROOT, dns_registry)
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         return _build_dns_run_payload(run_id)
@@ -911,6 +964,9 @@ class MemcachedAdapter(_ProtoAdapter):
     def clear_runs(self) -> dict[str, Any]:
         return _memcached_clear()
 
+    def delete_run(self, run_id: str) -> dict[str, Any]:
+        return _delete_proto_run("memcached", run_id, MEMCACHED_OUTPUT_ROOT, memcached_registry)
+
     def get_run(self, run_id: str) -> dict[str, Any]:
         return _build_memcached_run_payload(run_id)
 
@@ -1145,6 +1201,9 @@ class NtpAdapter(_ProtoAdapter):
     def clear_runs(self) -> dict[str, Any]:
         return _ntp_clear()
 
+    def delete_run(self, run_id: str) -> dict[str, Any]:
+        return _delete_proto_run("ntp", run_id, NTP_OUTPUT_ROOT, ntp_registry)
+
     def get_run(self, run_id: str) -> dict[str, Any]:
         return _build_ntp_run_payload(run_id)
 
@@ -1236,6 +1295,14 @@ def attack_resource_start(proto: str):
 def attack_resource_clear(proto: str):
     try:
         return jsonify(_get_adapter(proto).clear_runs())
+    except KeyError:
+        return jsonify({"success": False, "message": f"Protocol not implemented: {proto}"}), 501
+
+
+@attack_resource_bp.route("/<proto>/runs/<run_id>", methods=["DELETE"])
+def attack_resource_delete_run(proto: str, run_id: str):
+    try:
+        return jsonify(_get_adapter(proto).delete_run(run_id))
     except KeyError:
         return jsonify({"success": False, "message": f"Protocol not implemented: {proto}"}), 501
 
