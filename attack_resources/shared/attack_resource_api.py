@@ -316,16 +316,14 @@ def _tcp_clear() -> dict[str, Any]:
 def _tcp_delete_run(run_id: str) -> dict[str, Any]:
     if not run_id:
         return {"success": False, "message": "缺少 run_id"}
+    # 运行中先停止再删除
     if run_id in tcp_scan_registry.active_run_ids():
-        return {
-            "success": False,
-            "message": "任务运行中，无法删除，请先停止",
-            "skipped": [run_id],
-        }
+        tcp_stop_run(run_id, TCP_OUTPUT_ROOT, cleanup=False)
     deleted = tcp_cleanup_run_artifacts(run_id, TCP_OUTPUT_ROOT)
     if not deleted:
         return {"success": False, "message": "任务不存在或已被清理"}
     tcp_scan_registry.forget([run_id])
+    queue_manager.try_dispatch("tcp")
     return {
         "success": True,
         "message": f"已删除任务记录 {run_id}",
@@ -336,12 +334,6 @@ def _tcp_delete_run(run_id: str) -> dict[str, Any]:
 def _delete_proto_run(proto: str, run_id: str, output_root: Path, registry: Any) -> dict[str, Any]:
     if not run_id:
         return {"success": False, "message": "缺少 run_id"}
-    if run_id in registry.active_run_ids():
-        return {
-            "success": False,
-            "message": "任务运行中，无法删除，请先停止",
-            "skipped": [run_id],
-        }
     run_dir = output_root / run_id
     if not run_dir.exists():
         return {"success": False, "message": "任务不存在或已被清理"}
@@ -350,6 +342,7 @@ def _delete_proto_run(proto: str, run_id: str, output_root: Path, registry: Any)
     except Exception as exc:
         return {"success": False, "message": f"删除失败：{exc}"}
     registry.forget([run_id])
+    queue_manager.try_dispatch(proto)
     return {
         "success": True,
         "message": f"已删除任务记录 {run_id}",
@@ -728,6 +721,9 @@ class DnsAdapter(_ProtoAdapter):
         return _dns_clear()
 
     def delete_run(self, run_id: str) -> dict[str, Any]:
+        scanner = dns_registry.get_scanner(run_id)
+        if scanner and scanner.is_running:
+            scanner.stop()
         return _delete_proto_run("dns", run_id, DNS_OUTPUT_ROOT, dns_registry)
 
     def get_run(self, run_id: str) -> dict[str, Any]:
@@ -965,6 +961,9 @@ class MemcachedAdapter(_ProtoAdapter):
         return _memcached_clear()
 
     def delete_run(self, run_id: str) -> dict[str, Any]:
+        scanner = memcached_registry.get_scanner(run_id)
+        if scanner and scanner.is_running:
+            scanner.stop()
         return _delete_proto_run("memcached", run_id, MEMCACHED_OUTPUT_ROOT, memcached_registry)
 
     def get_run(self, run_id: str) -> dict[str, Any]:
@@ -1202,6 +1201,9 @@ class NtpAdapter(_ProtoAdapter):
         return _ntp_clear()
 
     def delete_run(self, run_id: str) -> dict[str, Any]:
+        scanner = ntp_registry.get_scanner(run_id)
+        if scanner and scanner.is_running:
+            scanner.stop()
         return _delete_proto_run("ntp", run_id, NTP_OUTPUT_ROOT, ntp_registry)
 
     def get_run(self, run_id: str) -> dict[str, Any]:

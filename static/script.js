@@ -5720,7 +5720,7 @@ class AttackResourceTaskController {
 
     async deleteRun(runId) {
         if (!runId) return;
-        if (!confirm(`确定删除任务记录 ${runId} 及其所有产物？`)) return;
+        if (!confirm(`确定删除任务记录 ${runId} 及其所有产物？运行中的任务将先停止再删除。`)) return;
         try {
             const response = await fetch(`${this.config.apiBase}/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
             const data = await response.json();
@@ -5818,7 +5818,6 @@ class AttackResourceTaskController {
         const runsHtml = this.runs.map((run) => {
             const active = run.run_id === this.currentRunId;
             const statusText = getAttackResourceStatusText(run.status);
-            const running = run.status === "running";
             return `
                 <button type="button" class="tcp-run-item ${active ? "active" : ""}" data-run-id="${escapeHtml(run.run_id)}">
                     <span class="tcp-run-item-main">
@@ -5828,7 +5827,7 @@ class AttackResourceTaskController {
                     <span class="tcp-run-item-meta">
                         <span class="run-badge">${escapeHtml(run.badge_text || "-")}</span>
                         <strong class="run-status">${escapeHtml(statusText)}</strong>
-                        ${running ? "" : `<button type="button" class="run-delete-btn" data-delete-run-id="${escapeHtml(run.run_id)}" title="删除此记录"><i class="fas fa-times"></i></button>`}
+                        <button type="button" class="run-delete-btn" data-delete-run-id="${escapeHtml(run.run_id)}" title="删除此记录"><i class="fas fa-times"></i></button>
                     </span>
                 </button>
             `;
